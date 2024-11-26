@@ -1,0 +1,677 @@
+import os
+import json
+import tkinter as tk
+from tkinter import filedialog, messagebox
+from tkinter import font as tkfont
+import webbrowser
+from openpyxl import load_workbook
+from PIL import ImageGrab, Image, ImageTk
+import win32com.client as win32
+import fitz  # PyMuPDF
+from docx import Document
+import threading  # Thêm threading để chạy các tác vụ tìm kiếm trong luồng riêng biệt
+
+# Đường dẫn tệp để lưu trữ dữ liệu
+DATA_FILE = "containers_data.json"
+IMAGE_DIR = "images"
+
+# Đảm bảo thư mục ảnh tồn tại
+os.makedirs(IMAGE_DIR, exist_ok=True)
+
+# Hàm mở hoặc tạo file Word
+def open_or_create_notes():
+    file_path = os.path.join(os.getcwd(), "Notes.docx")
+
+    word_app = win32.Dispatch("Word.Application")
+    word_app.Visible = True
+
+    if not os.path.exists(file_path):
+        doc = word_app.Documents.Add()
+        doc.PageSetup.Orientation = 1
+        
+        table = doc.Tables.Add(doc.Range(0, 0), 1, 4)
+        table.Cell(1, 1).Range.Text = "No"
+        table.Cell(1, 2).Range.Text = "CONTENT"
+        table.Cell(1, 3).Range.Text = "LINK"
+        table.Cell(1, 4).Range.Text = "NOTES"
+        
+        doc.SaveAs(file_path)
+    else:
+        doc = word_app.Documents.Open(file_path)
+
+# Hàm lưu dữ liệu container và ghi chú vào tệp JSON
+def save_data_to_file():
+    data = {container: files for container, files in containers_listbox.containers.items()}
+    with open(DATA_FILE, 'w') as file:
+        json.dump(data, file)
+
+# Hàm tải dữ liệu container và ghi chú từ tệp JSON
+def load_data_from_file():
+    if os.path.exists(DATA_FILE):
+        with open(DATA_FILE, 'r') as file:
+            data = json.load(file)
+            for container, files in data.items():
+                containers_listbox.insert(tk.END, container)
+                containers_listbox.containers[container] = files
+
+# Hàm tìm kiếm file theo tên
+def search_files_by_name(folder_path, filename_keyword):
+    matches = []
+    for root, dirs, files in os.walk(folder_path):
+        for file in files:
+            if filename_keyword.lower() in file.lower():
+                matches.append(os.path.join(root, file))
+    return matches
+
+# Hàm tìm kiếm trong file PDF
+def search_in_pdf(file_path, keyword):
+    try:
+        doc = fitz.open(file_path)
+        for page_num in range(doc.page_count):
+            page = doc.load_page(page_num)
+            text = page.get_text()
+            if keyword.lower() in text.lower():
+                return True
+    except Exception as e:
+        print(f"Error reading {file_path}: {e}")
+    return False
+
+# Hàm tìm kiếm trong file DOCX
+def search_in_docx(file_path, keyword):
+    try:
+        doc = Document(file_path)
+        for para in doc.paragraphs:
+            if keyword.lower() in para.text.lower():
+                return True
+    except Exception as e:
+        print(f"Error reading {file_path}: {e}")
+    return False
+
+# Hàm tìm kiếm file theo nội dung
+def search_files_by_content(folder_path, content_keyword):
+    matches = []
+    for root, dirs, files in os.walk(folder_path):
+        for file in files:
+            file_path = os.path.join(root, file)
+            if file.lower().endswith('.pdf') and search_in_pdf(file_path, content_keyword):
+                matches.append(file_path)
+            elif file.lower().endswith('.docx') and search_in_docx(file_path, content_keyword):
+                matches.append(file_path)
+    return matches
+
+# Hàm tìm kiếm trong file Excel
+def search_in_excel(file_path, keyword):
+    matches = []
+    wb = load_workbook(file_path)
+    for sheet in wb:
+        for row in sheet.iter_rows(values_only=True):
+            if any(keyword.lower() in str(cell).lower() for cell in row if cell):
+                matches.append(row)
+    return matches
+
+# Hàm duyệt chọn thư mục
+def browse_folder():
+    folder_selected = filedialog.askdirectory()
+    folder_entry.delete(0, tk.END)
+    folder_entry.insert(0, folder_selected)
+
+# Hàm duyệt chọn file Excel
+def browse_excel_file():
+    file_selected = filedialog.askopenfilename(filetypes=[("Excel files", "*.xlsx *.xls")])
+    excel_entry.delete(0, tk.END)
+    excel_entry.insert(0, file_selected)
+
+# Hàm mở file
+def open_file(file_path):
+    webbrowser.open(file_path)
+
+# Hàm mở thư mục chứa file
+def open_folder(file_path):
+    folder_path = os.path.dirname(file_path)
+    webbrowser.open(folder_path)
+
+# Hàm cập nhật trạng thái tìm kiếm trực tiếp trong Listbox
+def update_search_status(message):
+    results_listbox.insert(tk.END, message)
+    root.update_idletasks()
+
+# Hàm tìm kiếm file theo tên (sử dụng threading)
+def search_by_name():
+    thread = threading.Thread(target=search_by_name_thread)
+    thread.start()
+
+def search_by_name_thread():
+    results_listbox.delete(0, tk.END)
+    update_search_status("Searching by name...")
+
+    folder_path = folder_entry.get()
+    filename_keyword = filename_entry.get()
+    if not folder_path or not filename_keyword:
+        messagebox.showwarning("Input Error", "Please provide both folder path and filename keyword.")
+        results_listbox.delete(tk.END)  # Xóa "Searching by name..."
+        return
+
+    results = search_files_by_name(folder_path, filename_keyword)
+    results_listbox.delete(0, tk.END)  # Xóa "Searching by name..."
+
+    if results:
+        for result in results:
+            results_listbox.insert(tk.END, os.path.basename(result))
+            results_listbox.filepaths.append(result)
+    else:
+        results_listbox.insert(tk.END, "No matches found.")
+
+# Hàm tìm kiếm file theo nội dung (sử dụng threading)
+def search_by_content():
+    thread = threading.Thread(target=search_by_content_thread)
+    thread.start()
+
+def search_by_content_thread():
+    results_listbox.delete(0, tk.END)
+    update_search_status("Searching by content...")
+
+    folder_path = folder_entry.get()
+    content_keyword = content_entry.get()
+    if not folder_path or not content_keyword:
+        messagebox.showwarning("Input Error", "Please provide both folder path and content keyword.")
+        results_listbox.delete(tk.END)  # Xóa "Searching by content..."
+        return
+
+    results = search_files_by_content(folder_path, content_keyword)
+    results_listbox.delete(0, tk.END)  # Xóa "Searching by content..."
+
+    if results:
+        for result in results:
+            results_listbox.insert(tk.END, os.path.basename(result))
+            results_listbox.filepaths.append(result)
+    else:
+        results_listbox.insert(tk.END, "No matches found.")
+
+# Hàm tìm kiếm trong file Excel (sử dụng threading)
+def search_in_excel_file():
+    thread = threading.Thread(target=search_in_excel_thread)
+    thread.start()
+
+def search_in_excel_thread():
+    results_listbox.delete(0, tk.END)
+    update_search_status("Searching in Excel...")
+
+    excel_file_path = excel_entry.get()
+    excel_keyword = excel_keyword_entry.get()
+    if not excel_file_path or not excel_keyword:
+        messagebox.showwarning("Input Error", "Please provide both Excel file path and keyword.")
+        results_listbox.delete(tk.END)  # Xóa "Searching in Excel..."
+        return
+
+    results = search_in_excel(excel_file_path, excel_keyword)
+    results_listbox.delete(0, tk.END)  # Xóa "Searching in Excel..."
+
+    excel_textbox.config(state=tk.NORMAL)
+    excel_textbox.delete(1.0, tk.END)
+    if results:
+        for result in results:
+            result_str = " | ".join(str(cell) for cell in result)
+            excel_textbox.insert(tk.END, result_str + "\n")
+    else:
+        excel_textbox.insert(tk.END, "No matches found.")
+    excel_textbox.config(state=tk.DISABLED)
+
+# Hàm xử lý khi double click vào file trong danh sách
+def on_double_click(event):
+    selection = event.widget.curselection()
+    if selection:
+        index = selection[0]
+        file_path = results_listbox.filepaths[index]
+        open_file(file_path)
+
+# Hàm xử lý khi click chuột phải vào file trong danh sách
+def on_right_click(event):
+    selection = event.widget.curselection()
+    if selection:
+        index = selection[0]
+        file_path = results_listbox.filepaths[index]
+        open_folder(file_path)
+
+# Hàm tạo mới và add file vào ô chứa
+def create_container():
+    container_name = container_entry.get()
+    if container_name:
+        containers_listbox.insert(tk.END, container_name)
+        containers_listbox.containers[container_name] = []
+        save_data_to_file()
+
+def add_to_container():
+    selection = results_listbox.curselection()
+    if selection:
+        index = selection[0]
+        file_path = results_listbox.filepaths[index]
+        selected_container = containers_listbox.get(tk.ACTIVE)
+        if selected_container:
+            existing_files = [file[0] for file in containers_listbox.containers[selected_container]]
+            if file_path in existing_files:
+                file_index = existing_files.index(file_path)
+                container_files_listbox.selection_clear(0, tk.END)
+                container_files_listbox.selection_set(file_index)
+                container_files_listbox.see(file_index)
+                messagebox.showwarning("File Exists", "This file already exists in the selected folder.")
+            else:
+                containers_listbox.containers[selected_container].append((file_path, {"text": "", "images": []}))
+                messagebox.showinfo("Success", f"File added to {selected_container}")
+                save_data_to_file()
+        else:
+            messagebox.showwarning("Select Error", "Please select a container to add the file to.")
+    else:
+        messagebox.showwarning("Select Error", "Please select a file to add.")
+
+def add_file_from_pc():
+    selected_container = containers_listbox.get(tk.ACTIVE)
+    if not selected_container:
+        messagebox.showwarning("Select Error", "Please select a container to add the file to.")
+        return
+
+    file_path = filedialog.askopenfilename()
+    if file_path:
+        existing_files = [file[0] for file in containers_listbox.containers[selected_container]]
+        if file_path in existing_files:
+            file_index = existing_files.index(file_path)
+            container_files_listbox.selection_clear(0, tk.END)
+            container_files_listbox.selection_set(file_index)
+            container_files_listbox.see(file_index)
+            messagebox.showwarning("File Exists", "This file already exists in the selected folder.")
+        else:
+            containers_listbox.containers[selected_container].append((file_path, {"text": "", "images": []}))
+            messagebox.showinfo("Success", f"File added to {selected_container}")
+            save_data_to_file()
+
+# Hàm hiển thị file trong ô chứa
+def view_container(event):
+    selection = event.widget.curselection()
+    if selection:
+        container_name = event.widget.get(selection[0])
+        container_files = containers_listbox.containers[container_name]
+        container_files_listbox.delete(0, tk.END)
+        for file_path, note in container_files:
+            container_files_listbox.insert(tk.END, os.path.basename(file_path))
+        container_files_listbox.container_name = container_name
+
+# Hàm hiển thị ghi chú khi chọn file trong container
+def show_note_for_selected_file(event):
+    selection = event.widget.curselection()
+    if selection:
+        index = selection[0]
+        container_name = container_files_listbox.container_name
+        file_path, note = containers_listbox.containers[container_name][index]
+        note_text.delete("1.0", tk.END)
+        note_text.image = None
+        note_text.images = []  # Clear previous images
+        note_filename_entry.delete(0, tk.END)
+        note_filename_entry.insert(0, os.path.basename(file_path))  # Hiển thị tên file trong Entry
+        if isinstance(note, str):
+            note_text.insert(tk.END, note)
+        else:
+            note_text.insert(tk.END, note["text"])
+            if note.get("images"):
+                for image_path in note["images"]:
+                    if os.path.exists(image_path):
+                        image = Image.open(image_path)
+                        photo = ImageTk.PhotoImage(image)
+                        note_text.image_create(tk.END, image=photo)
+                        note_text.images.append(photo)
+        note_text.index = index  # Lưu chỉ số của file được chọn để có thể lưu lại ghi chú
+        note_window.deiconify()  # Show the notes window
+
+# Hàm xử lý khi double click vào file trong container
+def open_file_from_container(event):
+    selection = event.widget.curselection()
+    if selection:
+        index = selection[0]
+        container_name = container_files_listbox.container_name
+        file_path, _ = containers_listbox.containers[container_name][index]
+        open_file(file_path)
+
+# Hàm xử lý khi click chuột phải vào file trong container
+def on_right_click_container(event):
+    selection = event.widget.curselection()
+    if selection:
+        index = selection[0]
+        container_name = container_files_listbox.container_name
+        file_path, _ = containers_listbox.containers[container_name][index]
+        open_folder(file_path)
+
+# Hàm xóa file khỏi container
+def delete_file_from_container():
+    selection = container_files_listbox.curselection()
+    if selection:
+        index = selection[0]
+        container_name = container_files_listbox.container_name
+        del containers_listbox.containers[container_name][index]
+        view_container(None)  # Cập nhật lại danh sách file trong container
+        save_data_to_file()
+        messagebox.showinfo("Success", "File deleted successfully")
+
+# Hàm xóa container
+def delete_container():
+    selection = containers_listbox.curselection()
+    if selection:
+        container_name = containers_listbox.get(selection[0])
+        del containers_listbox.containers[container_name]
+        containers_listbox.delete(selection[0])
+        container_files_listbox.delete(0, tk.END)
+        save_data_to_file()
+        messagebox.showinfo("Success", "Folder deleted successfully")
+
+# Hàm lưu ghi chú cho file đã chọn
+def save_note():
+    selected_index = getattr(note_text, "index", None)
+    if selected_index is not None:
+        container_name = container_files_listbox.container_name
+        file_path, note = containers_listbox.containers[container_name][selected_index]
+        note_content = note_text.get("1.0", tk.END).strip()
+        image_paths = []
+        if note_text.images:
+            for photo in note_text.images:
+                image_path = save_image(photo)
+                image_paths.append(image_path)
+        note = {"text": note_content, "images": image_paths}
+        containers_listbox.containers[container_name][selected_index] = (file_path, note)
+        save_data_to_file()
+        messagebox.showinfo("Success", "Note saved successfully")
+
+# Hàm lưu ảnh
+def save_image(photo_image):
+    image_path = os.path.join(IMAGE_DIR, f"{container_files_listbox.container_name}_{note_text.index}_{len(note_text.images)}.png")
+    image = ImageGrab.grabclipboard()
+    if image:
+        image.save(image_path)
+    return image_path
+
+# Hàm paste ảnh từ clipboard
+def paste_image():
+    try:
+        image = ImageGrab.grabclipboard()
+        if image:
+            photo = ImageTk.PhotoImage(image)
+            note_text.image_create(tk.END, image=photo)
+            note_text.images.append(photo)
+        else:
+            messagebox.showwarning("Paste Error", "No image in clipboard")
+    except Exception as e:
+        messagebox.showerror("Paste Error", f"Failed to paste image: {str(e)}")
+
+# Hàm bắt đầu thay đổi kích thước ảnh
+def start_resize(event):
+    global resize_image, start_x, start_y
+    resize_image = note_text.image
+    start_x = event.x
+    start_y = event.y
+
+# Hàm thay đổi kích thước ảnh
+def perform_resize(event):
+    global resize_image, start_x, start_y
+    if resize_image:
+        delta_x = event.x - start_x
+        delta_y = event.y - start_y
+        new_width = resize_image.width() + delta_x
+        new_height = resize_image.height() + delta_y
+        if new_width > 0 and new_height > 0:
+            resize_image = resize_image.subsample(resize_image.width() // new_width, resize_image.height() // new_height)
+            note_text.image_create(tk.END, image=resize_image)
+            start_x = event.x
+            start_y = event.y
+
+# Hàm kết thúc thay đổi kích thước ảnh
+def end_resize(event):
+    global resize_image
+    resize_image = None
+
+# Hàm thay đổi font chữ
+def change_font():
+    selected_font = font_var.get()
+    selected_size = size_var.get()
+    note_text.config(font=(selected_font, selected_size))
+
+# Hàm sao chép tên file vào clipboard
+def get_name():
+    file_names = []
+
+    # Lấy tên file từ danh sách kết quả tìm kiếm
+    search_selection = results_listbox.curselection()
+    if search_selection:
+        for index in search_selection:
+            file_name = os.path.basename(results_listbox.filepaths[index])
+            file_names.append(file_name)
+
+    # Lấy tên file từ danh sách file trong containers
+    container_selection = container_files_listbox.curselection()
+    if container_selection:
+        for index in container_selection:
+            file_name = os.path.basename(containers_listbox.containers[container_files_listbox.container_name][index][0])
+            file_names.append(file_name)
+
+    # Sao chép tất cả các tên file vào clipboard
+    if file_names:
+        root.clipboard_clear()
+        root.clipboard_append("\n".join(file_names))
+        messagebox.showinfo("Copied", f"File name(s) copied to clipboard:\n" + "\n".join(file_names))
+    else:
+        messagebox.showwarning("No Selection", "Please select at least one file.")
+
+# Tạo cửa sổ chính
+root = tk.Tk()
+root.title("File Search")
+root.configure(bg='LightSlateBlue')
+
+# Tạo frame cho nhập thư mục và từ khóa tìm kiếm file
+input_frame = tk.Frame(root, bg='LightSlateBlue')
+input_frame.grid(row=0, column=0, columnspan=2, pady=5, sticky='w')
+
+folder_label = tk.Label(input_frame, text="Folder:", bg='LightSlateBlue', fg='white')
+folder_label.grid(row=0, column=0, padx=5, pady=2)
+
+folder_entry = tk.Entry(input_frame, width=20)
+folder_entry.grid(row=0, column=1, padx=5, pady=2)
+
+browse_button = tk.Button(input_frame, text="Browse", command=browse_folder)
+browse_button.grid(row=0, column=2, padx=5, pady=2)
+
+filename_label = tk.Label(input_frame, text="Filename Keyword:", bg='LightSlateBlue', fg='white')
+filename_label.grid(row=0, column=3, padx=5, pady=2)
+
+filename_entry = tk.Entry(input_frame, width=20)
+filename_entry.grid(row=0, column=4, padx=5, pady=2)
+
+search_name_button = tk.Button(input_frame, text="Search by Name", command=search_by_name)
+search_name_button.grid(row=0, column=5, padx=5, pady=2)
+
+# Thêm phần tìm kiếm theo nội dung
+content_label = tk.Label(input_frame, text="Content Keyword:", bg='LightSlateBlue', fg='white')
+content_label.grid(row=1, column=0, padx=5, pady=2)
+
+content_entry = tk.Entry(input_frame, width=20)
+content_entry.grid(row=1, column=1, padx=5, pady=2)
+
+search_content_button = tk.Button(input_frame, text="Search by Content", command=search_by_content)
+search_content_button.grid(row=1, column=2, padx=5, pady=2)
+
+# Tạo frame chứa danh sách kết quả tìm kiếm file
+folder_list_frame = tk.Frame(root)
+folder_list_frame.grid(row=2, column=0, sticky='nsew', padx=10, pady=5)
+
+scrollbar = tk.Scrollbar(folder_list_frame, orient=tk.VERTICAL)
+results_listbox = tk.Listbox(folder_list_frame, width=120, height=17, yscrollcommand=scrollbar.set)
+results_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+scrollbar.config(command=results_listbox.yview)
+scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+results_listbox.filepaths = []  # Store file paths corresponding to listbox entries
+results_listbox.bind('<Double-Button-1>', on_double_click)
+results_listbox.bind('<Button-3>', on_right_click)
+
+# Tạo frame cho nhập file Excel và từ khóa tìm kiếm trong Excel
+excel_input_frame = tk.Frame(root, bg='LightSlateBlue')
+excel_input_frame.grid(row=3, column=0, pady=5, sticky='w')
+
+excel_label = tk.Label(excel_input_frame, text="Excel File:", bg='LightSlateBlue', fg='white')
+excel_label.grid(row=0, column=0, padx=4, pady=2)
+
+excel_entry = tk.Entry(excel_input_frame, width=20)
+excel_entry.grid(row=0, column=1, padx=4, pady=2)
+
+browse_excel_button = tk.Button(excel_input_frame, text="Browse Excel", command=browse_excel_file)
+browse_excel_button.grid(row=0, column=2, padx=4, pady=2)
+
+excel_keyword_label = tk.Label(excel_input_frame, text="Excel Keyword:", bg='LightSlateBlue', fg='white')
+excel_keyword_label.grid(row=0, column=3, padx=4, pady=2)
+
+excel_keyword_entry = tk.Entry(excel_input_frame, width=20)
+excel_keyword_entry.grid(row=0, column=4, padx=4, pady=2)
+
+search_excel_button = tk.Button(excel_input_frame, text="Search in Excel", command=search_in_excel_file)
+search_excel_button.grid(row=0, column=5, padx=5, pady=2)
+
+# Tạo frame cho danh sách kết quả tìm kiếm trong Excel
+excel_list_frame = tk.Frame(root)
+excel_list_frame.grid(row=4, column=0, sticky='nsew', padx=10, pady=5)
+
+excel_scrollbar = tk.Scrollbar(excel_list_frame, orient=tk.VERTICAL)
+excel_textbox = tk.Text(excel_list_frame, wrap=tk.NONE, yscrollcommand=excel_scrollbar.set, width=45, height=5)
+excel_textbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+excel_scrollbar.config(command=excel_textbox.yview)
+excel_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+# Tạo frame cho phần điều khiển tạo content
+control_frame = tk.Frame(root, bg='LightSlateBlue')
+control_frame.grid(row=1, column=1, rowspan=4, sticky='ns', padx=5, pady=1)
+
+delete_container_button = tk.Button(control_frame, text="Delete Folder", command=delete_container)
+delete_container_button.grid(row=0, column=0, padx=5, pady=2)
+
+container_entry = tk.Entry(control_frame, width=20)
+container_entry.grid(row=0, column=1, padx=5, pady=2)
+
+create_container_button = tk.Button(control_frame, text="Create", command=create_container)
+create_container_button.grid(row=0, column=2, padx=5, pady=2)
+
+containers_list_frame = tk.Frame(control_frame)
+containers_list_frame.grid(row=1, column=0, columnspan=3, pady=5, sticky='nsew')
+
+containers_scrollbar = tk.Scrollbar(containers_list_frame, orient=tk.VERTICAL)
+containers_listbox = tk.Listbox(containers_list_frame, width=20, height=16, yscrollcommand=containers_scrollbar.set)
+containers_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+containers_scrollbar.config(command=containers_listbox.yview)
+containers_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+containers_listbox.containers = {}
+containers_listbox.bind('<<ListboxSelect>>', view_container)
+
+# Tạo frame hiển thị các file trong ô chứa
+container_files_frame = tk.Frame(control_frame, bg='LightSlateBlue')
+container_files_frame.grid(row=2, column=0, columnspan=3, pady=5, sticky='nsew')
+
+container_files_scrollbar = tk.Scrollbar(container_files_frame, orient=tk.VERTICAL)
+container_files_listbox = tk.Listbox(container_files_frame, width=20, height=8, yscrollcommand=container_files_scrollbar.set)
+container_files_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+container_files_scrollbar.config(command=container_files_listbox.yview)
+container_files_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+container_files_listbox.container_name = None
+container_files_listbox.bind('<<ListboxSelect>>', show_note_for_selected_file)
+container_files_listbox.bind('<Double-Button-1>', open_file_from_container)
+container_files_listbox.bind('<Button-3>', on_right_click_container)
+
+# Thêm các nút điều khiển và nút hiển thị ghi chú
+button_frame = tk.Frame(control_frame, bg='LightSlateBlue')
+button_frame.grid(row=3, column=0, columnspan=3, pady=5)
+
+add_to_container_button = tk.Button(button_frame, text="Add to Folder", command=add_to_container)
+add_to_container_button.grid(row=0, column=0, padx=5, pady=2)
+
+delete_file_button = tk.Button(button_frame, text="Delete File", command=delete_file_from_container)
+delete_file_button.grid(row=0, column=1, padx=5, pady=2)
+
+add_file_from_pc_button = tk.Button(button_frame, text="Add File from PC", command=add_file_from_pc)
+add_file_from_pc_button.grid(row=0, column=2, padx=5, pady=2)
+
+# Thêm nút "Open Notes" để mở hoặc tạo file Word
+open_notes_button = tk.Button(control_frame, text="Open Notes", command=open_or_create_notes)
+open_notes_button.grid(row=4, column=0, columnspan=3, padx=5, pady=5, sticky='ew')
+
+# Thêm nút "Get Name" để sao chép tên file vào clipboard
+get_name_button = tk.Button(control_frame, text="Get Name", command=get_name)
+get_name_button.grid(row=5, column=0, columnspan=3, padx=5, pady=5, sticky='ew')
+
+# Tạo cửa sổ ghi chú
+def create_note_window():
+    global note_window, note_text, font_var, size_var, note_filename_entry
+    note_window = tk.Toplevel(root)
+    note_window.title("Notes")
+    note_window.configure(bg='LightSlateBlue')
+    note_window.geometry("1000x1000")
+
+    note_button_frame = tk.Frame(note_window, bg='LightSlateBlue')
+    note_button_frame.pack(fill=tk.X)
+
+    note_label = tk.Label(note_button_frame, text='Notes:', bg='LightSlateBlue', fg='white')
+    note_label.grid(row=0, column=0, padx=5, pady=5, sticky='w')
+
+    save_note_button = tk.Button(note_button_frame, text="Save Note", command=save_note)
+    save_note_button.grid(row=0, column=1, padx=5, pady=5, sticky='w')
+
+    paste_image_button = tk.Button(note_button_frame, text="Paste Image", command=paste_image)
+    paste_image_button.grid(row=0, column=2, padx=5, pady=5, sticky='w')
+
+    font_var = tk.StringVar(value="Arial")
+    size_var = tk.IntVar(value=12)
+    
+    font_label = tk.Label(note_button_frame, text="Font:", bg='LightSlateBlue', fg='white')
+    font_label.grid(row=0, column=3, padx=5, pady=5)
+    
+    font_menu = tk.OptionMenu(note_button_frame, font_var, *tkfont.families(), command=lambda _: change_font())
+    font_menu.grid(row=0, column=4, padx=5, pady=5)
+    
+    size_label = tk.Label(note_button_frame, text="Size:", bg='LightSlateBlue', fg='white')
+    size_label.grid(row=0, column=5, padx=5, pady=5)
+    
+    size_menu = tk.OptionMenu(note_button_frame, size_var, *[8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32], command=lambda _: change_font())
+    size_menu.grid(row=0, column=6, padx=5, pady=5)
+
+    note_text_frame = tk.Frame(note_window)
+    note_text_frame.pack(fill=tk.BOTH, expand=True)
+
+    note_scrollbar = tk.Scrollbar(note_text_frame, orient=tk.VERTICAL)
+    note_text = tk.Text(note_text_frame, wrap=tk.WORD, yscrollcommand=note_scrollbar.set, font=(font_var.get(), size_var.get()))
+    note_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+    note_scrollbar.config(command=note_text.yview)
+    note_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+    note_filename_entry = tk.Entry(note_button_frame, width=90)
+    note_filename_entry.grid(row=0, column=7, padx=5, pady=5, sticky='w')
+
+    note_window.protocol("WM_DELETE_WINDOW", note_window.withdraw)  # Hide the window instead of destroying it
+    note_window.withdraw()  # Hide the window initially
+
+# Hàm sao chép văn bản từ textbox kết quả Excel
+def copy_selection(event):
+    root.clipboard_clear()
+    selected_text = excel_textbox.get(tk.SEL_FIRST, tk.SEL_LAST)
+    root.clipboard_append(selected_text)
+
+excel_textbox.bind('<Control-c>', copy_selection)
+excel_textbox.bind('<Button-3>', copy_selection)
+
+# Hàm xử lý khi đóng cửa sổ chính
+def on_closing():
+    save_data_to_file()
+    root.destroy()
+
+# Tải dữ liệu khi bắt đầu chương trình
+load_data_from_file()
+
+# Lưu dữ liệu khi đóng chương trình
+root.protocol("WM_DELETE_WINDOW", on_closing)
+
+# Tạo cửa sổ ghi chú
+create_note_window()
+
+# Bắt đầu vòng lặp sự kiện chính
+root.mainloop()
