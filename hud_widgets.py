@@ -58,12 +58,13 @@ class HudPanel(QWidget):
         painter.save()
         painter.setClipPath(path)
 
-        # ===== 1) NỀN 3D (base + vignette + noise nhẹ kiểu "kính") =====
+        ## ===== 1) NỀN 3D (Indigo AI - dịu mắt) =====
         base = QLinearGradient(rect.topLeft(), rect.bottomRight())
-        base.setColorAt(0.0, QColor(6, 10, 16, 245))
-        base.setColorAt(0.6, QColor(4, 8, 12, 235))
-        base.setColorAt(1.0, QColor(3, 6, 10, 250))
+        base.setColorAt(0.0, QColor(10, 14, 26, 245))
+        base.setColorAt(0.6, QColor(8, 11, 22, 235))
+        base.setColorAt(1.0, QColor(6, 9, 18, 250))
         painter.fillPath(path, QBrush(base))
+
 
         # Vignette (tối viền nhẹ để có chiều sâu)
         vig = QRadialGradient(rect.center(), max(rect.width(), rect.height()) * 0.75)
@@ -73,25 +74,18 @@ class HudPanel(QWidget):
 
         painter.restore()
 
-        # ===== 2) GLOW NGOÀI (cyan chủ đạo + amber nhấn) =====
-        # Cyan layers
+        # ===== 2) GLOW NGOÀI (Cyan - mảnh, sạch, ít chói) =====
         for color, width in [
-            (QColor(0, 220, 255, 28), 16),
-            (QColor(0, 220, 255, 70), 10),
-            (QColor(0, 220, 255, 170), 3),
+            (QColor(0, 220, 255, 16), 14),
+            (QColor(0, 220, 255, 42), 9),
+            (QColor(0, 220, 255, 105), 2.7),
         ]:
             pen = QPen(color, width)
             pen.setJoinStyle(Qt.RoundJoin)
             painter.setPen(pen)
             painter.drawPath(path)
 
-        # # Amber accent glow (mỏng thôi, tạo "màu phim")
-        # amber_pen = QPen(QColor(255, 140, 40, 90), 2.2)
-        # amber_pen.setJoinStyle(Qt.RoundJoin)
-        # painter.setPen(amber_pen)
-        # # vẽ 1 đoạn nhấn ở đáy (cảm giác có “module”)
-        # y = rect.bottom() - 20
-        # painter.drawLine(int(rect.left() + 80), int(y), int(rect.left() + 200), int(y))
+
 
         # ===== 3) BEVEL 3D: inner highlight + inner shadow =====
         inner = QPainterPath(path)
@@ -99,15 +93,17 @@ class HudPanel(QWidget):
         inner_rect = QRectF(rect.adjusted(5, 5, -5, -5))
         inner_path = self._build_path(inner_rect)
 
-        # inner highlight (viền sáng phía trên-trái)
+        # inner highlight (cyan dịu, không trắng gắt)
         hi = QLinearGradient(rect.topLeft(), rect.bottomRight())
-        hi.setColorAt(0.0, QColor(220, 255, 255, 90))
-        hi.setColorAt(0.35, QColor(220, 255, 255, 15))
+        hi.setColorAt(0.0, QColor(220, 255, 255, 55))
+        hi.setColorAt(0.35, QColor(220, 255, 255, 12))
         hi.setColorAt(1.0, QColor(220, 255, 255, 0))
         pen_hi = QPen(QBrush(hi), 1.2)
         pen_hi.setJoinStyle(Qt.RoundJoin)
         painter.setPen(pen_hi)
         painter.drawPath(inner_path)
+
+
 
         # inner shadow (tối phía dưới-phải)
         sh = QLinearGradient(rect.topLeft(), rect.bottomRight())
@@ -131,24 +127,11 @@ class HudPanel(QWidget):
         painter.drawPath(inner_path2)
 
 
-        # ===== 4) VIỀN CORE (rõ nét) =====
-        core = QPen(QColor(200, 255, 255, 230), 1.2)
+        # ===== 4) VIỀN CORE (cyan nét mảnh) =====
+        core = QPen(QColor(200, 255, 255, 185), 1.1)
         core.setJoinStyle(Qt.RoundJoin)
         painter.setPen(core)
         painter.drawPath(path)
 
-        # # ===== 5) TECH LINES (micro detail) =====
-        # tech_pen = QPen(QColor(0, 220, 255, 50), 1)
-        # painter.setPen(tech_pen)
 
-        # painter.drawLine(int(rect.left() + 40), int(rect.top() + 26),
-        #                 int(rect.left() + 170), int(rect.top() + 26))
-
-        # painter.drawLine(int(rect.right() - 210), int(rect.bottom() - 30),
-        #                 int(rect.right() - 60), int(rect.bottom() - 30))
-
-        # # amber micro accent
-        # painter.setPen(QPen(QColor(255, 140, 40, 70), 1))
-        # painter.drawLine(int(rect.right() - 180), int(rect.top() + 26),
-        #                 int(rect.right() - 90), int(rect.top() + 26))
 
