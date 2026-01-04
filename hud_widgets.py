@@ -60,10 +60,11 @@ class HudPanel(QWidget):
 
         ## ===== 1) NỀN 3D (Indigo AI - dịu mắt) =====
         base = QLinearGradient(rect.topLeft(), rect.bottomRight())
-        base.setColorAt(0.0, QColor(10, 14, 26, 245))
-        base.setColorAt(0.6, QColor(8, 11, 22, 235))
-        base.setColorAt(1.0, QColor(6, 9, 18, 250))
+        base.setColorAt(0.0, QColor(255, 255, 255, 245))
+        base.setColorAt(0.6, QColor(248, 250, 252, 245))
+        base.setColorAt(1.0, QColor(240, 245, 250, 250))
         painter.fillPath(path, QBrush(base))
+
 
 
         # Vignette (tối viền nhẹ để có chiều sâu)
