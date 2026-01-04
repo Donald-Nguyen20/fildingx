@@ -1,7 +1,7 @@
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QLabel,
     QTextBrowser, QLineEdit, QPushButton, QHBoxLayout,
-    QFileDialog, QMessageBox
+    QFileDialog, QMessageBox, QComboBox, QFormLayout
 )
 from PySide6.QtCore import Qt
 import os
@@ -10,8 +10,73 @@ import os
 # - vector_retriever.py
 # - llm_client.py
 from vector_retriever import VectorRetriever
-from llm_client import LLMClient
+from llm_client import create_llm_client, PROVIDERS
+from llm_config import load_llm_config, save_llm_config
 from hud_widgets import HudPanel
+
+
+class LLMSettingsDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("LLM Settings")
+        self.setModal(True)
+        self.setMinimumWidth(520)
+
+        cfg = load_llm_config()
+
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+
+        self.ed_openrouter = QLineEdit(cfg.get("openrouter_api_key",""))
+        self.ed_openrouter.setEchoMode(QLineEdit.Password)
+        form.addRow("OpenRouter API key:", self.ed_openrouter)
+
+        self.ed_groq = QLineEdit(cfg.get("groq_api_key",""))
+        self.ed_groq.setEchoMode(QLineEdit.Password)
+        form.addRow("Groq API key:", self.ed_groq)
+
+        self.ed_gemini = QLineEdit(cfg.get("gemini_api_key",""))
+        self.ed_gemini.setEchoMode(QLineEdit.Password)
+        form.addRow("Gemini API key:", self.ed_gemini)
+
+        self.ed_ollama_host = QLineEdit(cfg.get("ollama_host","http://localhost:11434"))
+        form.addRow("Ollama host:", self.ed_ollama_host)
+
+        layout.addLayout(form)
+
+        btns = QHBoxLayout()
+        btns.addStretch(1)
+        btn_save = QPushButton("Save")
+        btn_cancel = QPushButton("Cancel")
+        btn_save.clicked.connect(self.on_save)
+        btn_cancel.clicked.connect(self.reject)
+        btns.addWidget(btn_save)
+        btns.addWidget(btn_cancel)
+        layout.addLayout(btns)
+        self.setStyleSheet(self.styleSheet() + """
+QComboBox {
+    background-color: white;
+    color: black;
+    border: 1px solid #B0B0B0;
+    border-radius: 6px;
+    padding: 4px 10px;
+}
+QComboBox QAbstractItemView {
+    background-color: white;
+    color: black;
+    selection-background-color: #DDEEFF;
+    selection-color: black;
+}
+""")
+
+    def on_save(self):
+        cfg = load_llm_config()
+        cfg["openrouter_api_key"] = self.ed_openrouter.text().strip()
+        cfg["groq_api_key"] = self.ed_groq.text().strip()
+        cfg["gemini_api_key"] = self.ed_gemini.text().strip()
+        cfg["ollama_host"] = self.ed_ollama_host.text().strip() or "http://localhost:11434"
+        save_llm_config(cfg)
+        self.accept()
 
 class AIChatPopup(QDialog):
     def __init__(self, main_app=None, parent=None):
@@ -21,7 +86,12 @@ class AIChatPopup(QDialog):
         # trạng thái RAG
         self.store_dir = None
         self.retriever = None
-        self.llm = LLMClient(model="llama3.2:3b")  # bạn đã cài model này
+        cfg = load_llm_config()
+        self.provider_key = "ollama"
+        self.model_name = cfg.get("ollama_model", "llama3.2:3b")
+        self.llm = create_llm_client(self.provider_key, self.model_name)
+
+
 
         self.setWindowTitle("AI Chat")
         self.setFixedSize(660, 600)
@@ -43,6 +113,23 @@ class AIChatPopup(QDialog):
         top_bar = QHBoxLayout()
         top_bar.addWidget(QLabel("💬 Chat:"))
         top_bar.addStretch()
+        # Provider combobox
+        self.cmb_provider = QComboBox()
+        for k, label in PROVIDERS:
+            self.cmb_provider.addItem(label, userData=k)
+        self.cmb_provider.setToolTip("Choose LLM provider")
+        top_bar.addWidget(self.cmb_provider)
+
+        # Model combobox (text list)
+        self.cmb_model = QComboBox()
+        self.cmb_model.setEditable(True)
+        self.cmb_model.setToolTip("Choose / type model name")
+        top_bar.addWidget(self.cmb_model)
+
+        # Settings button
+        self.btn_llm_settings = QPushButton("⚙")
+        self.btn_llm_settings.setToolTip("LLM Settings (API keys / defaults)")
+        top_bar.addWidget(self.btn_llm_settings)
 
         self.btn_load_vs = QPushButton("Load Vector Store")
         self.btn_load_vs.clicked.connect(self.load_vector_store)
@@ -55,6 +142,17 @@ class AIChatPopup(QDialog):
         self.chat_display.setOpenExternalLinks(False)
         self.chat_display.setOpenLinks(False)
         layout.addWidget(self.chat_display)
+        # ===== INIT provider/model mặc định (ĐẶT Ở ĐÂY) =====
+        self._fill_models_for_provider("ollama")
+
+        # đặt provider ban đầu = ollama
+        for i in range(self.cmb_provider.count()):
+            if self.cmb_provider.itemData(i) == "ollama":
+                self.cmb_provider.setCurrentIndex(i)
+                break
+
+        # khởi tạo LLM theo provider/model đang hiển thị
+        self.on_llm_changed()
 
         # ===== Input row =====
         self.input_line = QLineEdit()
@@ -78,6 +176,83 @@ class AIChatPopup(QDialog):
             if store and self._is_valid_store(store):
                 self._init_store(store)
                 self.chat_display.append(f"✅ Đã auto-load Vector Store:\n{store}")
+        self.btn_llm_settings.clicked.connect(self.open_llm_settings)
+        self.cmb_provider.currentIndexChanged.connect(self.on_llm_changed)
+        self.cmb_model.currentIndexChanged.connect(self.on_llm_changed)
+        combo_qss = """
+        QComboBox {
+            background-color: #FFFFFF;
+            color: #000000;
+            border: 1px solid rgba(180, 180, 180, 220);
+            border-radius: 8px;
+            padding: 4px 10px;
+        }
+        QComboBox::drop-down {
+            border: none;
+            width: 18px;
+        }
+        QComboBox QAbstractItemView {
+            background-color: #FFFFFF;
+            color: #000000;
+            selection-background-color: #DDEEFF;
+            selection-color: #000000;
+            outline: 0;
+        }
+        """
+
+        self.cmb_provider.setStyleSheet(combo_qss)
+        self.cmb_model.setStyleSheet(combo_qss)
+
+        # ép Qt “vẽ background” dù widget cha trong suốt (HUD)
+        self.cmb_provider.setAttribute(Qt.WA_StyledBackground, True)
+        self.cmb_model.setAttribute(Qt.WA_StyledBackground, True)
+
+    def _fill_models_for_provider(self, provider_key: str):
+        cfg = load_llm_config()
+        self.cmb_model.blockSignals(True)
+        self.cmb_model.clear()
+
+        presets = {
+            "ollama": [cfg.get("ollama_model","llama3.2:3b"), "llama3.2:3b", "qwen2.5:7b", "deepseek-r1:7b"],
+            "openrouter": [cfg.get("openrouter_model","meta-llama/llama-3.3-70b-instruct:free")],
+            "groq": [cfg.get("groq_model","llama-3.3-70b-versatile")],
+            "gemini": [cfg.get("gemini_model","gemini-1.5-flash"), "gemini-1.5-pro"],
+        }
+        for m in presets.get(provider_key, []):
+            if m:
+                self.cmb_model.addItem(m)
+
+        self.cmb_model.setCurrentIndex(0 if self.cmb_model.count() else -1)
+        self.cmb_model.blockSignals(False)
+
+    def on_llm_changed(self):
+        provider = self.cmb_provider.currentData()
+        model = self.cmb_model.currentText().strip()
+
+        # nếu vừa đổi provider, refill models
+        if provider != getattr(self, "provider_key", None):
+            self.provider_key = provider
+            self._fill_models_for_provider(provider)
+            model = self.cmb_model.currentText().strip()
+
+        try:
+            self.model_name = model
+            self.llm = create_llm_client(provider, model)
+            self.chat_display.append(f"<i>✅ LLM: {self.cmb_provider.currentText()} | {model}</i>")
+        except Exception as e:
+            self.chat_display.append(f"<i>⚠️ Cannot init LLM: {e}</i>")
+            # fallback
+            self.provider_key = "ollama"
+            self._fill_models_for_provider("ollama")
+            self.llm = create_llm_client("ollama", self.cmb_model.currentText().strip())
+            self.chat_display.append("<i>↩ Fallback to Ollama</i>")
+
+    def open_llm_settings(self):
+        dlg = LLMSettingsDialog(self)
+        if dlg.exec():
+            # reload model list + llm after saving settings
+            self._fill_models_for_provider(self.cmb_provider.currentData())
+            self.on_llm_changed()
 
     def _is_valid_store(self, folder: str) -> bool:
         required = ["index.faiss", "metadata.json", "base_path.txt"]
