@@ -27,41 +27,7 @@ from PySide6.QtCore import QPoint
 from PySide6.QtWidgets import QProgressBar
 from Funtion.percent_exclude_search import parse_percent_query, match_A_percent_B
 
-def create_hud_progress(label_text):
-    from hud_widgets import HudPanel
 
-    box = HudPanel(notch=False)
-    box.setFixedHeight(46)
-
-    layout = QHBoxLayout(box)
-    layout.setContentsMargins(16, 8, 16, 8)
-    layout.setSpacing(10)
-
-    label = QLabel(label_text)
-    label.setStyleSheet("color: rgba(216,255,255,210); font-weight: 700;")
-
-    bar = QProgressBar()
-    bar.setRange(0, 100)
-    bar.setValue(0)
-    bar.setTextVisible(False)
-    bar.setFixedHeight(10)
-
-    bar.setStyleSheet("""
-    QProgressBar {
-        background: rgba(6,10,14,180);
-        border: 1px solid rgba(0,220,255,90);
-        border-radius: 5px;
-    }
-    QProgressBar::chunk {
-        background-color: rgba(0,220,255,220);
-        border-radius: 5px;
-    }
-    """)
-
-    layout.addWidget(label)
-    layout.addWidget(bar, 1)
-
-    return box, bar
 
 # Define these at the top of your script
 DATA_FILE = "containers_data.json"  # Path where your data file will be stored
@@ -257,12 +223,12 @@ class FileSearchApp(QMainWindow):
         # Gắn header lên trên cùng
         self.root_layout.insertWidget(0, self.hud_header)
 
-        # Left side layout
-        from hud_widgets import HudPanel
-
-        self.left_frame = HudPanel(notch=True)
+        # LEFT (bình thường)
+        self.left_frame = QFrame()
+        self.left_frame.setObjectName("leftFrame")
         self.left_layout = QVBoxLayout(self.left_frame)
-        self.left_layout.setContentsMargins(20, 30, 20, 20)
+        self.left_layout.setContentsMargins(12, 12, 12, 12)
+        self.left_layout.setSpacing(10)
 
 
         # Folder selection, file search, and filename keyword section (All in one row)
@@ -307,11 +273,11 @@ class FileSearchApp(QMainWindow):
         self.left_layout.addWidget(self.tree_widget)
 
         # Right side layout (Container Management)
-        from hud_widgets import HudPanel   # đảm bảo có import ở đầu file
-
-        self.right_frame = HudPanel(notch=False)
+        self.right_frame = QFrame()
+        self.right_frame.setObjectName("rightFrame")
         self.right_layout = QVBoxLayout(self.right_frame)
-        self.right_layout.setContentsMargins(20, 20, 20, 20)
+        self.right_layout.setContentsMargins(12, 12, 12, 12)
+        self.right_layout.setSpacing(10)
 
 
         # Containers section (Put Delete button, entry, and Create button on the same row)
@@ -359,22 +325,7 @@ class FileSearchApp(QMainWindow):
         # Add left and right frame to the main layout
         self.main_layout.addWidget(self.left_frame, 2)
         self.main_layout.addWidget(self.right_frame, 1)
-        # ===== HUD STATUS BAR =====
-        self.status_bar = QWidget()
-        status_layout = QHBoxLayout(self.status_bar)
-        status_layout.setContentsMargins(0, 0, 0, 0)
-        status_layout.setSpacing(12)
 
-        self.scan_box, self.scan_bar = create_hud_progress("SCAN")
-        self.index_box, self.index_bar = create_hud_progress("INDEX")
-        self.ai_box, self.ai_bar = create_hud_progress("AI")
-
-        status_layout.addWidget(self.scan_box)
-        status_layout.addWidget(self.index_box)
-        status_layout.addWidget(self.ai_box)
-
-        # Gắn status bar xuống dưới cùng
-        self.root_layout.addWidget(self.status_bar)
 
         self.left_frame.setObjectName("leftFrame")
         self.right_frame.setObjectName("rightFrame")
@@ -537,11 +488,7 @@ class FileSearchApp(QMainWindow):
         folder_layout.addWidget(self.lcd_number)  # Add the LCDNumber to the folder layout
 
         self.lcd_number.setStyleSheet("""
-        QLCDNumber {
-            background: rgba(6,10,14,200);
-            border: 1px solid rgba(0,220,255,120);
-            border-radius: 10px;
-        }
+       
         """)
 
         # Nút mở giao diện chỉ mục SQLite ngày 2512225
@@ -1511,7 +1458,7 @@ class FileSearchApp(QMainWindow):
         self._ai_popup.show()
         self._ai_popup.raise_()
         self._ai_popup.activateWindow()
-
+    
 
 class IndexSearchWindow(QDialog):
     def __init__(self, parent=None):
@@ -1642,33 +1589,7 @@ class IndexSearchWindow(QDialog):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to open file: {e}")
 
-    def rag_step1_load_docs(self, scope_mode="folder", container_name=None):
-        from RAG.step1_loader import Step1Loader, DataScope, DataSourceManager
-
-        dsm = DataSourceManager(self.containers)
-
-        if scope_mode == "folder":
-            scope = DataScope(mode="folder", folder_path=self.folder_path)
-        else:
-            scope = DataScope(mode="container", container_name=container_name)
-
-        paths = dsm.list_files(
-            scope,
-            exts=["pdf", "txt", "md", "docx"]
-        )
-
-        loader = Step1Loader()
-        results = loader.load_many(paths)
-
-        docs = [r.doc for r in results if r.ok and r.doc]
-        errors = [r.error for r in results if (not r.ok and r.error)]
-
-        print("Loaded:", len(docs))
-        if errors:
-            print("Errors:", len(errors))
-            print("First error:", errors[0])
-
-        return docs
+    
 
 # Tạo ứng dụng PySide6 và hiển thị cửa sổ
 if __name__ == "__main__":
@@ -1678,182 +1599,108 @@ if __name__ == "__main__":
     # Thêm stylesheet cho ứng dụng để thay đổi màu sắc
     # Cập nhật stylesheet với tông màu sáng, hiện đại  8470FF
     app.setStyleSheet("""
+/* ===== AI Pastel Base ===== */
 QMainWindow {
-    background-color: #071018;
-    color: rgba(216,255,255,230);
+    background-color: rgba(152, 190, 255, 255);   /* pastel sky-blue */
+    color: rgba(15, 23, 42, 255);
 }
 
 QLabel {
-    color: rgba(216,255,255,210);
+    color: rgba(15, 23, 42, 255);
     font-weight: 600;
 }
 
-/* Panel nền (giữ layout cũ, chỉ đổi da) */
-QFrame, QWidget#leftFrame, QWidget#rightFrame, QGroupBox {
-    background: rgba(12, 18, 26, 190);
-    border: 1px solid rgba(0, 220, 255, 70);
-    border-radius: 14px;
+/* Panel nhẹ (card) */
+QFrame, QGroupBox {
+    background: rgba(255, 255, 255, 70);
+    border: 1px solid rgba(124, 92, 255, 120);    /* AI indigo border */
+    border-radius: 10px;
 }
 
 /* Input */
 QLineEdit, QTextEdit, QPlainTextEdit, QComboBox {
-    background: rgba(6, 10, 14, 175);
-    border: 1px solid rgba(0, 220, 255, 90);
-    border-radius: 10px;
-    padding: 7px 10px;
-    color: rgba(216,255,255,235);
+    background-color: rgba(255, 255, 255, 245);
+    color: rgba(15, 23, 42, 255);
+    border: 1px solid rgba(124, 92, 255, 140);    /* indigo */
+    border-radius: 8px;
+    padding: 6px 10px;
 }
 QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus, QComboBox:focus {
-    border: 1px solid rgba(0, 220, 255, 210);
+    border: 2px solid rgba(57, 221, 173, 220);    /* mint focus */
 }
 
-/* Button */
+/* Button (AI indigo) + hover mint */
 QPushButton {
-    background: rgba(0, 220, 255, 16);
-    border: 1px solid rgba(0, 220, 255, 110);
-    border-radius: 12px;
+    background-color: rgba(124, 92, 255, 235);    /* indigo/violet */
+    color: rgba(255, 255, 255, 255);
+    border: 1px solid rgba(75, 56, 214, 230);
+    border-radius: 8px;
     padding: 8px 12px;
-    color: rgba(216,255,255,235);
-    font-weight: 700;
+    font-weight: 800;
 }
-QPushButton:hover { background: rgba(0, 220, 255, 26); }
-QPushButton:pressed { background: rgba(0, 220, 255, 40); }
+QPushButton:hover {
+    background-color: rgba(57, 221, 173, 235);    /* mint hover */
+    border: 1px solid rgba(20, 170, 130, 240);
+}
+QPushButton:pressed {
+    background-color: rgba(41, 190, 150, 255);
+}
 
-/* Tree / List */
+/* ===== RESULT AREA: trắng chữ đen ===== */
 QTreeWidget, QListWidget, QTableWidget {
-    background: rgba(6, 10, 14, 150);
-    border: 1px solid rgba(0, 220, 255, 70);
-    border-radius: 12px;
-    color: rgba(248, 255, 255, 255);
-
-
-    alternate-background-color: rgba(255,255,255,6);
-    font-size: 15px;
+    background-color: rgba(255, 255, 255, 255);
+    color: rgba(15, 23, 42, 255);
+    border: 1px solid rgba(124, 92, 255, 120);
+    border-radius: 10px;
+    alternate-background-color: rgba(15, 23, 42, 5);
+    font-size: 14px;
 }
 QTreeWidget::item, QListWidget::item, QTableWidget::item {
-    height: 30px;
+    height: 32px;
     padding: 6px;
+    color: rgba(15, 23, 42, 255);
 }
 QTreeWidget::item:selected, QListWidget::item:selected, QTableWidget::item:selected {
-    background: rgba(0, 220, 255, 35);
-    color: #ffffff;
+    background-color: rgba(57, 221, 173, 95);     /* mint selected */
+    color: rgba(15, 23, 42, 255);
 }
 
 /* Header */
+/* Header (nổi/emboss) */
 QHeaderView::section {
-    background: rgba(0, 220, 255, 14);
-    color: rgba(216,255,255,235);
-    padding: 8px;
-    border: 1px solid rgba(0, 220, 255, 40);
-    font-weight: 800;
+    background-color: rgba(255, 255, 255, 220);
+    color: rgba(15, 23, 42, 255);
+    padding: 8px 10px;
+    border-top: 1px solid rgba(255, 255, 255, 230);
+    border-left: 1px solid rgba(255, 255, 255, 200);
+    border-right: 1px solid rgba(15, 23, 42, 35);
+    border-bottom: 1px solid rgba(15, 23, 42, 60);
+    font-weight: 900;
+}
+QLabel#titleLabel {
+    font-size: 16px;
+    font-weight: 900;
+    color: rgba(15, 23, 42, 255);
 }
 
-/* ===== QMessageBox ===== */
-QMessageBox {
-    background-color: #0b1622;
-    color: #ffffff;
-    font-size: 14px;
-}
 
-/* Nút OK / Yes / No trong QMessageBox */
-QMessageBox QPushButton {
-    background-color: rgba(0, 220, 255, 180);
-    color: #000000;
-    border-radius: 10px;
-    padding: 6px 16px;
-    font-weight: 700;
-    min-width: 90px;
+/* leftFrame nếu anh vẫn dùng */
+QFrame#leftFrame {
+    background-color: rgba(255, 255, 255, 55);
 }
-
-QMessageBox QPushButton:hover {
-    background-color: rgba(0, 220, 255, 220);
-}
-
-QMessageBox QPushButton:pressed {
-    background-color: rgba(0, 180, 220, 255);
-}
-
 
 /* Menu */
 QMenu {
-    background: rgba(10, 14, 20, 240);
-    border: 1px solid rgba(0, 220, 255, 90);
-    color: rgba(216,255,255,230);
+    background-color: rgba(255, 255, 255, 255);
+    color: rgba(15, 23, 42, 255);
+    border: 1px solid rgba(124, 92, 255, 120);
 }
-QMenu::item:selected { background: rgba(0, 220, 255, 25); }
-/* ===== ScrollBar (match HUD cyan) ===== */
-QScrollBar:vertical {
-    background: rgba(6, 10, 14, 120);
-    width: 12px;
-    margin: 10px 2px 10px 2px;          /* chừa chỗ cho 2 nút */
-    border: 1px solid rgba(0, 220, 255, 40);
-    border-radius: 6px;
+QMenu::item:selected {
+    background-color: rgba(57, 221, 173, 110);
 }
-
-QScrollBar::handle:vertical {
-    background: rgba(0, 220, 255, 160); /* màu cyan */
-    min-height: 30px;
-    border-radius: 6px;
-}
-
-QScrollBar::handle:vertical:hover {
-    background: rgba(0, 220, 255, 210);
-}
-
-QScrollBar::handle:vertical:pressed {
-    background: rgba(0, 180, 220, 255);
-}
-
-QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
-    background: rgba(0, 220, 255, 18);
-    height: 10px;
-    border-radius: 5px;
-    border: 1px solid rgba(0, 220, 255, 40);
-}
-
-QScrollBar::add-line:vertical:hover, QScrollBar::sub-line:vertical:hover {
-    background: rgba(0, 220, 255, 30);
-}
-
-QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
-    background: transparent;
-}
-
-/* Horizontal */
-QScrollBar:horizontal {
-    background: rgba(6, 10, 14, 120);
-    height: 12px;
-    margin: 2px 10px 2px 10px;
-    border: 1px solid rgba(0, 220, 255, 40);
-    border-radius: 6px;
-}
-
-QScrollBar::handle:horizontal {
-    background: rgba(0, 220, 255, 160);
-    min-width: 30px;
-    border-radius: 6px;
-}
-
-QScrollBar::handle:horizontal:hover {
-    background: rgba(0, 220, 255, 210);
-}
-
-QScrollBar::handle:horizontal:pressed {
-    background: rgba(0, 180, 220, 255);
-}
-
-QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
-    background: rgba(0, 220, 255, 18);
-    width: 10px;
-    border-radius: 5px;
-    border: 1px solid rgba(0, 220, 255, 40);
-}
-
-QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
-    background: transparent;
-}
-
 """)
+
+
 
 
 
