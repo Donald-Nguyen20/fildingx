@@ -25,6 +25,7 @@ from rapidfuzz import fuzz
 from ai_chat_popup import AIChatPopup
 from PySide6.QtCore import QPoint
 from PySide6.QtWidgets import QProgressBar
+from Funtion.percent_exclude_search import parse_percent_query, match_A_percent_B
 
 def create_hud_progress(label_text):
     from hud_widgets import HudPanel
@@ -892,6 +893,15 @@ class FileSearchApp(QMainWindow):
 
     def search_files_by_name(self, folder_path, filename_keyword):
         matches = []
+        # Xử lý cú pháp A%B: phải có A nhưng loại bỏ file có B
+        q = parse_percent_query(filename_keyword)
+        if q is not None:
+            for root, _, files in os.walk(folder_path):
+                for file in files:
+                    if match_A_percent_B(file, q):
+                        full_path = os.path.join(root, file)
+                        matches.append((file, full_path))
+            return matches
 
     # Xử lý cụm từ tìm kiếm có dấu '*'
         if '*' in filename_keyword:
@@ -1714,8 +1724,11 @@ QTreeWidget, QListWidget, QTableWidget {
     background: rgba(6, 10, 14, 150);
     border: 1px solid rgba(0, 220, 255, 70);
     border-radius: 12px;
-    color: rgba(216,255,255,230);
+    color: rgba(248, 255, 255, 255);
+
+
     alternate-background-color: rgba(255,255,255,6);
+    font-size: 15px;
 }
 QTreeWidget::item, QListWidget::item, QTableWidget::item {
     height: 30px;
@@ -1735,6 +1748,32 @@ QHeaderView::section {
     font-weight: 800;
 }
 
+/* ===== QMessageBox ===== */
+QMessageBox {
+    background-color: #0b1622;
+    color: #ffffff;
+    font-size: 14px;
+}
+
+/* Nút OK / Yes / No trong QMessageBox */
+QMessageBox QPushButton {
+    background-color: rgba(0, 220, 255, 180);
+    color: #000000;
+    border-radius: 10px;
+    padding: 6px 16px;
+    font-weight: 700;
+    min-width: 90px;
+}
+
+QMessageBox QPushButton:hover {
+    background-color: rgba(0, 220, 255, 220);
+}
+
+QMessageBox QPushButton:pressed {
+    background-color: rgba(0, 180, 220, 255);
+}
+
+
 /* Menu */
 QMenu {
     background: rgba(10, 14, 20, 240);
@@ -1742,7 +1781,80 @@ QMenu {
     color: rgba(216,255,255,230);
 }
 QMenu::item:selected { background: rgba(0, 220, 255, 25); }
+/* ===== ScrollBar (match HUD cyan) ===== */
+QScrollBar:vertical {
+    background: rgba(6, 10, 14, 120);
+    width: 12px;
+    margin: 10px 2px 10px 2px;          /* chừa chỗ cho 2 nút */
+    border: 1px solid rgba(0, 220, 255, 40);
+    border-radius: 6px;
+}
+
+QScrollBar::handle:vertical {
+    background: rgba(0, 220, 255, 160); /* màu cyan */
+    min-height: 30px;
+    border-radius: 6px;
+}
+
+QScrollBar::handle:vertical:hover {
+    background: rgba(0, 220, 255, 210);
+}
+
+QScrollBar::handle:vertical:pressed {
+    background: rgba(0, 180, 220, 255);
+}
+
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    background: rgba(0, 220, 255, 18);
+    height: 10px;
+    border-radius: 5px;
+    border: 1px solid rgba(0, 220, 255, 40);
+}
+
+QScrollBar::add-line:vertical:hover, QScrollBar::sub-line:vertical:hover {
+    background: rgba(0, 220, 255, 30);
+}
+
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+    background: transparent;
+}
+
+/* Horizontal */
+QScrollBar:horizontal {
+    background: rgba(6, 10, 14, 120);
+    height: 12px;
+    margin: 2px 10px 2px 10px;
+    border: 1px solid rgba(0, 220, 255, 40);
+    border-radius: 6px;
+}
+
+QScrollBar::handle:horizontal {
+    background: rgba(0, 220, 255, 160);
+    min-width: 30px;
+    border-radius: 6px;
+}
+
+QScrollBar::handle:horizontal:hover {
+    background: rgba(0, 220, 255, 210);
+}
+
+QScrollBar::handle:horizontal:pressed {
+    background: rgba(0, 180, 220, 255);
+}
+
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+    background: rgba(0, 220, 255, 18);
+    width: 10px;
+    border-radius: 5px;
+    border: 1px solid rgba(0, 220, 255, 40);
+}
+
+QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
+    background: transparent;
+}
+
 """)
+
 
 
     # Khởi tạo và hiển thị cửa sổ chính
