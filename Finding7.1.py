@@ -26,6 +26,10 @@ from ai_chat_popup import AIChatPopup
 from PySide6.QtCore import QPoint
 from PySide6.QtWidgets import QProgressBar
 from Funtion.percent_exclude_search import parse_percent_query, match_A_percent_B
+from hud_widgets import qss_hud_metal_header_feel, qss_white_results
+from hud_widgets import qss_hud_metal_header_feel, qss_white_results
+
+
 
 
 
@@ -172,6 +176,8 @@ class FileSearchApp(QMainWindow):
         # Main layout
         self.main_widget = QWidget()
         self.setCentralWidget(self.main_widget)
+        self.main_widget.setStyleSheet(qss_hud_metal_header_feel() + qss_white_results())
+
         # Wrapper layout (vertical)
         self.root_layout = QVBoxLayout(self.main_widget)
         self.root_layout.setContentsMargins(8, 8, 8, 8)
@@ -1589,7 +1595,7 @@ class IndexSearchWindow(QDialog):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to open file: {e}")
 
-    
+        self.main_widget.setStyleSheet(qss_hud_metal_header_feel() + qss_white_results())
 
 # Tạo ứng dụng PySide6 và hiển thị cửa sổ
 if __name__ == "__main__":
@@ -1598,113 +1604,13 @@ if __name__ == "__main__":
     
     # Thêm stylesheet cho ứng dụng để thay đổi màu sắc
     # Cập nhật stylesheet với tông màu sáng, hiện đại  8470FF
-    app.setStyleSheet("""
-/* ===== AI Pastel Base ===== */
-QMainWindow {
-    background-color: rgba(152, 190, 255, 255);   /* pastel sky-blue */
-    color: rgba(15, 23, 42, 255);
-}
-
-QLabel {
-    color: rgba(15, 23, 42, 255);
-    font-weight: 600;
-}
-
-/* Panel nhẹ (card) */
-QFrame, QGroupBox {
-    background: rgba(255, 255, 255, 70);
-    border: 1px solid rgba(124, 92, 255, 120);    /* AI indigo border */
-    border-radius: 10px;
-}
-
-/* Input */
-QLineEdit, QTextEdit, QPlainTextEdit, QComboBox {
-    background-color: rgba(255, 255, 255, 245);
-    color: rgba(15, 23, 42, 255);
-    border: 1px solid rgba(124, 92, 255, 140);    /* indigo */
-    border-radius: 8px;
-    padding: 6px 10px;
-}
-QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus, QComboBox:focus {
-    border: 2px solid rgba(57, 221, 173, 220);    /* mint focus */
-}
-
-/* Button (AI indigo) + hover mint */
-QPushButton {
-    background-color: rgba(124, 92, 255, 235);    /* indigo/violet */
-    color: rgba(255, 255, 255, 255);
-    border: 1px solid rgba(75, 56, 214, 230);
-    border-radius: 8px;
-    padding: 8px 12px;
-    font-weight: 800;
-}
-QPushButton:hover {
-    background-color: rgba(57, 221, 173, 235);    /* mint hover */
-    border: 1px solid rgba(20, 170, 130, 240);
-}
-QPushButton:pressed {
-    background-color: rgba(41, 190, 150, 255);
-}
-
-/* ===== RESULT AREA: trắng chữ đen ===== */
-QTreeWidget, QListWidget, QTableWidget {
-    background-color: rgba(255, 255, 255, 255);
-    color: rgba(15, 23, 42, 255);
-    border: 1px solid rgba(124, 92, 255, 120);
-    border-radius: 10px;
-    alternate-background-color: rgba(15, 23, 42, 5);
-    font-size: 14px;
-}
-QTreeWidget::item, QListWidget::item, QTableWidget::item {
-    height: 32px;
-    padding: 6px;
-    color: rgba(15, 23, 42, 255);
-}
-QTreeWidget::item:selected, QListWidget::item:selected, QTableWidget::item:selected {
-    background-color: rgba(57, 221, 173, 95);     /* mint selected */
-    color: rgba(15, 23, 42, 255);
-}
-
-/* Header */
-/* Header (nổi/emboss) */
-QHeaderView::section {
-    background-color: rgba(255, 255, 255, 220);
-    color: rgba(15, 23, 42, 255);
-    padding: 8px 10px;
-    border-top: 1px solid rgba(255, 255, 255, 230);
-    border-left: 1px solid rgba(255, 255, 255, 200);
-    border-right: 1px solid rgba(15, 23, 42, 35);
-    border-bottom: 1px solid rgba(15, 23, 42, 60);
-    font-weight: 900;
-}
-QLabel#titleLabel {
-    font-size: 16px;
-    font-weight: 900;
-    color: rgba(15, 23, 42, 255);
-}
-
-
-/* leftFrame nếu anh vẫn dùng */
-QFrame#leftFrame {
-    background-color: rgba(255, 255, 255, 55);
-}
-
-/* Menu */
-QMenu {
-    background-color: rgba(255, 255, 255, 255);
-    color: rgba(15, 23, 42, 255);
-    border: 1px solid rgba(124, 92, 255, 120);
-}
-QMenu::item:selected {
-    background-color: rgba(57, 221, 173, 110);
-}
-""")
+    
 
 
 
 
 
-    # Khởi tạo và hiển thị cửa sổ chính
     window = FileSearchApp()
     window.show()
     sys.exit(app.exec())
+
