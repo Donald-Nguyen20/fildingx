@@ -1,9 +1,13 @@
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QLabel,
+    QDialog, QWidget, QVBoxLayout, QLabel,
     QTextBrowser, QLineEdit, QPushButton, QHBoxLayout,
-    QFileDialog, QMessageBox, QComboBox, QFormLayout
+    QFileDialog, QMessageBox, QComboBox, QFormLayout,
+    QSplitter, QListWidget, QListWidgetItem
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QUrl
+from PySide6.QtGui import QDesktopServices, QGuiApplication
+
+
 import os
 
 # cần 2 file này nằm cùng thư mục:
@@ -94,10 +98,27 @@ class AIChatPopup(QDialog):
 
 
         self.setWindowTitle("AI Chat")
-        self.setFixedSize(660, 600)
+        self.resize(980, 680)
+        self.setMinimumSize(900, 620)
+
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         
         self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setStyleSheet("""
+        QDialog {
+            background-color: rgba(0, 0, 0, 235);
+            border: 1px solid rgba(0, 220, 255, 90);
+            border-radius: 14px;
+        }
+        QLabel { color: #d9ffff; }
+        QListWidget {
+            background: rgba(0, 0, 0, 200);
+            border: 1px solid rgba(0, 220, 255, 70);
+            border-radius: 10px;
+            color: #d9ffff;
+        }
+        """)
+
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -138,10 +159,45 @@ class AIChatPopup(QDialog):
         layout.addLayout(top_bar)
 
         # ===== Chat display =====
+        # ===== Main area: chat (left) + sources (right) =====
+        splitter = QSplitter(Qt.Horizontal)
+
+        left_panel = QWidget()
+        left_layout = QVBoxLayout(left_panel)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setSpacing(8)
+
         self.chat_display = QTextBrowser()
         self.chat_display.setOpenExternalLinks(False)
         self.chat_display.setOpenLinks(False)
-        layout.addWidget(self.chat_display)
+        left_layout.addWidget(self.chat_display, 1)
+
+        right_panel = QWidget()
+        right_layout = QVBoxLayout(right_panel)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(6)
+
+        right_layout.addWidget(QLabel("📌 Sources"))
+        self.sources_list = QListWidget()
+        self.sources_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.sources_list.setWordWrap(False)
+        right_panel.setMinimumWidth(360)
+
+        self.sources_list.itemClicked.connect(self.open_source_item)
+        right_layout.addWidget(self.sources_list, 1)
+
+        splitter.addWidget(left_panel)
+        splitter.addWidget(right_panel)
+        splitter.setStretchFactor(0, 4)
+        splitter.setStretchFactor(1, 2)
+        splitter.setSizes([700, 280])
+
+
+        layout.addWidget(splitter, 1)
+
+        # keep a handle so we can add input row into the left panel
+        self._left_layout = left_layout
+
         # ===== INIT provider/model mặc định (ĐẶT Ở ĐÂY) =====
         self._fill_models_for_provider("ollama")
 
@@ -165,7 +221,8 @@ class AIChatPopup(QDialog):
         input_layout = QHBoxLayout()
         input_layout.addWidget(self.input_line)
         input_layout.addWidget(send_btn)
-        layout.addLayout(input_layout)
+        self._left_layout.addLayout(input_layout)
+
 
         # Thông báo trạng thái
         self.chat_display.append("🤖 Trợ lý: RAG đang ở chế độ chờ (chưa load Vector Store).")
@@ -281,6 +338,49 @@ class AIChatPopup(QDialog):
 
         self._init_store(folder)
         self.chat_display.append(f"✅ Vector Store loaded:\n{folder}")
+    def open_source_item(self, item: QListWidgetItem):
+        """Open the clicked source file in the default application."""
+        path = item.data(Qt.UserRole)
+        if path and os.path.exists(path):
+            QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+            return
+        QMessageBox.warning(self, "File not found", f"File not found:\n{path}")
+    from PySide6.QtGui import QGuiApplication
+
+    def show_below_widget(self, anchor_widget, gap: int = 8):
+        """Show this popup right below the given widget (e.g., popup button)."""
+        if anchor_widget is None:
+            self.show()
+            return
+
+        # vị trí global của nút
+        gpos = anchor_widget.mapToGlobal(anchor_widget.rect().bottomLeft())
+
+        # canh giữa popup theo nút
+        btn_center_x = anchor_widget.mapToGlobal(anchor_widget.rect().center()).x()
+        x = int(btn_center_x - self.width() / 2)
+
+        y = gpos.y() + gap
+
+
+        # chống tràn màn hình
+        screen = QGuiApplication.screenAt(gpos) or QGuiApplication.primaryScreen()
+        if screen:
+            area = screen.availableGeometry()
+
+            # nếu vượt phải -> kéo sang trái
+            if x + self.width() > area.right():
+                x = max(area.left(), area.right() - self.width())
+
+            # nếu vượt dưới -> bật lên trên nút
+            if y + self.height() > area.bottom():
+                top_pos = anchor_widget.mapToGlobal(anchor_widget.rect().topLeft())
+                y = max(area.top(), top_pos.y() - self.height() - gap)
+
+        self.move(x, y)
+        self.show()
+        self.raise_()
+        self.activateWindow()
 
     def handle_user_input(self):
         user_input = self.input_line.text().strip()
@@ -308,13 +408,41 @@ class AIChatPopup(QDialog):
         context = "\n\n".join(ctx_blocks)
         context = context[:8000]
 
-        prompt = (
-            "You are a helpful assistant. Use ONLY the context below to answer.\n"
-            "If the answer is not in the context, say you don't have enough information.\n\n"
-            f"CONTEXT:\n{context}\n\n"
-            f"QUESTION:\n{user_input}\n\n"
-            "ANSWER:\n"
-        )
+        prompt = f"""You are a thermal power plant operation SOP assistant.
+
+STRICT RULES:
+- Answer ONLY using the CONTEXT below. Do NOT use general knowledge.
+- If the CONTEXT does not contain the answer, reply exactly: NOT FOUND IN CONTEXT.
+- Preserve technical numbers/limits exactly (e.g., 110%, 1 hour, etc.).
+- Do NOT mention chunk id, score, retrieval, vector, embeddings, or sources.
+- Do NOT write long paragraphs.
+- Split multiple points into separate numbered items.
+- Each numbered item must contain ONE action or ONE rule only.
+- If you need sub-items, use "-" under the numbered item.
+- Each numbered item MUST be on its own line.
+- Do NOT put multiple numbered items in one paragraph.
+- Leave a blank line between sections 1/2/3.
+- If the question is Vietnamese, answer in Vietnamese (keep the same level of detail as English). Otherwise, answer in English.
+
+CONTEXT:
+<<<
+{context}
+>>>
+
+QUESTION:
+{user_input}
+
+MANDATORY OUTPUT FORMAT:
+A) Actions
+1. ...
+
+B) Monitoring
+1. ...
+
+C) Warnings
+1. ...
+"""
+
 
         try:
             answer = self.llm.generate(prompt)
@@ -324,13 +452,19 @@ class AIChatPopup(QDialog):
         self.chat_display.append(f"🤖 Trợ lý: {answer}")
 
         # (Giữ UI như cũ) — chỉ append nguồn tóm tắt vào chat
-        src_lines = []
+        # ===== Sources panel (right) =====
+        self.sources_list.clear()
         for i, r in enumerate(results, start=1):
-            src_lines.append(f"[{i}] {r['rel_path']} (chunk {r['chunk_id']})")
-        self.chat_display.append("📌 Sources:\n" + "\n".join(src_lines))
+            title = f"[{i}] {r.get('rel_path') or r.get('file_name')}"
+            item = QListWidgetItem(title)
+            item.setToolTip(r.get("abs_path", ""))
+            item.setData(Qt.UserRole, r.get("abs_path", ""))
+            self.sources_list.addItem(item)
+
         self.chat_display.setStyleSheet("""
         QTextBrowser {
-            background: rgba(8, 14, 20, 160);
+            background: rgba(0, 0, 0, 230);
+
             border: 1px solid rgba(0, 220, 255, 90);
             border-radius: 10px;
             color: #d9ffff;
