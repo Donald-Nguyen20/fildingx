@@ -302,7 +302,7 @@ QHeaderView::section {
     border: 1px solid rgba(210, 215, 220, 255);
     font-weight: 900;
 }
-
+git add
     """
 
 

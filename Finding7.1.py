@@ -1460,10 +1460,9 @@ class FileSearchApp(QMainWindow):
             self._ai_popup.hide()
             return
 
-        # nếu đang tắt -> bật
-        self._ai_popup.show()
-        self._ai_popup.raise_()
-        self._ai_popup.activateWindow()
+        # nếu đang tắt -> bật (neo dưới nút AI)
+        self._ai_popup.show_below_widget(self.btn_ai, gap=8)
+
     
 
 class IndexSearchWindow(QDialog):
