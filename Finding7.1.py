@@ -29,6 +29,13 @@ from Funtion.percent_exclude_search import parse_percent_query, match_A_percent_
 from hud_widgets import qss_hud_metal_header_feel, qss_white_results
 from hud_widgets import qss_hud_metal_header_feel, qss_white_results
 
+import os, sys
+
+def get_app_dir():
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(sys.executable)   # thư mục chứa .exe
+    return os.path.dirname(os.path.abspath(__file__))  # thư mục chứa Finding7.1.py
+from Funtion.learning_vector_store import VectorStoreDialog
 
 
 
@@ -380,7 +387,16 @@ class FileSearchApp(QMainWindow):
         self.toggle_button_2.setFixedSize(50, 50)
         self.toggle_button_2.clicked.connect(self.toggle_hidden_frame_2)
 
-    
+        # Third Toggle Button: Learning
+        self.toggle_button_3 = QPushButton("📚")
+        font = self.toggle_button_3.font()
+        font.setPointSize(20)
+        self.toggle_button_3.setFont(font)
+        self.toggle_button_3.setFixedSize(50, 50)
+        self.toggle_button_3.setStyleSheet("text-align: center;")
+        self.toggle_button_3.setToolTip("Learning")
+        self.toggle_button_3.clicked.connect(self.open_learning)
+
 
         # Adding Widgets to the Second Hidden Frame
         self.add_exe_button = QPushButton("ADD ON ➕")  # Button to add EXE files
@@ -425,6 +441,7 @@ class FileSearchApp(QMainWindow):
         self.toggle_buttons_layout.setContentsMargins(0, 50, 0, 0)
         self.toggle_buttons_layout.addWidget(self.toggle_button)
         self.toggle_buttons_layout.addWidget(self.toggle_button_2)
+        self.toggle_buttons_layout.addWidget(self.toggle_button_3)
         self.toggle_buttons_layout.addStretch()  # Push the buttons to the top
 
         # Add the toggle buttons layout to the main layout (on the right side)
@@ -528,6 +545,10 @@ class FileSearchApp(QMainWindow):
         else:
             self.hidden_frame_2.setHidden(True)
             self.toggle_button_2.setText("🧩")
+    def open_learning(self):
+        dlg = VectorStoreDialog(self)
+        dlg.exec()
+
 
 
 
