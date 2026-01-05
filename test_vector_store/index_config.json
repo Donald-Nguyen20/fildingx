@@ -1,0 +1,12 @@
+{
+  "model_name": "sentence-transformers/all-MiniLM-L6-v2",
+  "normalize_embeddings": true,
+  "index_type": "HNSW",
+  "dim": 384,
+  "chunk_size": 900,
+  "overlap": 150,
+  "batch_size": 128,
+  "cpu_threads": 14,
+  "created_at": 1767631945.4412587,
+  "min_chunk_len": 80
+}
