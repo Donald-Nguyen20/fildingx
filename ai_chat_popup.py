@@ -9,6 +9,8 @@ from PySide6.QtGui import QDesktopServices, QGuiApplication
 
 
 import os
+import json
+import sys
 
 # cần 2 file này nằm cùng thư mục:
 # - vector_retriever.py
@@ -18,6 +20,21 @@ from llm_client import create_llm_client, PROVIDERS
 from llm_config import load_llm_config, save_llm_config
 from hud_widgets import HudPanel
 
+def app_dir() -> str:
+    # chạy khi dev hoặc khi đóng gói PyInstaller
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        return os.path.dirname(sys.executable)  # thư mục chứa .exe
+    return os.path.dirname(os.path.abspath(__file__))
+
+def load_prompts_json(filename: str = "prompts.json") -> dict:
+    path = os.path.join(app_dir(), filename)
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
 
 class LLMSettingsDialog(QDialog):
     def __init__(self, parent=None):
@@ -99,25 +116,25 @@ class AIChatPopup(QDialog):
 
         self.setWindowTitle("AI Chat")
         self.resize(980, 680)
-        self.setMinimumSize(900, 620)
+        self.setMinimumSize(1200, 650)
 
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         
         self.setAttribute(Qt.WA_TranslucentBackground, True)
-        self.setStyleSheet("""
-        QDialog {
-            background-color: rgba(0, 0, 0, 235);
-            border: 1px solid rgba(0, 220, 255, 90);
-            border-radius: 14px;
-        }
-        QLabel { color: #d9ffff; }
-        QListWidget {
-            background: rgba(0, 0, 0, 200);
-            border: 1px solid rgba(0, 220, 255, 70);
-            border-radius: 10px;
-            color: #d9ffff;
-        }
-        """)
+        # self.setStyleSheet("""
+        # QDialog {
+        #     background-color: rgba(0, 0, 0, 235);
+        #     border: 1px solid rgba(0, 220, 255, 90);
+        #     border-radius: 14px;
+        # }
+        # QLabel { color: #d9ffff; }
+        # QListWidget {
+        #     background: rgba(0, 0, 0, 200);
+        #     border: 1px solid rgba(0, 220, 255, 70);
+        #     border-radius: 10px;
+        #     color: #d9ffff;
+        # }
+        # """)
 
 
         outer = QVBoxLayout(self)
@@ -214,6 +231,69 @@ class AIChatPopup(QDialog):
         self.input_line = QLineEdit()
         self.input_line.setPlaceholderText("Nhập tin nhắn...")
         self.input_line.returnPressed.connect(self.handle_user_input)
+        # ===== UI: White background + bigger font =====
+        font = self.font()
+        font.setPointSize(12)  # chữ to hơn: 12-16 tùy bạn
+        self.setFont(font)
+
+        self.chat_display.setFont(font)
+        self.input_line.setFont(font)
+
+        self.setStyleSheet("""
+QDialog {
+    background: #FFFFFF;
+    color: #111111;
+    border: 1px solid rgba(0,0,0,0.18);
+    border-radius: 14px;
+}
+
+QLabel { color: #111111; }
+
+QTextBrowser {
+    background: #FFFFFF;
+    color: #111111;
+    border: 1px solid rgba(0,0,0,0.12);
+    border-radius: 12px;
+    padding: 10px;
+}
+
+QLineEdit {
+    background: #FFFFFF;
+    color: #111111;
+    border: 1px solid rgba(0,0,0,0.18);
+    border-radius: 10px;
+    padding: 8px 10px;
+}
+QLineEdit:focus { border: 1px solid rgba(0,0,0,0.35); }
+
+QListWidget {
+    background: #FFFFFF;
+    color: #111111;
+    border: 1px solid rgba(0,0,0,0.12);
+    border-radius: 12px;
+    padding: 6px;
+}
+QListWidget::item {
+    padding: 8px 10px;
+    border-radius: 8px;
+}
+QListWidget::item:selected {
+    background: rgba(0,0,0,0.08);
+    color: #111111;
+}
+
+QPushButton {
+    background: rgba(0,0,0,0.06);
+    color: #111111;
+    border: 1px solid rgba(0,0,0,0.14);
+    border-radius: 10px;
+    padding: 8px 12px;
+    font-weight: 600;
+}
+QPushButton:hover { background: rgba(0,0,0,0.10); }
+QPushButton:pressed { background: rgba(0,0,0,0.14); }
+""")
+
 
         send_btn = QPushButton("Gửi")
         send_btn.clicked.connect(self.handle_user_input)
@@ -407,8 +487,12 @@ class AIChatPopup(QDialog):
             ctx_blocks.append(f"[{i}] {r['file_name']} | chunk {r['chunk_id']} | score={r['score']:.3f}\n{r['text']}")
         context = "\n\n".join(ctx_blocks)
         context = context[:8000]
+        prompts = load_prompts_json("prompts.json")
+        tpl = prompts.get("sop_assistant_prompt")
 
-        prompt = f"""You are a thermal power plant operation SOP assistant.
+        if not tpl:
+            tpl = """You are a thermal power plant operation SOP assistant.
+
 
 STRICT RULES:
 - Answer ONLY using the CONTEXT below. Do NOT use general knowledge.
@@ -461,26 +545,4 @@ C) Warnings
             item.setData(Qt.UserRole, r.get("abs_path", ""))
             self.sources_list.addItem(item)
 
-        self.chat_display.setStyleSheet("""
-        QTextBrowser {
-            background: rgba(0, 0, 0, 230);
-
-            border: 1px solid rgba(0, 220, 255, 90);
-            border-radius: 10px;
-            color: #d9ffff;
-            padding: 10px;
-        }
-        """)
-
-        self.input_line.setStyleSheet("""
-        QLineEdit {
-            background: rgba(8, 14, 20, 180);
-            border: 1px solid rgba(0, 220, 255, 110);
-            border-radius: 10px;
-            color: #d9ffff;
-            padding: 8px 10px;
-        }
-        QLineEdit:focus {
-            border: 1px solid rgba(0, 220, 255, 220);
-        }
-        """)
+        
