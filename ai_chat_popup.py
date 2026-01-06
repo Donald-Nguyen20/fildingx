@@ -21,20 +21,32 @@ from llm_config import load_llm_config, save_llm_config
 from hud_widgets import HudPanel
 
 def app_dir() -> str:
-    # chạy khi dev hoặc khi đóng gói PyInstaller
-    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
-        return os.path.dirname(sys.executable)  # thư mục chứa .exe
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(sys.executable)
     return os.path.dirname(os.path.abspath(__file__))
 
-def load_prompts_json(filename: str = "prompts.json") -> dict:
+
+def load_prompts_json(filename: str = "promp.json") -> dict:
     path = os.path.join(app_dir(), filename)
+
+    # debug path
+    print("[PROMPT] json path =", path)
+
     if not os.path.exists(path):
+        print("[PROMPT] NOT FOUND:", path)
         return {}
+
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
+        # ✅ utf-8-sig để ăn BOM của Windows
+        with open(path, "r", encoding="utf-8-sig") as f:
+            data = json.load(f)
+        print("[PROMPT] keys =", list(data.keys()))
+        return data
+    except Exception as e:
+        print("[PROMPT] JSON LOAD ERROR:", e)
+        print("[PROMPT] PATH:", path)
         return {}
+
 
 class LLMSettingsDialog(QDialog):
     def __init__(self, parent=None):
@@ -120,7 +132,8 @@ class AIChatPopup(QDialog):
 
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         
-        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setAttribute(Qt.WA_TranslucentBackground, False)
+
         # self.setStyleSheet("""
         # QDialog {
         #     background-color: rgba(0, 0, 0, 235);
@@ -487,12 +500,15 @@ QPushButton:pressed { background: rgba(0,0,0,0.14); }
             ctx_blocks.append(f"[{i}] {r['file_name']} | chunk {r['chunk_id']} | score={r['score']:.3f}\n{r['text']}")
         context = "\n\n".join(ctx_blocks)
         context = context[:8000]
-        prompts = load_prompts_json("prompts.json")
-        tpl = prompts.get("sop_assistant_prompt")
+        # ==== Load prompt template from promp.json ====
+        prompts = load_prompts_json("promp.json")
+        tpl = prompts.get("sop_prompt")
 
         if not tpl:
-            tpl = """You are a thermal power plant operation SOP assistant.
+            self.chat_display.append("⚠️ Không đọc được promp.json hoặc thiếu key 'sop_prompt' → dùng prompt mặc định.")
+            self.chat_display.append(f"<i>Path: {os.path.join(app_dir(), 'promp.json')}</i>")
 
+            tpl = """You are a thermal power plant operation SOP assistant.
 
 STRICT RULES:
 - Answer ONLY using the CONTEXT below. Do NOT use general knowledge.
@@ -526,6 +542,8 @@ B) Monitoring
 C) Warnings
 1. ...
 """
+
+        prompt = tpl.format(context=context, user_input=user_input)
 
 
         try:
