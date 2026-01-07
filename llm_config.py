@@ -8,7 +8,7 @@ DEFAULT_CONFIG = {
     "gemini_api_key": "",
 
     "ollama_host": "http://localhost:11434",
-    "ollama_model": "llama3.2:3b",
+    "ollama_model": "llama3.1:8b",
 
     "openrouter_model": "meta-llama/llama-3.3-70b-instruct:free",
     "groq_model": "llama-3.3-70b-versatile",

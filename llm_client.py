@@ -118,8 +118,8 @@ def create_llm_client(provider_key: str, model_override: str = "") -> BaseLLMCli
     model_override = (model_override or "").strip()
 
     if provider_key == "ollama":
-        model = model_override or cfg["ollama_model"]
-        host = cfg["ollama_host"]
+        model = (model_override or cfg.get("ollama_model") or "llama3.1:8b").strip()
+        host = (cfg.get("ollama_host") or "http://localhost:11434").strip()
         return LLMClientOllama(model=model, host=host)
 
     if provider_key == "openrouter":
@@ -138,4 +138,6 @@ def create_llm_client(provider_key: str, model_override: str = "") -> BaseLLMCli
         return LLMClientGemini(api_key=api_key, model=model)
 
     # fallback
-    return LLMClientOllama(model=cfg["ollama_model"], host=cfg["ollama_host"])
+    model = (cfg.get("ollama_model") or "llama3.1:8b").strip()
+    host = (cfg.get("ollama_host") or "http://localhost:11434").strip()
+    return LLMClientOllama(model=model, host=host)
