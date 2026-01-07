@@ -37,8 +37,7 @@ def get_app_dir():
     return os.path.dirname(os.path.abspath(__file__))  # thư mục chứa Finding7.1.py
 from Funtion.learning_vector_store import VectorStoreDialog
 
-
-
+# pyinstaller --noconfirm --clean --onefile --windowed "Finding7.1.py" --icon "icon.ico"
 
 # Define these at the top of your script
 DATA_FILE = "containers_data.json"  # Path where your data file will be stored
