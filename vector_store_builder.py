@@ -327,3 +327,212 @@ def build_vector_store(
         progress_cb(100)
 
     return output_dir
+def _load_manifest(store_dir: str) -> dict:
+    p = os.path.join(store_dir, "manifest.json")
+    if os.path.exists(p):
+        try:
+            with open(p, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {"files": []}
+
+def _save_json_atomic(path: str, obj):
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(obj, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, path)
+
+def append_vector_store(
+    store_dir: str,
+    file_paths: list,
+    extract_content_fn: Callable[[str], str],
+    progress_cb: Optional[Callable[[int], None]] = None,
+) -> int:
+    """
+    Append documents to an existing store_dir:
+    Required: index.faiss, metadata.json, index_config.json
+    Writes/Updates: index.faiss, metadata.json, manifest.json
+    Returns: added_chunks
+    """
+    index_path = os.path.join(store_dir, "index.faiss")
+    meta_path  = os.path.join(store_dir, "metadata.json")
+    cfg_path   = os.path.join(store_dir, "index_config.json")
+    base_path  = os.path.join(store_dir, "base_path.txt")
+
+    if not (os.path.exists(index_path) and os.path.exists(meta_path) and os.path.exists(cfg_path)):
+        raise FileNotFoundError("Store thiếu index.faiss / metadata.json / index_config.json")
+
+    with open(cfg_path, "r", encoding="utf-8") as f:
+        cfg = json.load(f)
+
+    # load base folder used when build (để rel_path consistent)
+    folder_path = ""
+    if os.path.exists(base_path):
+        folder_path = (open(base_path, "r", encoding="utf-8", errors="replace").read() or "").strip()
+
+    # load index + metadata
+    index = faiss.read_index(index_path)
+    with open(meta_path, "r", encoding="utf-8") as f:
+        metas_raw = json.load(f)  # list[dict]
+
+    # next_id = max existing id + 1
+    max_id = -1
+    for m in metas_raw:
+        try:
+            max_id = max(max_id, int(m.get("id", -1)))
+        except Exception:
+            pass
+    next_id = max_id + 1
+
+    # dedup by manifest
+    manifest = _load_manifest(store_dir)
+    seen = set()
+    for it in manifest.get("files", []):
+        seen.add((it.get("path"), it.get("mtime"), it.get("size")))
+
+    allowed_ext = {".txt", ".md", ".pdf", ".docx"}
+    new_files = []
+    for fp in (file_paths or []):
+        if not fp or not os.path.isfile(fp):
+            continue
+        ext = os.path.splitext(fp)[1].lower()
+        if ext not in allowed_ext:
+            continue
+        ab = os.path.abspath(fp)
+        st = os.stat(ab)
+        key = (ab, int(st.st_mtime), int(st.st_size))
+        if key in seen:
+            continue
+        new_files.append(ab)
+
+    if not new_files:
+        if progress_cb: progress_cb(100)
+        return 0
+
+    # validate embedding model/dim
+    model_name = cfg.get("model_name", "sentence-transformers/all-MiniLM-L6-v2")
+    dim_expected = int(cfg.get("dim", 0))
+
+    # CPU tuning (giữ giống build)
+    CPU_THREADS = int(os.environ.get("RAG_CPU_THREADS", str(cfg.get("cpu_threads", 14))))
+    torch.set_num_threads(CPU_THREADS)
+    os.environ["OMP_NUM_THREADS"] = str(CPU_THREADS)
+    os.environ["MKL_NUM_THREADS"] = str(CPU_THREADS)
+
+    model = SentenceTransformer(model_name)
+    dim_now = int(model.get_sentence_embedding_dimension())
+    if dim_expected and dim_expected != dim_now:
+        raise ValueError(f"Embedding dim mismatch: store={dim_expected}, current={dim_now}")
+
+    chunk_size = int(cfg.get("chunk_size", 900))
+    overlap    = int(cfg.get("overlap", 150))  # (hiện build bạn không dùng overlap nhưng vẫn lưu)
+    batch_size = int(cfg.get("batch_size", 32))
+    MIN_CHUNK_LEN = int(os.environ.get("RAG_MIN_CHUNK_LEN", str(cfg.get("min_chunk_len", 80))))
+
+    source_folder = os.path.basename((folder_path or "").rstrip(os.sep)) if folder_path else ""
+
+    added_chunks = 0
+    new_meta_dicts = []
+    new_manifest = []
+
+    total = len(new_files)
+    for i, file_path in enumerate(new_files, start=1):
+        if progress_cb:
+            progress_cb(int((i - 1) * 80 / max(total, 1)))
+
+        stat = os.stat(file_path)
+        name = os.path.basename(file_path)
+        ext = os.path.splitext(file_path)[1].lower()
+
+        # rel_path: relative to original folder if possible
+        if folder_path:
+            try:
+                rel_path = os.path.relpath(file_path, folder_path)
+            except Exception:
+                rel_path = name
+        else:
+            rel_path = name
+
+        try:
+            raw = extract_content_fn(file_path)
+        except Exception:
+            raw = ""
+
+        text = normalize_text(raw)
+        if not text:
+            continue
+
+        # IMPORTANT: giữ y chang build: dùng chunk_text_sop
+        chunks = chunk_text_sop(text, target_chars=chunk_size, hard_max=chunk_size + 400)
+
+        texts = []
+        temp_meta = []
+        for cid, obj in enumerate(chunks):
+            ch = (obj.get("text") or "").strip()
+            if len(ch) < MIN_CHUNK_LEN:
+                continue
+
+            texts.append(ch)
+            temp_meta.append(ChunkMeta(
+                id=next_id,
+                file_name=name,
+                rel_path=rel_path,
+                abs_path=file_path,
+                file_type=ext.lstrip("."),
+                source_folder=source_folder,
+                chunk_id=cid,
+                chunk_len=len(ch),
+                mtime=float(stat.st_mtime),
+                size_kb=int(stat.st_size / 1024),
+                created_at=float(time.time()),
+                section=(obj.get("section") or ""),
+                subsection=(obj.get("subsection") or ""),
+                text=ch,
+            ))
+            next_id += 1
+
+        if not texts:
+            continue
+
+        # embed + add to FAISS
+        vecs = model.encode(
+            texts,
+            batch_size=batch_size,
+            show_progress_bar=False,
+            normalize_embeddings=True
+        )
+        vecs = np.asarray(vecs, dtype="float32")
+        index.add(vecs)
+
+        # append metadata
+        for m in temp_meta:
+            new_meta_dicts.append(m.__dict__)
+
+        added_chunks += len(temp_meta)
+
+        # update manifest record for dedup
+        new_manifest.append({
+            "path": os.path.abspath(file_path),
+            "mtime": int(stat.st_mtime),
+            "size": int(stat.st_size),
+        })
+
+    # save
+    if added_chunks > 0:
+        metas_raw.extend(new_meta_dicts)
+
+        # index atomic
+        tmp_index = index_path + ".tmp"
+        faiss.write_index(index, tmp_index)
+        os.replace(tmp_index, index_path)
+
+        _save_json_atomic(meta_path, metas_raw)
+
+        manifest["files"] = (manifest.get("files", []) + new_manifest)
+        _save_json_atomic(os.path.join(store_dir, "manifest.json"), manifest)
+
+    if progress_cb:
+        progress_cb(100)
+
+    return int(added_chunks)
