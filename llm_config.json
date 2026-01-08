@@ -1,9 +1,9 @@
 {
-  "openrouter_api_key": "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",
+  "openrouter_api_key": "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",
   "groq_api_key": "",
   "gemini_api_key": "",
   "ollama_host": "http://localhost:11434",
-  "ollama_model": "llama3.2:3b",
+  "ollama_model": "llama3.1:8b",
   "openrouter_model": "meta-llama/llama-3.3-70b-instruct:free",
   "groq_model": "llama-3.3-70b-versatile",
   "gemini_model": "gemini-1.5-flash"

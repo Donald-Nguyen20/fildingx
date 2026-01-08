@@ -1,12 +1,14 @@
 # Funtion/learning_vector_store.py
 import os, sys
-from PySide6.QtCore import QThread, Signal
+from PySide6.QtCore import QThread, Signal, Qt
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
-    QFileDialog, QProgressBar, QTextEdit, QMessageBox
+    QFileDialog, QProgressBar, QTextEdit, QMessageBox,
+    QComboBox, QFrame
 )
 
-from vector_store_builder import build_vector_store
+
+from vector_store_builder import build_vector_store, append_vector_store
 from Funtion.rag_extract import extract_content
 
 
@@ -23,6 +25,50 @@ def get_root_dir():
     # __file__ = Funtion/learning_vector_store.py => lên 1 cấp
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+class DropZone(QFrame):
+    filesDropped = Signal(list)  # list[str]
+
+    def __init__(self, text="Kéo thả file/folder vào đây để append", parent=None):
+        super().__init__(parent)
+        self.setAcceptDrops(True)
+        self.setFrameShape(QFrame.StyledPanel)
+        self.setStyleSheet("""
+            QFrame{
+                border:2px dashed rgba(180,180,180,160);
+                border-radius:12px;
+                padding:16px;
+                background: rgba(255,255,255,18);
+            }
+        """)
+        lay = QVBoxLayout(self)
+        self.lbl = QLabel(text)
+        self.lbl.setAlignment(Qt.AlignCenter)
+        lay.addWidget(self.lbl)
+
+    def dragEnterEvent(self, e):
+        if e.mimeData().hasUrls():
+            e.acceptProposedAction()
+
+    def dropEvent(self, e):
+        urls = e.mimeData().urls()
+        paths = []
+        for u in urls:
+            p = u.toLocalFile()
+            if p:
+                paths.append(p)
+
+        # Expand folder -> files
+        expanded = []
+        for p in paths:
+            if os.path.isdir(p):
+                for root, _, files in os.walk(p):
+                    for fn in files:
+                        expanded.append(os.path.join(root, fn))
+            else:
+                expanded.append(p)
+
+        self.filesDropped.emit(expanded)
+        e.acceptProposedAction()
 
 class BuildStoreWorker(QThread):
     progress = Signal(int)
@@ -47,6 +93,32 @@ class BuildStoreWorker(QThread):
                 progress_cb=lambda p: self.progress.emit(int(p)),
             )
             self.done.emit(out)
+        except Exception as e:
+            self.error.emit(str(e))
+
+class AppendStoreWorker(QThread):
+    progress = Signal(int)
+    log = Signal(str)
+    done = Signal(int)     # số chunk added
+    error = Signal(str)
+
+    def __init__(self, store_dir: str, file_paths: list):
+        super().__init__()
+        self.store_dir = store_dir
+        self.file_paths = file_paths
+
+    def run(self):
+        try:
+            self.log.emit(f"Store: {self.store_dir}")
+            self.log.emit(f"Incoming files: {len(self.file_paths)}")
+
+            added = append_vector_store(
+                store_dir=self.store_dir,
+                file_paths=self.file_paths,
+                extract_content_fn=extract_content,
+                progress_cb=lambda p: self.progress.emit(int(p)),
+            )
+            self.done.emit(int(added))
         except Exception as e:
             self.error.emit(str(e))
 
@@ -83,6 +155,30 @@ class VectorStoreDialog(QDialog):
 
         lay.addLayout(row2)
 
+        # ---- Row: select existing store ----
+        row3 = QHBoxLayout()
+        self.cbo_store = QComboBox()
+        self.btn_reload = QPushButton("Reload")
+        self.btn_reload.clicked.connect(self.reload_store_list)
+        row3.addWidget(QLabel("Existing store:"))
+        row3.addWidget(self.cbo_store, 1)
+        row3.addWidget(self.btn_reload)
+        lay.addLayout(row3)
+
+        # ---- Drop zone + append button ----
+        self.drop_zone = DropZone()
+        self.drop_zone.filesDropped.connect(self.on_files_dropped)
+        lay.addWidget(self.drop_zone)
+
+        row4 = QHBoxLayout()
+        self.btn_append = QPushButton("Append Dropped Files")
+        self.btn_append.clicked.connect(self.start_append_from_drop)
+        row4.addWidget(self.btn_append)
+        lay.addLayout(row4)
+
+        # internal buffer
+        self._dropped_paths = []
+        self.reload_store_list()
 
 
         self.pb = QProgressBar()
@@ -141,3 +237,47 @@ class VectorStoreDialog(QDialog):
         self.log(f"❌ Error: {msg}")
         self.btn_build.setEnabled(True)
         QMessageBox.critical(self, "Error", msg)
+    def reload_store_list(self):
+        self.cbo_store.clear()
+        root_dir = get_root_dir()
+        vs_root = os.path.join(root_dir, "VectorStore")
+        if not os.path.isdir(vs_root):
+            return
+
+        for name in sorted(os.listdir(vs_root)):
+            store_dir = os.path.join(vs_root, name)
+            if not os.path.isdir(store_dir):
+                continue
+            # store hợp lệ
+            if os.path.exists(os.path.join(store_dir, "index.faiss")) and os.path.exists(os.path.join(store_dir, "metadata.json")):
+                self.cbo_store.addItem(name, userData=store_dir)
+
+    def on_files_dropped(self, paths: list):
+        self._dropped_paths = paths or []
+        self.log(f"📥 Dropped: {len(self._dropped_paths)} file(s).")
+        # auto start append luôn cũng được; ở đây mình để bạn bấm nút Append.
+
+    def start_append_from_drop(self):
+        store_dir = self.cbo_store.currentData()
+        if not store_dir:
+            QMessageBox.warning(self, "Missing", "Please select an existing store.")
+            return
+        if not self._dropped_paths:
+            QMessageBox.warning(self, "Missing", "Please drag & drop some files/folders first.")
+            return
+
+        self.btn_append.setEnabled(False)
+        self.pb.setValue(0)
+        self.log("▶️ Start append...")
+
+        self.worker = AppendStoreWorker(store_dir, self._dropped_paths)
+        self.worker.progress.connect(self.pb.setValue)
+        self.worker.log.connect(self.log)
+        self.worker.done.connect(self.on_append_done)
+        self.worker.error.connect(self.on_error)
+        self.worker.start()
+
+    def on_append_done(self, added_chunks: int):
+        self.log(f"✅ Append done: +{added_chunks} chunks")
+        self.btn_append.setEnabled(True)
+        QMessageBox.information(self, "Done", f"Append completed.\nAdded chunks: {added_chunks}")

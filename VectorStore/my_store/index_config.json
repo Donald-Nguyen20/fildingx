@@ -7,6 +7,6 @@
   "overlap": 150,
   "batch_size": 128,
   "cpu_threads": 14,
-  "created_at": 1767651334.619958,
+  "created_at": 1767831349.3748484,
   "min_chunk_len": 80
 }
