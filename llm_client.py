@@ -7,7 +7,6 @@ from llm_config import load_llm_config
 PROVIDERS: List[Tuple[str, str]] = [
     ("ollama", "Ollama (Local)"),
     ("openrouter", "OpenRouter (Cloud)"),
-    ("gemini", "Gemini (Cloud)"),
     ("groq", "Groq (Cloud)"),
 ]
 
@@ -87,30 +86,7 @@ class LLMClientGroq(OpenAICompatibleChatClient):
             timeout=180,
         )
 
-class LLMClientGemini(BaseLLMClient):
-    def __init__(self, api_key: str, model: str):
-        if not api_key:
-            raise ValueError("Missing GEMINI API key.")
-        self.api_key = api_key
-        self.model = model
 
-    def generate(self, prompt: str) -> str:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
-        params = {"key": self.api_key}
-        payload = {
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {"temperature": 0.1, "maxOutputTokens": 900},
-        }
-        r = requests.post(url, params=params, json=payload, timeout=180)
-        r.raise_for_status()
-        data = r.json()
-        cands = data.get("candidates") or []
-        if not cands:
-            return ""
-        content = cands[0].get("content") or {}
-        parts = content.get("parts") or []
-        texts = [p.get("text") for p in parts if p.get("text")]
-        return "\n".join(texts).strip()
 
 def create_llm_client(provider_key: str, model_override: str = "") -> BaseLLMClient:
     cfg = load_llm_config()
@@ -132,10 +108,6 @@ def create_llm_client(provider_key: str, model_override: str = "") -> BaseLLMCli
         model = model_override or cfg["groq_model"]
         return LLMClientGroq(api_key=api_key, model=model)
 
-    if provider_key == "gemini":
-        api_key = (cfg.get("gemini_api_key") or "").strip()
-        model = model_override or cfg["gemini_model"]
-        return LLMClientGemini(api_key=api_key, model=model)
 
     # fallback
     model = (cfg.get("ollama_model") or "llama3.1:8b").strip()

@@ -68,9 +68,7 @@ class LLMSettingsDialog(QDialog):
         self.ed_groq.setEchoMode(QLineEdit.Password)
         form.addRow("Groq API key:", self.ed_groq)
 
-        self.ed_gemini = QLineEdit(cfg.get("gemini_api_key",""))
-        self.ed_gemini.setEchoMode(QLineEdit.Password)
-        form.addRow("Gemini API key:", self.ed_gemini)
+
 
         self.ed_ollama_host = QLineEdit(cfg.get("ollama_host","http://localhost:11434"))
         form.addRow("Ollama host:", self.ed_ollama_host)
@@ -106,7 +104,7 @@ QComboBox QAbstractItemView {
         cfg = load_llm_config()
         cfg["openrouter_api_key"] = self.ed_openrouter.text().strip()
         cfg["groq_api_key"] = self.ed_groq.text().strip()
-        cfg["gemini_api_key"] = self.ed_gemini.text().strip()
+
         cfg["ollama_host"] = self.ed_ollama_host.text().strip() or "http://localhost:11434"
         save_llm_config(cfg)
         self.accept()
@@ -366,7 +364,6 @@ QPushButton:pressed { background: rgba(0,0,0,0.14); }
             "ollama": [cfg.get("ollama_model","llama3.2:3b"), "llama3.2:3b", "qwen2.5:7b", "deepseek-r1:7b"],
             "openrouter": [cfg.get("openrouter_model","meta-llama/llama-3.3-70b-instruct:free")],
             "groq": [cfg.get("groq_model","llama-3.3-70b-versatile")],
-            "gemini": [cfg.get("gemini_model","gemini-1.5-flash"), "gemini-1.5-pro"],
         }
         for m in presets.get(provider_key, []):
             if m:

@@ -5,14 +5,14 @@ from typing import Dict, Any
 DEFAULT_CONFIG = {
     "openrouter_api_key": "",
     "groq_api_key": "",
-    "gemini_api_key": "",
+
 
     "ollama_host": "http://localhost:11434",
     "ollama_model": "llama3.1:8b",
 
     "openrouter_model": "meta-llama/llama-3.3-70b-instruct:free",
     "groq_model": "llama-3.3-70b-versatile",
-    "gemini_model": "gemini-1.5-flash",
+
 }
 
 def get_config_path() -> str:
@@ -21,8 +21,16 @@ def get_config_path() -> str:
 
 def load_llm_config() -> Dict[str, Any]:
     path = get_config_path()
+
+    # Nếu chưa có file -> tạo luôn file default để user dễ chỉnh
     if not os.path.exists(path):
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(DEFAULT_CONFIG, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
         return dict(DEFAULT_CONFIG)
+
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -31,6 +39,7 @@ def load_llm_config() -> Dict[str, Any]:
         return cfg
     except Exception:
         return dict(DEFAULT_CONFIG)
+
 
 def save_llm_config(cfg: Dict[str, Any]) -> None:
     path = get_config_path()

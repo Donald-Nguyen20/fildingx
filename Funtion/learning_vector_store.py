@@ -28,7 +28,7 @@ def get_root_dir():
 class DropZone(QFrame):
     filesDropped = Signal(list)  # list[str]
 
-    def __init__(self, text="Kéo thả file/folder vào đây để append", parent=None):
+    def __init__(self, text="pull and drop file/folder to append", parent=None):
         super().__init__(parent)
         self.setAcceptDrops(True)
         self.setFrameShape(QFrame.StyledPanel)

@@ -10,6 +10,13 @@ import numpy as np
 import faiss
 import torch
 from sentence_transformers import SentenceTransformer
+from Funtion.rag_dedup import (
+    build_existing_filenames,
+    is_duplicate_filename,
+    build_existing_chunk_hashes,
+    should_skip_file_by_dup_ratio,
+)
+from Funtion.rag_dedup import sha1_text, norm_for_hash
 
 
 @dataclass
@@ -272,6 +279,11 @@ def build_vector_store(
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = SentenceTransformer(model_name, device=device)
 
+    print("cuda_available:", torch.cuda.is_available())
+    if torch.cuda.is_available():
+        print("gpu:", torch.cuda.get_device_name(0))
+    print("model_device:", getattr(model, "device", None))
+
     texts = [m.text for m in metas]
 
     batch_size = int(os.environ.get("RAG_BATCH_SIZE", "128"))  # 4060 + 32GB thường ok
@@ -375,6 +387,8 @@ def append_vector_store(
     index = faiss.read_index(index_path)
     with open(meta_path, "r", encoding="utf-8") as f:
         metas_raw = json.load(f)  # list[dict]
+    existing_names = build_existing_filenames(metas_raw)          # trùng TÊN FILE
+    existing_hashes = build_existing_chunk_hashes(metas_raw)      # trùng NỘI DUNG (chunk)
 
     # next_id = max existing id + 1
     max_id = -1
@@ -410,6 +424,7 @@ def append_vector_store(
         if progress_cb: progress_cb(100)
         return 0
 
+
     # validate embedding model/dim
     model_name = cfg.get("model_name", "sentence-transformers/all-MiniLM-L6-v2")
     dim_expected = int(cfg.get("dim", 0))
@@ -443,7 +458,7 @@ def append_vector_store(
 
         stat = os.stat(file_path)
         name = os.path.basename(file_path)
-        ext = os.path.splitext(file_path)[1].lower()
+        ext  = os.path.splitext(file_path)[1].lower()
 
         # rel_path: relative to original folder if possible
         if folder_path:
@@ -463,18 +478,15 @@ def append_vector_store(
         if not text:
             continue
 
-        # IMPORTANT: giữ y chang build: dùng chunk_text_sop
         chunks = chunk_text_sop(text, target_chars=chunk_size, hard_max=chunk_size + 400)
 
-        texts = []
-        temp_meta = []
+        pairs = []
         for cid, obj in enumerate(chunks):
             ch = (obj.get("text") or "").strip()
             if len(ch) < MIN_CHUNK_LEN:
                 continue
 
-            texts.append(ch)
-            temp_meta.append(ChunkMeta(
+            meta = ChunkMeta(
                 id=next_id,
                 file_name=name,
                 rel_path=rel_path,
@@ -489,15 +501,40 @@ def append_vector_store(
                 section=(obj.get("section") or ""),
                 subsection=(obj.get("subsection") or ""),
                 text=ch,
-            ))
-            next_id += 1
+            ).__dict__
 
-        if not texts:
+            next_id += 1
+            pairs.append((ch, meta))
+
+        if not pairs:
             continue
 
-        # embed + add to FAISS
+        unique_pairs = []
+        dup = 0
+        total_pairs = len(pairs)
+
+        for ch, meta in pairs:
+            h = sha1_text(norm_for_hash(ch))
+            if h in existing_hashes:
+                dup += 1
+                continue
+            existing_hashes.add(h)
+            unique_pairs.append((ch, meta))
+
+        dup_ratio = dup / max(total_pairs, 1)
+
+        # file gần như trùng nội dung -> skip
+        if should_skip_file_by_dup_ratio(dup_ratio, threshold=0.80):
+            continue
+
+        if not unique_pairs:
+            continue
+
+        texts_to_add = [p[0] for p in unique_pairs]
+        metas_to_add = [p[1] for p in unique_pairs]
+
         vecs = model.encode(
-            texts,
+            texts_to_add,
             batch_size=batch_size,
             show_progress_bar=False,
             normalize_embeddings=True
@@ -505,18 +542,15 @@ def append_vector_store(
         vecs = np.asarray(vecs, dtype="float32")
         index.add(vecs)
 
-        # append metadata
-        for m in temp_meta:
-            new_meta_dicts.append(m.__dict__)
+        new_meta_dicts.extend(metas_to_add)
+        added_chunks += len(metas_to_add)
 
-        added_chunks += len(temp_meta)
-
-        # update manifest record for dedup
         new_manifest.append({
             "path": os.path.abspath(file_path),
             "mtime": int(stat.st_mtime),
             "size": int(stat.st_size),
         })
+
 
     # save
     if added_chunks > 0:
