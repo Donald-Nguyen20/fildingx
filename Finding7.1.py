@@ -1488,22 +1488,57 @@ class FileSearchApp(QMainWindow):
 class IndexSearchWindow(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
+        # ✅ HUD theme cho cửa sổ Index Search
+        self.setStyleSheet(qss_hud_metal_header_feel() + qss_white_results())
+
         self.setWindowTitle("Search Indexed Databases")
         self.setGeometry(800, 200, 700, 400)
 
-        self.main_layout = QVBoxLayout(self)   # ✅ thêm dòng này
+        self.main_layout = QVBoxLayout(self)
         self.Hlayout = QHBoxLayout()
 
-        # ... giữ nguyên tạo widget ...
+        self.db_paths = []
 
+        self.import_db_button = QPushButton("Import DB")
+        self.database_selector = QComboBox()
+        self.database_selector.addItem("All")
+
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("Enter keyword...")
+
+        self.search_button = QPushButton("Search")
+        self.copy_name_button = QPushButton("Copy Name")
+
+        # ✅ result table (bắt buộc phải có)
+        self.result_table = QTreeWidget()
+        self.result_table.setObjectName("resultsTree")
+        self.result_table.setAlternatingRowColors(True)
+        self.result_table.setUniformRowHeights(True)
+        self.result_table.setRootIsDecorated(False)
+
+        self.result_table.setColumnCount(3)
+        self.result_table.setHeaderLabels(["File Name", "Path", "Content Snippet"])
+        self.result_table.setColumnWidth(0, 420)  # File Name
+        self.result_table.setColumnWidth(1, 260)  # Path
+        self.result_table.setColumnWidth(2, 300)  # Snippet
+        self.result_table.itemDoubleClicked.connect(self.open_file)
+
+        # ✅ connect đúng tên hàm đang tồn tại
+        self.import_db_button.clicked.connect(self.import_database)
+        self.search_button.clicked.connect(self.search_database)
+        self.search_input.returnPressed.connect(self.search_database)
+        self.copy_name_button.clicked.connect(self.copy_selected_name)
+
+        # layout trên
         self.Hlayout.addWidget(self.import_db_button)
         self.Hlayout.addWidget(self.database_selector)
         self.Hlayout.addWidget(self.search_input)
         self.Hlayout.addWidget(self.search_button)
         self.Hlayout.addWidget(self.copy_name_button)
 
-        self.main_layout.addLayout(self.Hlayout)     # ✅ đổi self.layout -> self.main_layout
+        self.main_layout.addLayout(self.Hlayout)
         self.main_layout.addWidget(self.result_table)
+
 
 
     def import_database(self):
