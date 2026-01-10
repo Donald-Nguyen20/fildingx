@@ -11,13 +11,14 @@ from PySide6.QtGui import QDesktopServices, QGuiApplication
 import os
 import json
 import sys
+import html
 
 # cần 2 file này nằm cùng thư mục:
 # - vector_retriever.py
 # - llm_client.py
 from vector_retriever import VectorRetriever
 from llm_client import create_llm_client, PROVIDERS
-from llm_config import load_llm_config, save_llm_config
+from llm_config import load_llm_config, save_llm_config, get_config_path
 from hud_widgets import HudPanel
 
 def app_dir() -> str:
@@ -104,10 +105,15 @@ QComboBox QAbstractItemView {
         cfg = load_llm_config()
         cfg["openrouter_api_key"] = self.ed_openrouter.text().strip()
         cfg["groq_api_key"] = self.ed_groq.text().strip()
-
         cfg["ollama_host"] = self.ed_ollama_host.text().strip() or "http://localhost:11434"
-        save_llm_config(cfg)
-        self.accept()
+
+        try:
+            save_llm_config(cfg)
+            QMessageBox.information(self, "Saved", f"Saved to:\n{get_config_path()}")
+            self.accept()
+        except Exception as e:
+            QMessageBox.critical(self, "Save failed", f"{type(e).__name__}: {e}\n\nPath:\n{get_config_path()}")
+
 
 class AIChatPopup(QDialog):
     def __init__(self, main_app=None, parent=None):
@@ -207,7 +213,10 @@ class AIChatPopup(QDialog):
         self.chat_display.setOpenExternalLinks(True)
         self.chat_display.setOpenLinks(True)
         self.chat_display.setAcceptRichText(True)
-
+        self.chat_display.setTextInteractionFlags(
+            Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard | Qt.LinksAccessibleByMouse
+        )
+        self.chat_display.setFocusPolicy(Qt.ClickFocus)
         left_layout.addWidget(self.chat_display, 1)
 
         right_panel = QWidget()
@@ -487,7 +496,6 @@ QPushButton:pressed { background: rgba(0,0,0,0.14); }
             QDesktopServices.openUrl(QUrl.fromLocalFile(path))
             return
         QMessageBox.warning(self, "File not found", f"File not found:\n{path}")
-    from PySide6.QtGui import QGuiApplication
 
     def show_below_widget(self, anchor_widget, gap: int = 8):
         """Show this popup right below the given widget (e.g., popup button)."""
@@ -529,7 +537,11 @@ QPushButton:pressed { background: rgba(0,0,0,0.14); }
         if not user_input:
             return
 
-        self.chat_display.append(f"🧑 Bạn: {user_input}")
+        safe = html.escape(user_input).replace("\n", "<br>")
+        self.chat_display.append(
+            f'<span style="color:#d00000; font-weight:700;">🧑 Bạn: {safe}</span>'
+        )
+
         self.input_line.clear()
 
         # Nếu chưa load store → nhắc user load
