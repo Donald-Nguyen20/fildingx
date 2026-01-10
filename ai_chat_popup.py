@@ -179,10 +179,18 @@ class AIChatPopup(QDialog):
         self.btn_llm_settings = QPushButton("⚙")
         self.btn_llm_settings.setToolTip("LLM Settings (API keys / defaults)")
         top_bar.addWidget(self.btn_llm_settings)
+        # 🚫 Không cho Enter/Return kích hoạt nút Settings
+        self.btn_llm_settings.setAutoDefault(False)
+        self.btn_llm_settings.setDefault(False)
+        self.btn_llm_settings.setFocusPolicy(Qt.NoFocus)
 
         self.btn_load_vs = QPushButton("Load Vector Store")
         self.btn_load_vs.clicked.connect(self.load_vector_store)
         top_bar.addWidget(self.btn_load_vs)
+        # 🚫 Không cho Enter/Return kích hoạt Load Vector Store
+        self.btn_load_vs.setAutoDefault(False)
+        self.btn_load_vs.setDefault(False)
+        self.btn_load_vs.setFocusPolicy(Qt.NoFocus)
 
         layout.addLayout(top_bar)
 
@@ -196,8 +204,10 @@ class AIChatPopup(QDialog):
         left_layout.setSpacing(8)
 
         self.chat_display = QTextBrowser()
-        self.chat_display.setOpenExternalLinks(False)
-        self.chat_display.setOpenLinks(False)
+        self.chat_display.setOpenExternalLinks(True)
+        self.chat_display.setOpenLinks(True)
+        self.chat_display.setAcceptRichText(True)
+
         left_layout.addWidget(self.chat_display, 1)
 
         right_panel = QWidget()
@@ -385,15 +395,57 @@ QPushButton:pressed { background: rgba(0,0,0,0.14); }
         try:
             self.model_name = model
             self.llm = create_llm_client(provider, model)
-            self.chat_display.append(f"<i>✅ LLM: {self.cmb_provider.currentText()} | {model}</i>")
+            if provider == "openrouter":
+                self.chat_display.append(
+                    f'<i>✅ LLM: {self.cmb_provider.currentText()} | {model} — '
+                    f'<a href="https://openrouter.ai/">https://openrouter.ai/</a></i>'
+                )
+            elif provider == "groq":
+                self.chat_display.append(
+                    f'<i>✅ LLM: {self.cmb_provider.currentText()} | {model} — '
+                    f'<a href="https://console.groq.com/keys">https://console.groq.com/keys</a></i>'
+                )
+            else:
+                self.chat_display.append(
+                    f"<i>✅ LLM: {self.cmb_provider.currentText()} | {model}</i>"
+                )
+
         except Exception as e:
-            self.chat_display.append(f"<i>⚠️ Cannot init LLM: {e}</i>")
+            msg = str(e)
+
+            # Default text
+            extra = ""
+
+            # Nếu thiếu API key thì gợi ý link theo provider
+            if (
+                "Missing API key" in msg
+                or ("401" in msg and "Unauthorized" in msg)
+            ):
+
+                # NOTE: tùy code của anh đang lưu provider ở biến nào
+                # Ví dụ: self.provider_key hoặc self.current_provider
+                provider = getattr(self, "provider_key", None) or getattr(self, "current_provider", None)
+
+                if provider == "openrouter":
+                    extra = ' — Get API key: <a href="https://openrouter.ai/">https://openrouter.ai/</a>'
+                elif provider == "groq":
+                    extra = ' — Get API key: <a href="https://console.groq.com/keys">https://console.groq.com/keys</a>'
+                else:
+                    # fallback nếu không xác định provider
+                    extra = (
+                        ' — Get API key: '
+                        '<a href="https://openrouter.ai/">OpenRouter</a> | '
+                        '<a href="https://console.groq.com/keys">Groq</a>'
+                    )
+
+            self.chat_display.append(f"<i>⚠️ Cannot init LLM: {msg}{extra}</i>")
+
             # fallback
             self.provider_key = "ollama"
             self._fill_models_for_provider("ollama")
             self.llm = create_llm_client("ollama", self.cmb_model.currentText().strip())
             self.chat_display.append("<i>↩ Fallback to Ollama</i>")
-
+    
     def open_llm_settings(self):
         dlg = LLMSettingsDialog(self)
         if dlg.exec():
