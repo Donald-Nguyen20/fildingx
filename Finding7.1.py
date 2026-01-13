@@ -1517,10 +1517,9 @@ class IndexSearchWindow(QDialog):
         self.result_table.setRootIsDecorated(False)
 
         self.result_table.setColumnCount(3)
-        self.result_table.setHeaderLabels(["File Name", "Path", "Content Snippet"])
-        self.result_table.setColumnWidth(0, 420)  # File Name
+        self.result_table.setHeaderLabels(["File Name", "Path",])
+        self.result_table.setColumnWidth(0, 520)  # File Name
         self.result_table.setColumnWidth(1, 260)  # Path
-        self.result_table.setColumnWidth(2, 300)  # Snippet
         self.result_table.itemDoubleClicked.connect(self.open_file)
 
         # ✅ connect đúng tên hàm đang tồn tại
@@ -1577,17 +1576,20 @@ class IndexSearchWindow(QDialog):
 
     # Hiển thị kết quả
         self.result_table.clear()
-        self.result_table.setColumnCount(4)  # Tăng số cột lên 4 (cột thứ 4 lưu db_path)
-        self.result_table.setHeaderLabels(["File Name", "Path", "Content Snippet", "Database"])
-        self.result_table.setColumnHidden(3, True)  # Ẩn cột chứa đường dẫn cơ sở dữ liệu
+        self.result_table.setColumnCount(2)
+        self.result_table.setHeaderLabels(["File Name", "Path"])
 
         if results:
             for name, path, content, db_path in results:
-                snippet = content[:100] + "..." if len(content) > 100 else content
-                item = QTreeWidgetItem([name, path, snippet, db_path])  # Thêm db_path vào cột thứ 4
+                item = QTreeWidgetItem([name, path])
+
+                # ✅ lưu db_path ẩn để open_file dùng (không cần cột Database nữa)
+                item.setData(0, Qt.UserRole, db_path)
+
                 self.result_table.addTopLevelItem(item)
         else:
             QMessageBox.information(self, "No Results", "No files found with the given keyword.")
+
 
     def search_in_single_database(self, db_path, keyword):
         """Tìm kiếm trong một cơ sở dữ liệu."""
@@ -1625,7 +1627,7 @@ class IndexSearchWindow(QDialog):
             relative_path = item.text(1)  # Cột thứ hai chứa đường dẫn tương đối
 
             # Get the database path from the hidden fourth column
-            db_path = item.text(3)  # Cột thứ 4 (ẩn) chứa đường dẫn cơ sở dữ liệu
+            db_path = item.data(0, Qt.UserRole)  # Cột thứ 4 (ẩn) chứa đường dẫn cơ sở dữ liệu
 
             # Kết nối tới cơ sở dữ liệu để lấy BASE_PATH
             conn = sqlite3.connect(db_path)

@@ -612,7 +612,11 @@ C) Warnings
         except Exception as e:
             answer = f"(LLM error) {e}"
 
-        self.chat_display.append(f"🤖 Trợ lý: {answer}")
+        safe_ans = html.escape(answer).replace("\n", "<br>")
+        self.chat_display.append(
+            f'<span style="color:#111111; font-weight:400;">🤖 Trợ lý: {safe_ans}</span>'
+        )
+
 
         # (Giữ UI như cũ) — chỉ append nguồn tóm tắt vào chat
         # ===== Sources panel (right) =====

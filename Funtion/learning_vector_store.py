@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
 )
 
 
-from vector_store_builder import build_vector_store, append_vector_store
+from vector_store_builder import build_vector_store, build_vector_store_from_files, append_vector_store
 from Funtion.rag_extract import extract_content
 
 
@@ -95,6 +95,31 @@ class BuildStoreWorker(QThread):
             self.done.emit(out)
         except Exception as e:
             self.error.emit(str(e))
+class BuildStoreWorkerFiles(QThread):
+    progress = Signal(int)
+    log = Signal(str)
+    done = Signal(str)
+    error = Signal(str)
+
+    def __init__(self, file_paths: list, output_dir: str):
+        super().__init__()
+        self.file_paths = file_paths or []
+        self.output_dir = output_dir
+
+    def run(self):
+        try:
+            self.log.emit(f"Selected files: {len(self.file_paths)}")
+            self.log.emit(f"Output: {self.output_dir}")
+
+            out = build_vector_store_from_files(
+                file_paths=self.file_paths,
+                extract_content_fn=extract_content,
+                output_dir=self.output_dir,
+                progress_cb=lambda p: self.progress.emit(int(p)),
+            )
+            self.done.emit(out)
+        except Exception as e:
+            self.error.emit(str(e))
 
 class AppendStoreWorker(QThread):
     progress = Signal(int)
@@ -136,6 +161,7 @@ class VectorStoreDialog(QDialog):
 
         row1 = QHBoxLayout()
         self.ed_folder = QLineEdit()
+        self._picked_files = []
         btn_browse = QPushButton("Browse Folder…")
         btn_browse.clicked.connect(self.pick_folder)
         row1.addWidget(QLabel("Source folder:"))
@@ -192,20 +218,29 @@ class VectorStoreDialog(QDialog):
         self.worker = None
 
     def pick_folder(self):
+        # 1) Chọn NHIỀU FILE trước
+        files, _ = QFileDialog.getOpenFileNames(
+            self,
+            "Select files (multi-select with Ctrl/Shift) OR Cancel to choose folder",
+            "",
+            "Documents (*.pdf *.docx *.xlsx *.pptx *.txt *.csv *.md *.html *.json *.xml);;All files (*.*)"
+        )
+        if files:
+            self._picked_files = files
+            self.ed_folder.setText(f"[{len(files)} files selected]")
+            return
+
+        # 2) Nếu Cancel -> chọn FOLDER
         folder = QFileDialog.getExistingDirectory(self, "Select folder to build vector store")
         if folder:
+            self._picked_files = []
             self.ed_folder.setText(folder)
 
     def log(self, s: str):
         self.logbox.append(s)
 
     def start_build(self):
-        folder = self.ed_folder.text().strip()
         name = self.ed_name.text().strip()
-
-        if not folder or not os.path.isdir(folder):
-            QMessageBox.warning(self, "Missing", "Please select a valid folder.")
-            return
         if not name:
             QMessageBox.warning(self, "Missing", "Please enter store name.")
             return
@@ -221,12 +256,26 @@ class VectorStoreDialog(QDialog):
         self.pb.setValue(0)
         self.log(f"Output folder created: {out_dir}")
 
-        self.worker = BuildStoreWorker(folder, out_dir)
+        # --- MODE 1: build từ NHIỀU FILE ---
+        if self._picked_files:
+
+            self.worker = BuildStoreWorkerFiles(self._picked_files, out_dir)
+
+        # --- MODE 2: build từ FOLDER ---
+        else:
+            folder = self.ed_folder.text().strip()
+            if not folder or not os.path.isdir(folder):
+                QMessageBox.warning(self, "Missing", "Please select a valid folder OR select files.")
+                self.btn_build.setEnabled(True)
+                return
+            self.worker = BuildStoreWorker(folder, out_dir)
+
         self.worker.progress.connect(self.pb.setValue)
         self.worker.log.connect(self.log)
         self.worker.done.connect(self.on_done)
         self.worker.error.connect(self.on_error)
         self.worker.start()
+
 
     def on_done(self, out_dir: str):
         self.log(f"✅ Done: {out_dir}")
@@ -248,9 +297,16 @@ class VectorStoreDialog(QDialog):
             store_dir = os.path.join(vs_root, name)
             if not os.path.isdir(store_dir):
                 continue
-            # store hợp lệ
-            if os.path.exists(os.path.join(store_dir, "index.faiss")) and os.path.exists(os.path.join(store_dir, "metadata.json")):
+
+            # store hợp lệ (đủ file để load/append/validate)
+            idx  = os.path.join(store_dir, "index.faiss")
+            meta = os.path.join(store_dir, "metadata.json")
+            base = os.path.join(store_dir, "base_path.txt")
+            cfg  = os.path.join(store_dir, "index_config.json")
+
+            if os.path.exists(idx) and os.path.exists(meta) and os.path.exists(base) and os.path.exists(cfg):
                 self.cbo_store.addItem(name, userData=store_dir)
+
 
     def on_files_dropped(self, paths: list):
         self._dropped_paths = paths or []
