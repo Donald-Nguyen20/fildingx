@@ -28,6 +28,7 @@ from PySide6.QtWidgets import QProgressBar
 from Funtion.percent_exclude_search import parse_percent_query, match_A_percent_B
 from hud_widgets import qss_hud_metal_header_feel, qss_white_results
 from hud_widgets import qss_hud_metal_header_feel, qss_white_results
+from Funtion.tree_sorter import TreeSortHelper
 
 import os, sys
 
@@ -266,10 +267,52 @@ class FileSearchApp(QMainWindow):
 
         # TreeWidget for displaying search results
         self.tree_widget = QTreeWidget()
-        self.tree_widget.setColumnCount(2)
-        self.tree_widget.setHeaderLabels(["FILE NAME", "PATH"])
-        self.tree_widget.setColumnWidth(0, 600)
-        self.tree_widget.setColumnWidth(1, 300)
+        self.sort_helper = TreeSortHelper(self.tree_widget)
+        # ✅ Windows-like selection for QTreeWidget (Explorer feel)
+        self.tree_widget.setStyleSheet("""
+        QTreeWidget {
+            outline: 0;
+            selection-background-color: transparent; /* tránh bị Qt tự tô màu lạ */
+        }
+
+        /* Hover */
+        QTreeWidget::item:hover {
+            background: rgba(0, 120, 215, 25);
+        }
+
+        /* Selected + ACTIVE window */
+        QTreeWidget::item:selected:active,
+        QTreeWidget::item:selected:focus {
+            background: rgba(0, 120, 215, 170);
+            color: white;
+        }
+
+        /* Selected but INACTIVE window (mất focus) */
+        QTreeWidget::item:selected:!active {
+            background: rgba(0, 120, 215, 80);
+            color: black;
+        }
+
+        /* Optional: focus rectangle (Explorer-style) */
+        QTreeWidget::item:focus {
+            outline: none;
+        }
+        """)
+        # ✅ giữ focus cho tree khi click (tránh selection bị nhạt/mất)
+        self.tree_widget.setFocusPolicy(Qt.StrongFocus)
+        self.tree_widget.itemPressed.connect(lambda *_: self.tree_widget.setFocus())
+        self.tree_widget.itemClicked.connect(lambda *_: self.tree_widget.setFocus())
+
+        self.tree_widget.setColumnCount(5)
+        self.tree_widget.setHeaderLabels(["FILE NAME", "DATE MODIFIED", "TYPE", "SIZE (MB)", "PATH"])
+
+        self.tree_widget.setColumnWidth(0, 650)  # name
+        self.tree_widget.setColumnWidth(1, 129)  # date
+        self.tree_widget.setColumnWidth(2, 80)   # type
+        self.tree_widget.setColumnWidth(3, 90)   # size
+        self.tree_widget.setColumnWidth(4, 350)  # path
+
+
         self.tree_widget.itemDoubleClicked.connect(self.open_file)
         self.tree_widget.setSelectionMode(QTreeWidget.MultiSelection)
         # Thiết lập chế độ menu chuột phải
@@ -521,6 +564,23 @@ class FileSearchApp(QMainWindow):
 
         # Thêm nút vào hidden_frame ngày 25122024
         self.hidden_frame_layout.addWidget(self.open_index_interface_button)
+    def format_mtime(self, file_path: str) -> str:
+        try:
+            ts = os.path.getmtime(file_path)
+            from datetime import datetime
+            return datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
+        except Exception:
+            return ""
+    def get_file_type(self, file_path: str) -> str:
+        ext = os.path.splitext(file_path)[1].lower()
+        return ext[1:].upper() if ext else "FILE"
+
+    def get_file_size_mb(self, file_path: str) -> str:
+        try:
+            size_mb = os.path.getsize(file_path) / (1024 * 1024)
+            return f"{size_mb:.2f}"
+        except Exception:
+            return ""
 
 
     def toggle_hidden_frame(self):
@@ -634,7 +694,7 @@ class FileSearchApp(QMainWindow):
 
     def open_folder(self, item):
         """Mở thư mục chứa file."""
-        file_path = item.text(1)
+        file_path = item.text(4)
         folder = os.path.dirname(file_path)
         if os.path.exists(folder):
             webbrowser.open(f'file:///{folder}')
@@ -654,7 +714,7 @@ class FileSearchApp(QMainWindow):
         """Lấy đường dẫn file từ TreeView và sao chép vào clipboard."""
         selected_items = self.tree_widget.selectedItems()
         if selected_items:
-            links = [item.text(1) for item in selected_items]
+            links = [item.text(4) for item in selected_items]
             clipboard_content = "\n".join(links)
             QApplication.clipboard().setText(clipboard_content)
             QMessageBox.information(self, "Links Copied", "File paths copied to clipboard.")
@@ -711,7 +771,7 @@ class FileSearchApp(QMainWindow):
         selected_items = self.tree_widget.selectedItems()
         if selected_items:
             for item in selected_items:
-                file_path = item.text(1)
+                file_path = item.text(4)
                 file_paths.append(file_path)
 
         if not file_paths:
@@ -842,24 +902,50 @@ class FileSearchApp(QMainWindow):
 
 #tạo từ đồng nghĩa
 
+
+
     def display_results(self, kết_quả):
-        """Hiển thị kết quả tìm kiếm trong QTreeWidget và cập nhật QLCDNumber."""
-        self.tree_widget.clear()  # Xóa kết quả cũ
+        self.tree_widget.clear()
 
         if kết_quả:
             for file_name, file_path in kết_quả:
-                item = QTreeWidgetItem([file_name, file_path])
+                date_modified = self.format_mtime(file_path)
+                file_type = self.get_file_type(file_path)
+                file_size_mb = self.get_file_size_mb(file_path)
+
+                # sort key chuẩn
+                try:
+                    mtime_ts = os.path.getmtime(file_path)
+                except Exception:
+                    mtime_ts = None
+
+                try:
+                    size_bytes = os.path.getsize(file_path)
+                except Exception:
+                    size_bytes = None
+
+                item = self.sort_helper.make_item(
+                    name=file_name,
+                    date_text=date_modified,
+                    type_text=file_type,
+                    size_text=file_size_mb,
+                    path=file_path,
+                    mtime_ts=mtime_ts,
+                    size_bytes=size_bytes,
+                )
                 self.tree_widget.addTopLevelItem(item)
 
-        # Cập nhật LCDNumber và thông báo số lượng
             self.lcd_number.display(len(kết_quả))
             QMessageBox.information(self, "Kết quả", f"Tìm thấy {len(kết_quả)} tệp.")
         else:
-        # Không có kết quả
-            item = QTreeWidgetItem(["No matches found", ""])
+            item = self.sort_helper.make_item(
+                "No matches found", "", "", "", "",
+                mtime_ts=None, size_bytes=None
+            )
             self.tree_widget.addTopLevelItem(item)
             self.lcd_number.display(0)
             QMessageBox.warning(self, "Không tìm thấy", "Không tìm thấy tệp nào phù hợp.")
+
 
 
 
@@ -917,7 +1003,7 @@ class FileSearchApp(QMainWindow):
     def open_folder_from_treeview(self, item):
         """Mở thư mục chứa file từ TreeView."""
     # Lấy đường dẫn từ cột Path
-        file_path = item.text(1)
+        file_path = item.text(4)
         folder = os.path.dirname(file_path)
         if os.path.exists(folder):
             # Mở thư mục chứa file
@@ -970,7 +1056,7 @@ class FileSearchApp(QMainWindow):
 
     def open_file(self, item):
         """Mở file được double-click trong QTreeWidget."""
-        file_path = item.text(1)  # Lấy đường dẫn từ cột Path
+        file_path = item.text(4)  # Lấy đường dẫn từ cột Path
         if os.path.exists(file_path):
             webbrowser.open(file_path)  # Mở file bằng trình duyệt mặc định
         else:
@@ -980,7 +1066,7 @@ class FileSearchApp(QMainWindow):
     def add_to_container(self):
         selected_item = self.tree_widget.currentItem()
         if selected_item:
-            file_path = selected_item.text(1)
+            file_path = selected_item.text(4)
             selected_container = self.containers_list.currentItem().text()
             if selected_container:
                 if file_path not in [f[0] for f in self.containers[selected_container]]:
@@ -1667,6 +1753,7 @@ if __name__ == "__main__":
 
 
     window = FileSearchApp()
-    window.show()
+    window.showMaximized()
+
     sys.exit(app.exec())
 

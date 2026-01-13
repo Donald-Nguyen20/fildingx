@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QDesktopServices, QGuiApplication
 
-
+from PySide6.QtCore import QEvent
 import os
 import json
 import sys
@@ -134,7 +134,7 @@ class AIChatPopup(QDialog):
         self.resize(980, 680)
         self.setMinimumSize(1200, 650)
 
-        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint )
         
         self.setAttribute(Qt.WA_TranslucentBackground, False)
 
@@ -374,6 +374,14 @@ QPushButton:pressed { background: rgba(0,0,0,0.14); }
         self.cmb_provider.setAttribute(Qt.WA_StyledBackground, True)
         self.cmb_model.setAttribute(Qt.WA_StyledBackground, True)
 
+
+    def event(self, e):
+        # ✅ Mở tác vụ khác / mất focus: KHÔNG minimize, KHÔNG hide
+        if e.type() == QEvent.WindowDeactivate:
+            return False  # để Qt xử lý bình thường, popup vẫn giữ nguyên trạng thái
+        return super().event(e)
+
+
     def _fill_models_for_provider(self, provider_key: str):
         cfg = load_llm_config()
         self.cmb_model.blockSignals(True)
@@ -498,31 +506,31 @@ QPushButton:pressed { background: rgba(0,0,0,0.14); }
         QMessageBox.warning(self, "File not found", f"File not found:\n{path}")
 
     def show_below_widget(self, anchor_widget, gap: int = 8):
-        """Show this popup right below the given widget (e.g., popup button)."""
-        if anchor_widget is None:
-            self.show()
+        # TOGGLE: nếu đang hiện (kể cả minimized) thì ẩn; nếu đang ẩn thì hiện
+        if self.isVisible() and not self.isMinimized():
+            self.hide()
             return
 
-        # vị trí global của nút
-        gpos = anchor_widget.mapToGlobal(anchor_widget.rect().bottomLeft())
+        # nếu đang minimized mà bấm nút -> restore lên lại
+        if self.isMinimized():
+            self.showNormal()
 
-        # canh giữa popup theo nút
+        if anchor_widget is None:
+            self.show()
+            self.raise_()
+            self.activateWindow()
+            return
+
+        gpos = anchor_widget.mapToGlobal(anchor_widget.rect().bottomLeft())
         btn_center_x = anchor_widget.mapToGlobal(anchor_widget.rect().center()).x()
         x = int(btn_center_x - self.width() / 2)
-
         y = gpos.y() + gap
 
-
-        # chống tràn màn hình
         screen = QGuiApplication.screenAt(gpos) or QGuiApplication.primaryScreen()
         if screen:
             area = screen.availableGeometry()
-
-            # nếu vượt phải -> kéo sang trái
             if x + self.width() > area.right():
                 x = max(area.left(), area.right() - self.width())
-
-            # nếu vượt dưới -> bật lên trên nút
             if y + self.height() > area.bottom():
                 top_pos = anchor_widget.mapToGlobal(anchor_widget.rect().topLeft())
                 y = max(area.top(), top_pos.y() - self.height() - gap)
@@ -531,6 +539,7 @@ QPushButton:pressed { background: rgba(0,0,0,0.14); }
         self.show()
         self.raise_()
         self.activateWindow()
+
 
     def handle_user_input(self):
         user_input = self.input_line.text().strip()
@@ -628,4 +637,3 @@ C) Warnings
             item.setData(Qt.UserRole, r.get("abs_path", ""))
             self.sources_list.addItem(item)
 
-        
