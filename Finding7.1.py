@@ -506,6 +506,8 @@ class FileSearchApp(QMainWindow):
 
         # Create Notes Window (separate)
         self.notes_window = NotesWindow(parent=self)
+        self.notes_window.main_app = self   # ✅ FIX: gắn main app vào notes window
+
 
         # Adjust spacing and margins
         self.hidden_frame_layout.setSpacing(2)
@@ -722,14 +724,19 @@ class FileSearchApp(QMainWindow):
             QMessageBox.warning(self, "No Selection", "Please select at least one file.")
 
     def show_note_frame(self, item):
-        """Display the note window when a file is selected within a container."""
-        selected_file = item.text()
-        selected_container = self.containers_list.currentItem().text()
-        # Get the full path of the selected file from the container
-        for file_path, _ in self.containers[selected_container]:
-            if os.path.basename(file_path) == selected_file:
+        selected_container_item = self.containers_list.currentItem()
+        if not selected_container_item:
+            QMessageBox.warning(self, "No Container", "Please select a container first.")
+            return
+
+        selected_container = selected_container_item.text()
+        selected_file_name = item.text()
+
+        for file_path, note in self.containers.get(selected_container, []):
+            if os.path.basename(file_path) == selected_file_name:
                 self.notes_window.display_note_for_file(selected_container, file_path)
-                break
+                return
+
 
 
     def delete_container(self):
@@ -742,11 +749,38 @@ class FileSearchApp(QMainWindow):
             self.save_data_to_file()
 
     def create_container(self):
-        container_name = self.container_entry.text()
-        if container_name:
-            self.containers_list.addItem(container_name)
-            self.containers[container_name] = []
-            self.save_data_to_file()
+        container_name = self.container_entry.text().strip()
+        if not container_name:
+            QMessageBox.warning(self, "Empty", "Please enter container name.")
+            return
+
+        if container_name in self.containers:
+            QMessageBox.warning(self, "Exists", "Container already exists.")
+            return
+
+        # tạo + lưu
+        self.containers[container_name] = []
+        self.save_data_to_file()
+
+        # ✅ đảm bảo list hiển thị container mới (tắt filter)
+        if hasattr(self, "container_search_bar"):
+            self.container_search_bar.blockSignals(True)
+            self.container_search_bar.setText("")   # clear filter để show tất cả
+            self.container_search_bar.blockSignals(False)
+
+        self.filter_containers("")  # đổ lại list
+
+        # ✅ auto select container vừa tạo + show file list
+        for i in range(self.containers_list.count()):
+            if self.containers_list.item(i).text() == container_name:
+                self.containers_list.setCurrentRow(i)
+                self.display_container_files(self.containers_list.item(i))
+                break
+
+        self.container_entry.clear()
+        QMessageBox.information(self, "Created", f"Created container: {container_name}")
+
+
 
     def open_or_create_notes(self):
         file_path = os.path.join(os.getcwd(), "Notes.xlsm")
@@ -1070,7 +1104,8 @@ class FileSearchApp(QMainWindow):
             selected_container = self.containers_list.currentItem().text()
             if selected_container:
                 if file_path not in [f[0] for f in self.containers[selected_container]]:
-                    self.containers[selected_container].append((file_path, ""))
+                    self.containers[selected_container].append((file_path, {"text": ""}))
+
                     self.save_data_to_file()
                     self.display_container_files(self.containers_list.currentItem())
                 else:
@@ -1133,9 +1168,16 @@ class FileSearchApp(QMainWindow):
         if os.path.exists(DATA_FILE):
             with open(DATA_FILE, 'r') as file:
                 self.containers = json.load(file)
+        else:
+            self.containers = {}
 
-        # Initially display all containers
-        self.filter_containers("")
+        self.filter_containers("")  # đổ containers ra list
+
+        # ✅ auto select container đầu tiên (nếu có)
+        if self.containers_list.count() > 0 and self.containers_list.currentItem() is None:
+            self.containers_list.setCurrentRow(0)
+            self.display_container_files(self.containers_list.currentItem())
+
 
 #load và save từ đồng nghĩa
     def load_synonyms(self):

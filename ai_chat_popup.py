@@ -12,6 +12,7 @@ import os
 import json
 import sys
 import html
+import re
 
 # cần 2 file này nằm cùng thư mục:
 # - vector_retriever.py
@@ -113,6 +114,29 @@ QComboBox QAbstractItemView {
             self.accept()
         except Exception as e:
             QMessageBox.critical(self, "Save failed", f"{type(e).__name__}: {e}\n\nPath:\n{get_config_path()}")
+def extract_cited_indices(answer: str, max_k: int) -> list[int]:
+    """
+    Parse citations like [1], [2]... from LLM answer.
+    Return 0-based indices that map to `results`.
+    """
+    nums = re.findall(r"\[(\d+)\]", answer)
+    idx = []
+    for s in nums:
+        try:
+            n = int(s)
+        except ValueError:
+            continue
+        if 1 <= n <= max_k:
+            idx.append(n - 1)  # 0-based
+
+    # unique but keep order
+    seen = set()
+    ordered = []
+    for i in idx:
+        if i not in seen:
+            seen.add(i)
+            ordered.append(i)
+    return ordered
 
 
 class AIChatPopup(QDialog):
@@ -629,11 +653,29 @@ C) Warnings
 
         # (Giữ UI như cũ) — chỉ append nguồn tóm tắt vào chat
         # ===== Sources panel (right) =====
+        # ===== Sources panel (right) =====
+        # Show ONLY sources that are actually cited in the answer.
+        cited_idx = extract_cited_indices(answer, max_k=len(results))
+
         self.sources_list.clear()
-        for i, r in enumerate(results, start=1):
-            title = f"[{i}] {r.get('rel_path') or r.get('file_name')}"
-            item = QListWidgetItem(title)
-            item.setToolTip(r.get("abs_path", ""))
-            item.setData(Qt.UserRole, r.get("abs_path", ""))
-            self.sources_list.addItem(item)
+
+        if cited_idx:
+            # Keep original numbers so they match citations in the answer: [n]
+            for idx in cited_idx:
+                r = results[idx]
+                n = idx + 1  # original chunk number
+                title = f"[{n}] {r.get('rel_path') or r.get('file_name')}"
+                item = QListWidgetItem(title)
+                item.setToolTip(r.get("abs_path", ""))
+                item.setData(Qt.UserRole, r.get("abs_path", ""))
+                self.sources_list.addItem(item)
+        else:
+            # Fallback: if the model forgot to cite, show a small retrieved set (debug-friendly)
+            for i, r in enumerate(results[:5], start=1):
+                title = f"[{i}] {r.get('rel_path') or r.get('file_name')}"
+                item = QListWidgetItem(title)
+                item.setToolTip(r.get("abs_path", ""))
+                item.setData(Qt.UserRole, r.get("abs_path", ""))
+                self.sources_list.addItem(item)
+
 
