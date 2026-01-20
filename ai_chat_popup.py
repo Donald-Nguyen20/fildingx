@@ -588,12 +588,35 @@ QPushButton:pressed { background: rgba(0,0,0,0.14); }
             self.chat_display.append("🤖 Trợ lý: Mình không tìm thấy đoạn liên quan trong Vector Store.")
             return
 
-        # Ghép CONTEXT (giới hạn để model 3B không ngợp)
+        # Ghép CONTEXT (chunk-based: KHÔNG cắt ngang chunk)
+        MAX_CTX_CHARS = 8000  # giữ ngưỡng cũ cho model 3B
+        PER_CHUNK_CAP = 1600  # (tuỳ chọn) giới hạn mỗi chunk để không 1 chunk nuốt hết budget
+
         ctx_blocks = []
+        total = 0
+
         for i, r in enumerate(results, start=1):
-            ctx_blocks.append(f"[{i}] {r['file_name']} | chunk {r['chunk_id']} | score={r['score']:.3f}\n{r['text']}")
+            text = r["text"]
+            if len(text) > PER_CHUNK_CAP:
+                text = text[:PER_CHUNK_CAP] + " ..."
+
+            block = f"[{i}] {r['file_name']} | chunk {r['chunk_id']} | score={r['score']:.3f}\n{text}\n"
+            blen = len(block)
+
+            # nếu block đầu tiên quá dài thì cắt nhẹ (hiếm)
+            if not ctx_blocks and blen > MAX_CTX_CHARS:
+                ctx_blocks.append(block[:MAX_CTX_CHARS])
+                break
+
+            # nếu thêm block sẽ vượt ngưỡng -> dừng (không cắt ngang chunk)
+            if total + blen > MAX_CTX_CHARS:
+                break
+
+            ctx_blocks.append(block)
+            total += blen
+
         context = "\n\n".join(ctx_blocks)
-        context = context[:8000]
+
         # ==== Load prompt template from promp.json ====
         prompts = load_prompts_json("promp.json")
         tpl = prompts.get("sop_prompt")
