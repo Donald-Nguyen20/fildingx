@@ -21,7 +21,7 @@ from vector_retriever import VectorRetriever
 from llm_client import create_llm_client, PROVIDERS
 from llm_config import load_llm_config, save_llm_config, get_config_path
 from hud_widgets import HudPanel
-
+from Rag_funtions.clear_history import install_clear_history_button, clear_popup_history
 def app_dir() -> str:
     if getattr(sys, "frozen", False):
         return os.path.dirname(sys.executable)
@@ -137,6 +137,8 @@ def extract_cited_indices(answer: str, max_k: int) -> list[int]:
             seen.add(i)
             ordered.append(i)
     return ordered
+def safe_braces(s: str) -> str:
+    return s.replace("{", "{{").replace("}", "}}")
 
 
 class AIChatPopup(QDialog):
@@ -159,6 +161,8 @@ class AIChatPopup(QDialog):
         self.setMinimumSize(1200, 650)
 
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint )
+
+
         
         self.setAttribute(Qt.WA_TranslucentBackground, False)
 
@@ -190,10 +194,19 @@ class AIChatPopup(QDialog):
 
         # ===== Top bar: "Chat" + nút Load Vector Store =====
         top_bar = QHBoxLayout()
-        top_bar.addWidget(QLabel("💬 Chat:"))
+        top_bar.addWidget(QLabel("💬:"))
         top_bar.addStretch()
         # Provider combobox
         self.cmb_provider = QComboBox()
+        # Nút Clear ngay cạnh chữ Chat
+        btn_clear = install_clear_history_button(self, top_bar, insert_at=1, confirm=False)
+
+        # (Tuỳ chọn) sau khi clear thì hiện lại dòng trạng thái
+        def _after_clear():
+            clear_popup_history(self, ask_confirm=False)
+            self.chat_display.append("🤖 Chat bot: Cleared history. ")
+        btn_clear.clicked.disconnect()
+        btn_clear.clicked.connect(_after_clear)
         for k, label in PROVIDERS:
             self.cmb_provider.addItem(label, userData=k)
         self.cmb_provider.setToolTip("Choose LLM provider")
@@ -359,7 +372,7 @@ QPushButton:pressed { background: rgba(0,0,0,0.14); }
 
 
         # Thông báo trạng thái
-        self.chat_display.append("🤖 Trợ lý: RAG đang ở chế độ chờ (chưa load Vector Store).")
+        self.chat_display.append("🤖 Chat bot: RAG đang ở chế độ chờ (chưa load Vector Store).")
 
         # (Tuỳ chọn) nếu main_app đã có last_vector_store_dir thì auto-load
         if self.main_app is not None:
@@ -563,6 +576,7 @@ QPushButton:pressed { background: rgba(0,0,0,0.14); }
         self.show()
         self.raise_()
         self.activateWindow()
+        self.input_line.setFocus(Qt.ActiveWindowFocusReason)
 
 
     def handle_user_input(self):
@@ -572,20 +586,20 @@ QPushButton:pressed { background: rgba(0,0,0,0.14); }
 
         safe = html.escape(user_input).replace("\n", "<br>")
         self.chat_display.append(
-            f'<span style="color:#d00000; font-weight:700;">🧑 Bạn: {safe}</span>'
+            f'<span style="color:#d00000; font-weight:700;">🧑 You: {safe}</span>'
         )
 
         self.input_line.clear()
 
         # Nếu chưa load store → nhắc user load
         if self.retriever is None:
-            self.chat_display.append("🤖 Trợ lý: Bạn hãy bấm 'Load Vector Store' trước nhé.")
+            self.chat_display.append("🤖 Chat bot: Please click 'Load Vector Store' before that.")
             return
 
         # ==== RAG Retrieve ====
         results = self.retriever.search(user_input, top_k=12)
         if not results:
-            self.chat_display.append("🤖 Trợ lý: Mình không tìm thấy đoạn liên quan trong Vector Store.")
+            self.chat_display.append("🤖 Chat bot: I don't research any things related in Vector Store.")
             return
 
         # Ghép CONTEXT (chunk-based: KHÔNG cắt ngang chunk)
@@ -625,21 +639,62 @@ QPushButton:pressed { background: rgba(0,0,0,0.14); }
             self.chat_display.append("⚠️ Không đọc được promp.json hoặc thiếu key 'sop_prompt' → dùng prompt mặc định.")
             self.chat_display.append(f"<i>Path: {os.path.join(app_dir(), 'promp.json')}</i>")
 
-            tpl = """You are a thermal power plant operation SOP assistant.
+            tpl = r"""You are a Thermal Power Plant Operation SOP Assistant.
 
-STRICT RULES:
-- Answer ONLY using the CONTEXT below. Do NOT use general knowledge.
-- If the CONTEXT does not contain the answer, reply exactly: NOT FOUND IN CONTEXT.
-- Preserve technical numbers/limits exactly (e.g., 110%, 1 hour, etc.).
-- Do NOT mention chunk id, score, retrieval, vector, embeddings, or sources.
-- Do NOT write long paragraphs.
-- Split multiple points into separate numbered items.
-- Each numbered item must contain ONE action or ONE rule only.
-- If you need sub-items, use "-" under the numbered item.
+YOUR ROLE:
+- You act strictly as a SOP reader and SOP executor.
+- You do NOT act as an engineer, advisor, or instructor.
+- You are NOT allowed to use engineering judgment, experience, or general knowledge.
+
+ABSOLUTE RULES (NO EXCEPTIONS):
+1. Answer ONLY using the CONTENT explicitly written in the CONTEXT section.
+2. Do NOT use any external knowledge, assumptions, logic inference, or intuition.
+3. Do NOT infer missing steps, implied actions, or unstated conditions.
+4. If ANY required information is missing, incomplete, or unclear, reply EXACTLY:
+   NOT FOUND IN CONTEXT.
+5. If the CONTEXT contains conflicting instructions, limits, values, or steps, reply EXACTLY:
+   CONFLICT IN CONTEXT.
+
+SOP PRESERVATION RULES:
+- Preserve ALL technical wording exactly as written in the CONTEXT.
+- Preserve equipment names, tags, abbreviations, symbols, and units exactly.
+- Preserve all numerical values, limits, durations, percentages, and setpoints exactly.
+- Do NOT paraphrase, simplify, summarize, or reword SOP instructions.
+- Do NOT translate technical terms unless the CONTEXT already contains the translation.
+
+REASONING RESTRICTIONS:
+- Do NOT explain background theory.
+- Do NOT justify actions.
+- Do NOT add causes, effects, notes, or explanations unless explicitly written in the CONTEXT.
+
+FORMAT RULES (MANDATORY):
+- Answer ONLY with a numbered list.
+- Each numbered item MUST contain ONLY ONE action OR ONE rule.
 - Each numbered item MUST be on its own line.
-- Do NOT put multiple numbered items in one paragraph.
-- Leave a blank line between sections 1/2/3.
-- If the question is Vietnamese, answer in Vietnamese (keep the same level of detail as English). Otherwise, answer in English.
+- If sub-actions are explicitly written in the CONTEXT, use '-' under the same numbered item.
+- Do NOT combine multiple actions into one numbered item.
+- Do NOT write introductory or concluding sentences.
+
+LANGUAGE RULE:
+- If the QUESTION is written in Vietnamese, answer in Vietnamese.
+- Otherwise, answer in English.
+- Keep the same technical level and wording style as the CONTEXT.
+
+EXHAUSTIVE LISTING RULES (ADDITIONAL):
+- When the QUESTION asks to "talk about", "describe", "list", or "explain" a subject,
+  you MUST extract ALL distinct points explicitly written in the CONTEXT related to that subject.
+- Do NOT stop after listing a few representative items.
+- Continue listing numbered items until ALL relevant statements in the CONTEXT are exhausted.
+- Each sentence or clause in the CONTEXT that describes a different aspect MUST be written as a separate numbered item.
+- Do NOT merge multiple aspects into a single numbered item.
+
+CITATION RULES (MANDATORY):
+- Every numbered item MUST end with at least one citation in the format [n].
+- [n] refers to the chunk number shown in the CONTEXT section.
+- Use ONLY citation numbers that exist in the CONTEXT.
+- Do NOT invent, guess, or reuse citation numbers incorrectly.
+- If a numbered item cannot be supported by any chunk in the CONTEXT, reply EXACTLY:
+  NOT FOUND IN CONTEXT.
 
 CONTEXT:
 <<<
@@ -650,17 +705,17 @@ QUESTION:
 {user_input}
 
 MANDATORY OUTPUT FORMAT:
-A) Actions
-1. ...
-
-B) Monitoring
-1. ...
-
-C) Warnings
-1. ...
+1. ... [n]
+2. ... [n]
+3. ... [n]
 """
 
-        prompt = tpl.format(context=context, user_input=user_input)
+
+        prompt = tpl.format(
+    context=safe_braces(context),
+    user_input=safe_braces(user_input),
+)
+
 
 
         try:
@@ -670,7 +725,7 @@ C) Warnings
 
         safe_ans = html.escape(answer).replace("\n", "<br>")
         self.chat_display.append(
-            f'<span style="color:#111111; font-weight:400;">🤖 Trợ lý: {safe_ans}</span>'
+            f'<span style="color:#111111; font-weight:400;">🤖 Chat bot: {safe_ans}</span>'
         )
 
 
