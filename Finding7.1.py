@@ -29,6 +29,8 @@ from Funtion.percent_exclude_search import parse_percent_query, match_A_percent_
 from hud_widgets import qss_hud_metal_header_feel, qss_white_results
 from hud_widgets import qss_hud_metal_header_feel, qss_white_results
 from Funtion.tree_sorter import TreeSortHelper
+from PySide6.QtGui import QAction, QKeySequence
+from Funtion.help_dialog import HelpDialog
 
 import os, sys
 
@@ -566,6 +568,21 @@ class FileSearchApp(QMainWindow):
 
         # Thêm nút vào hidden_frame ngày 25122024
         self.hidden_frame_layout.addWidget(self.open_index_interface_button)
+        self._bind_help_f1()
+    def _bind_help_f1(self):
+        """
+        Bind phím F1 mở HelpDialog
+        Không cần menu, không cần nút
+        """
+        act_help = QAction(self)
+        act_help.setShortcut(QKeySequence("F1"))
+        act_help.triggered.connect(self._show_help_dialog)
+        self.addAction(act_help)
+
+    def _show_help_dialog(self):
+        dlg = HelpDialog(self)
+        dlg.exec()
+
     def format_mtime(self, file_path: str) -> str:
         try:
             ts = os.path.getmtime(file_path)
@@ -1047,35 +1064,121 @@ class FileSearchApp(QMainWindow):
 
 
     def search_duplicates(self):
-        folder_path = self.folder_entry.text()
+        folder_path = self.folder_entry.text().strip()
         if not folder_path:
             QMessageBox.warning(self, "Input Error", "Please provide the folder path.")
             return
 
-        results = self.find_duplicate_files(folder_path)
+        groups = self.find_duplicate_files(folder_path)  # list group dict
         self.tree_widget.clear()
-        if results:
-            for result in results:
-                item = QTreeWidgetItem(result)
-                self.tree_widget.addTopLevelItem(item)
-        else:
-            item = QTreeWidgetItem(["No duplicates found", ""])
+
+        if not groups:
+            item = self.sort_helper.make_item(
+                "No duplicates found", "", "", "", "",
+                mtime_ts=None, size_bytes=None
+            )
             self.tree_widget.addTopLevelItem(item)
+            self.lcd_number.display(0)
+            QMessageBox.information(self, "Duplicates", "No duplicates found.")
+            return
+
+        total_files = 0
+        for idx, g in enumerate(groups, start=1):
+            files = g["files"]
+            total_files += len(files)
+
+            # Parent row (group header)
+            group_title = f"GROUP {idx}  •  {len(files)} files"
+
+            parent = self.sort_helper.make_item(
+                name=group_title,
+                date_text="",
+                type_text="DUP",
+                size_text="",
+                path="",
+                mtime_ts=None,
+                size_bytes=None
+            )
+
+            self.tree_widget.addTopLevelItem(parent)
+            parent.setExpanded(True)
+
+            # Children rows (each file full 5 columns)
+            for file_name, file_path in files:
+                date_modified = self.format_mtime(file_path)
+                file_type = self.get_file_type(file_path)
+                file_size_mb_txt = self.get_file_size_mb(file_path)
+
+                try:
+                    mtime_ts = os.path.getmtime(file_path)
+                except Exception:
+                    mtime_ts = None
+
+                try:
+                    size_bytes = os.path.getsize(file_path)
+                except Exception:
+                    size_bytes = None
+
+                child = self.sort_helper.make_item(
+                    name=file_name,
+                    date_text=date_modified,
+                    type_text=file_type,
+                    size_text=file_size_mb_txt,
+                    path=file_path,
+                    mtime_ts=mtime_ts,
+                    size_bytes=size_bytes,
+                )
+                parent.addChild(child)
+
+        self.lcd_number.display(total_files)
+        QMessageBox.information(
+            self, "Duplicates",
+            f"Found {len(groups)} duplicate groups, total {total_files} files."
+        )
+
+
 
     def find_duplicate_files(self, folder_path):
-        files_seen = {}
-        duplicates = []
+        """
+        Trả về danh sách nhóm trùng:
+        [
+        {
+            "size": <int bytes>,
+            "hash": <sha256 str>,
+            "files": [(name, full_path), ...]   # gồm cả file gốc + các bản trùng
+        },
+        ...
+        ]
+        """
+        groups = {}  # key=(size, hash) -> list[(name, path)]
+
         for root, _, files in os.walk(folder_path):
             for file_name in files:
                 file_path = os.path.join(root, file_name)
-                file_size = os.path.getsize(file_path)
+
+                # lấy size (bắt lỗi để khỏi crash)
+                try:
+                    file_size = os.path.getsize(file_path)
+                except Exception:
+                    continue
+
                 file_hash = self.calculate_hash(file_path)
-                if file_hash:
-                    if file_size in files_seen and file_hash in files_seen[file_size]:
-                        duplicates.append((file_name, file_path))
-                    else:
-                        files_seen.setdefault(file_size, {})[file_hash] = file_path
-        return duplicates
+                if not file_hash:
+                    continue
+
+                key = (file_size, file_hash)
+                groups.setdefault(key, []).append((file_name, file_path))
+
+        # chỉ lấy những nhóm có >=2 file
+        results = []
+        for (size, h), items in groups.items():
+            if len(items) >= 2:
+                results.append({"size": size, "hash": h, "files": items})
+
+        # (tuỳ chọn) sort nhóm theo số lượng giảm dần
+        results.sort(key=lambda g: len(g["files"]), reverse=True)
+        return results
+
 
     def calculate_hash(self, file_path):
         sha256_hash = hashlib.sha256()
@@ -1799,3 +1902,4 @@ if __name__ == "__main__":
 
     sys.exit(app.exec())
 
+    
