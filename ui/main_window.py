@@ -27,6 +27,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QCursor, QPalette, QColor, QAction, QKeySequence, QBrush
 
 import paths
+from ui import themes as _themes
 import core.search_engine    as search_engine
 import core.container_manager as container_manager
 from core.container_manager import get_file_containers
@@ -409,6 +410,16 @@ class FileSearchApp(QMainWindow):
         act.triggered.connect(lambda: HelpDialog(self).exec())
         self.addAction(act)
 
+    def _apply_theme(self, index: int):
+        _themes.set_index(index)
+        t = _themes.get_current()
+        self.main_widget.setStyleSheet(t["qss"])
+        self.main_widget.repaint()
+        from ui.hud_widgets import HudPanel
+        for panel in self.findChildren(HudPanel):
+            panel.repaint()
+        self.statusBar().showMessage(f"Theme: {t['name']}", 3000)
+
     # ══════════════════════════════════════════════════════════════
     #  TOGGLE PANELS
     # ══════════════════════════════════════════════════════════════
@@ -480,6 +491,12 @@ class FileSearchApp(QMainWindow):
         if keyword == "$stats":
             from ui.stats_dialog import StatsDialog
             StatsDialog(paths.STATS_FILE, self).exec()
+            return
+
+        import re as _re
+        _cm = _re.fullmatch(r"@colour(\d)", keyword, _re.IGNORECASE)
+        if _cm:
+            self._apply_theme(int(_cm.group(1)))
             return
 
         if keyword.startswith("@"):

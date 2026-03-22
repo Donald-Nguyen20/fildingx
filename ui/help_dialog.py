@@ -665,11 +665,37 @@ class HelpDialog(QDialog):
             <td>Tìm chứa cả A và B (thứ tự bất kỳ)</td>
             <td>Ví dụ: <code>UAT * trip</code></td>
           </tr>
+          <tr>
+            <td><code>@colour0</code></td>
+            <td>Đổi giao diện → <b>Metal Blue</b> (màu gốc)</td>
+            <td rowspan="6">Gõ vào ô Keyword rồi bấm Search. Không cần chọn folder.</td>
+          </tr>
+          <tr>
+            <td><code>@colour1</code></td>
+            <td>Đổi giao diện → <b>Navy Gold</b></td>
+          </tr>
+          <tr>
+            <td><code>@colour2</code></td>
+            <td>Đổi giao diện → <b>Emerald</b></td>
+          </tr>
+          <tr>
+            <td><code>@colour3</code></td>
+            <td>Đổi giao diện → <b>Violet</b></td>
+          </tr>
+          <tr>
+            <td><code>@colour4</code></td>
+            <td>Đổi giao diện → <b>Rose Gold</b></td>
+          </tr>
+          <tr>
+            <td><code>@colour5</code></td>
+            <td>Đổi giao diện → <b>Arctic Frost</b></td>
+          </tr>
         </table>
 
         <div class="hint">
           <b>Lưu ý:</b> Các lệnh <code>$</code> không phân biệt hoa thường.
-          Không cần chọn folder trước khi dùng lệnh <code>$</code>.
+          Không cần chọn folder trước khi dùng lệnh <code>$</code>.<br>
+          Lệnh <code>@colour</code> đổi màu ngay lập tức, không cần folder.
         </div>
         </body>
         """
