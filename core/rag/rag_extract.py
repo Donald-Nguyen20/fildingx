@@ -1,4 +1,4 @@
-# Funtion/rag_extract.py
+# core/rag/rag_extract.py
 import json
 import csv
 

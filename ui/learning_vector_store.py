@@ -1,4 +1,4 @@
-# Funtion/learning_vector_store.py
+# ui/learning_vector_store.py
 import os, sys
 from PySide6.QtCore import QThread, Signal, Qt
 from PySide6.QtWidgets import (
@@ -8,8 +8,8 @@ from PySide6.QtWidgets import (
 )
 
 
-from vector_store_builder import build_vector_store, build_vector_store_from_files, append_vector_store
-from Funtion.rag_extract import extract_content
+from core.rag.vector_store_builder import build_vector_store, build_vector_store_from_files, append_vector_store
+from core.rag.rag_extract import extract_content
 
 
 def get_app_dir():
@@ -151,7 +151,7 @@ class AppendStoreWorker(QThread):
 class VectorStoreDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        from hud_widgets import qss_hud_metal_header_feel
+        from ui.hud_widgets import qss_hud_metal_header_feel
         self.setStyleSheet(qss_hud_metal_header_feel())
 
         self.setWindowTitle("Learning • Build Vector Store")

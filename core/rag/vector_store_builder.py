@@ -10,13 +10,13 @@ import numpy as np
 import faiss
 import torch
 from sentence_transformers import SentenceTransformer
-from Funtion.rag_dedup import (
+from core.rag.rag_dedup import (
     build_existing_filenames,
     is_duplicate_filename,
     build_existing_chunk_hashes,
     should_skip_file_by_dup_ratio,
 )
-from Funtion.rag_dedup import sha1_text, norm_for_hash
+from core.rag.rag_dedup import sha1_text, norm_for_hash
 
 
 @dataclass

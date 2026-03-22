@@ -145,19 +145,19 @@ def qss_hud_metal_header_feel() -> str:
    - Result zone vẫn trắng
 ========================================================= */
 
-/* 1) WINDOW BACKGROUND (pastel blue metal, DARK->LIGHT from LEFT to RIGHT) */
+/* 1) WINDOW BACKGROUND */
 QMainWindow, QWidget {
     background: qlineargradient(
-        x1:0, y1:0, x2:1, y2:0,
-        stop:0    rgba(150, 175, 205, 255),  /* darker pastel steel-blue (LEFT) */
-        stop:0.55 rgba(175, 200, 228, 255),  /* mid pastel */
-        stop:1    rgba(210, 228, 245, 255)   /* lighter ice-blue (RIGHT) */
+        x1:0, y1:0, x2:1, y2:1,
+        stop:0    rgba(55,  65,  85,  255),  /* dark slate (top-left) */
+        stop:0.45 rgba(72,  85, 105, 255),  /* mid slate */
+        stop:1    rgba(95, 110, 130, 255)   /* lighter slate (bottom-right) */
     );
 }
 
 /* 2) DEFAULT TEXT */
 QWidget {
-    color: rgba(10, 25, 45, 235);
+    color: rgba(220, 230, 245, 235);
     font-size: 13px;
 }
 
@@ -178,7 +178,7 @@ QGroupBox::title {
     subcontrol-origin: margin;
     subcontrol-position: top left;
     padding: 0 8px;
-    color: rgba(10, 25, 45, 235);
+    color: rgba(220, 230, 245, 235);
     font-weight: 900;
 }
 
@@ -186,7 +186,7 @@ QGroupBox::title {
 QLabel {
     background: transparent;
     border: none;
-    color: rgba(10, 25, 45, 235);
+    color: rgba(220, 230, 245, 235);
     font-weight: 700;
 }
 
@@ -302,7 +302,6 @@ QHeaderView::section {
     border: 1px solid rgba(210, 215, 220, 255);
     font-weight: 900;
 }
-git add
     """
 
 

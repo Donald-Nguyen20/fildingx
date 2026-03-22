@@ -1,4 +1,4 @@
-# Funtion/help_dialog.py
+# ui/help_dialog.py
 from __future__ import annotations
 
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QListWidget, QTextEdit
@@ -6,7 +6,7 @@ from PySide6.QtCore import Qt
 
 try:
     # HUD theme (nếu có)
-    from hud_widgets import qss_hud_metal_header_feel, qss_white_results
+    from ui.hud_widgets import qss_hud_metal_header_feel, qss_white_results
 except Exception:
     qss_hud_metal_header_feel = None
     qss_white_results = None
@@ -63,6 +63,7 @@ class HelpDialog(QDialog):
             "Shortcuts & Mouse Actions": self.page_shortcuts(),
             "Workflow Templates (Best practice)": self.page_workflow_templates(),
             "Troubleshooting": self.page_troubleshooting(),
+            "Prompt (lệnh ẩn)": self.page_prompt(),
         }
 
         self.toc.addItems(self.pages.keys())
@@ -624,6 +625,54 @@ class HelpDialog(QDialog):
         </body>
         """
 
+
+    def page_prompt(self) -> str:
+        return f"""
+        {self._base_style()}
+        <body>
+        <h2>Prompt (lệnh ẩn)</h2>
+        <p>Gõ các lệnh đặc biệt vào ô <b>Filename Keyword</b> rồi bấm <b>Search</b> để kích hoạt chức năng ẩn.</p>
+
+        <table>
+          <tr><th>Lệnh</th><th>Chức năng</th><th>Ghi chú</th></tr>
+          <tr>
+            <td><code>$synonym</code></td>
+            <td>Mở trình chỉnh sửa từ đồng nghĩa</td>
+            <td>Thêm / sửa / xóa từ đồng nghĩa dùng cho tìm kiếm <code>@keyword</code></td>
+          </tr>
+          <tr>
+            <td><code>$stats</code></td>
+            <td>Xem thống kê file đã mở</td>
+            <td>Hiện bảng thống kê theo tháng / năm — file nào mở nhiều nhất</td>
+          </tr>
+          <tr>
+            <td><code>list all of document that you learned</code></td>
+            <td>Liệt kê tài liệu AI đã học</td>
+            <td>Gõ trong <b>AI Chat Popup</b> — hiện toàn bộ file có trong Vector Store đang tải</td>
+          </tr>
+          <tr>
+            <td><code>@keyword</code></td>
+            <td>Tìm kiếm mờ (fuzzy) + từ đồng nghĩa</td>
+            <td>Dùng khi không nhớ chính xác tên file</td>
+          </tr>
+          <tr>
+            <td><code>A % B</code></td>
+            <td>Tìm chứa A, loại trừ B</td>
+            <td>Ví dụ: <code>report % backup</code></td>
+          </tr>
+          <tr>
+            <td><code>A * B</code></td>
+            <td>Tìm chứa cả A và B (thứ tự bất kỳ)</td>
+            <td>Ví dụ: <code>UAT * trip</code></td>
+          </tr>
+        </table>
+
+        <div class="hint">
+          <b>Lưu ý:</b> Các lệnh <code>$</code> không phân biệt hoa thường.
+          Không cần chọn folder trước khi dùng lệnh <code>$</code>.
+        </div>
+        </body>
+        """
 
 # (Optional) quick manual test
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
 # llm_client.py
 import requests
 from typing import List, Tuple
-from llm_config import load_llm_config
+from core.llm_config import load_llm_config
 
 # Provider keys used internally + labels shown in UI
 PROVIDERS: List[Tuple[str, str]] = [

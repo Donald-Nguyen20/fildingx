@@ -141,6 +141,12 @@ base_path.txt
 *.state
 *.cachedb
 
+# Runtime data (sinh ra khi chạy app, không commit lên git)
+containers_data.json
+file_stats.json
+synonyms.json
+promp.json
+
 # ###########################################################################
 #  12) LARGE GENERATED ASSETS
 # ###########################################################################
@@ -148,6 +154,8 @@ base_path.txt
 *.7z
 *.rar
 *.ico
+# Giữ lại icon cần thiết cho build exe
+!icon.ico
 
 # ###########################################################################
 #  13) PROJECT-SPECIFIC (YOUR STRUCTURE)

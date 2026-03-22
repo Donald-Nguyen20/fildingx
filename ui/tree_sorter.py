@@ -1,4 +1,4 @@
-# Funtion/tree_sorter.py
+# ui/tree_sorter.py
 from __future__ import annotations
 
 import re

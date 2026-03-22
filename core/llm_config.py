@@ -22,8 +22,8 @@ def get_config_path() -> str:
         exe_dir = Path(sys.argv[0]).resolve().parent
         return str(exe_dir / CONFIG_NAME)
 
-    # dev
-    base_dir = Path(__file__).resolve().parent
+    # dev — đi lên 1 cấp (core/ → root)
+    base_dir = Path(__file__).resolve().parent.parent
     return str(base_dir / CONFIG_NAME)
 
 

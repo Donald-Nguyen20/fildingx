@@ -1,4 +1,4 @@
-# Funtion/rag_dedup.py
+# core/rag/rag_dedup.py
 import os
 import re
 import hashlib

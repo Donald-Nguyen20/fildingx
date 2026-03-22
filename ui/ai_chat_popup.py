@@ -14,18 +14,16 @@ import sys
 import html
 import re
 
-# cần 2 file này nằm cùng thư mục:
-# - vector_retriever.py
-# - llm_client.py
-from vector_retriever import VectorRetriever
-from llm_client import create_llm_client, PROVIDERS
-from llm_config import load_llm_config, save_llm_config, get_config_path
-from hud_widgets import HudPanel
-from Rag_funtions.clear_history import install_clear_history_button, clear_popup_history
+from core.rag.vector_retriever import VectorRetriever
+from core.llm_client import create_llm_client, PROVIDERS
+from core.llm_config import load_llm_config, save_llm_config, get_config_path
+from ui.hud_widgets import HudPanel
+from ui.clear_history import install_clear_history_button, clear_popup_history
 def app_dir() -> str:
     if getattr(sys, "frozen", False):
         return os.path.dirname(sys.executable)
-    return os.path.dirname(os.path.abspath(__file__))
+    # đi lên 1 cấp (ui/ → root)
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def load_prompts_json(filename: str = "promp.json") -> dict:
@@ -591,9 +589,41 @@ QPushButton:pressed { background: rgba(0,0,0,0.14); }
 
         self.input_line.clear()
 
-        # Nếu chưa load store → nhắc user load
-        if self.retriever is None:
-            self.chat_display.append("🤖 Chat bot: Please click 'Load Vector Store' before that.")
+        # Special command: list learned documents
+        # Matches queries like "list all of document that you learned" (case-insensitive)
+        if re.search(r"\blist all\b.*\bdocuments?\b.*\blearn", user_input, re.I) or re.search(r"\blist all of document that you learned\b", user_input, re.I):
+            if self.retriever is None:
+                self.chat_display.append("🤖 Chat bot: Please click 'Load Vector Store' before that.")
+                return
+
+            # Collect unique file names from the vector store metadata
+            files = []
+            seen = set()
+            for m in getattr(self.retriever, "meta", []):
+                fn = m.get("file_name") or m.get("rel_path") or m.get("abs_path") or ""
+                if fn and fn not in seen:
+                    seen.add(fn)
+                    files.append(fn)
+
+            if not files:
+                self.chat_display.append("🤖 Chat bot: No documents found in Vector Store.")
+            else:
+                # Display as HTML list in chat
+                safe_list = [html.escape(x) for x in files]
+                html_block = "<br>".join(safe_list)
+                self.chat_display.append(f"<b>🤖 Learned documents:</b><br>{html_block}")
+
+                # Populate Sources panel with the discovered files (first matching path)
+                self.sources_list.clear()
+                for i, fn in enumerate(files, start=1):
+                    abs_p = ""
+                    for m in self.retriever.meta:
+                        if (m.get("file_name") == fn) or (m.get("rel_path") == fn):
+                            abs_p = m.get("abs_path") or os.path.join(self.retriever.base_path, m.get("rel_path", ""))
+                            break
+                    item = QListWidgetItem(f"[{i}] {fn}")
+                    item.setData(Qt.UserRole, abs_p)
+                    self.sources_list.addItem(item)
             return
 
         # ==== RAG Retrieve ====
