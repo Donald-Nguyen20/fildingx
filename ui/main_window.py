@@ -19,9 +19,9 @@ from functools import partial
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QFrame,
     QLabel, QLineEdit, QPushButton, QFileDialog,
-    QTreeWidget, QListWidget, QMessageBox,
+    QTreeWidget, QListWidget, QListWidgetItem, QMessageBox,
     QTextEdit, QDialog, QMenu, QComboBox, QLCDNumber, QApplication,
-    QStackedWidget,
+    QStackedWidget, QSplitter,
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QCursor, QPalette, QColor, QAction, QKeySequence, QBrush
@@ -44,6 +44,7 @@ from ui.learning_vector_store import VectorStoreDialog
 from ui.notes_window import NotesWindow
 from ui.index_search_window import IndexSearchWindow
 from ui.list_files_window import show_list_files_window
+from ui.pdf_preview import PdfPreviewWidget
 
 
 class FileSearchApp(QMainWindow):
@@ -273,10 +274,24 @@ class FileSearchApp(QMainWindow):
         self.tree_widget.setColumnWidth(4, 350)
         self.tree_widget.setColumnWidth(5, 200)
         self.tree_widget.itemDoubleClicked.connect(self.open_file)
+        self.tree_widget.itemClicked.connect(self._on_tree_item_clicked)
         self.tree_widget.setSelectionMode(QTreeWidget.MultiSelection)
         self.tree_widget.setContextMenuPolicy(Qt.CustomContextMenu)
         self.tree_widget.customContextMenuRequested.connect(self.show_treeview_context_menu)
-        body.addWidget(self.tree_widget, 2)
+
+        # ── PDF Preview ───────────────────────────────────────────
+        self.pdf_preview = PdfPreviewWidget()
+        self.pdf_preview.setStyleSheet("background: #13131f; border-radius: 8px;")
+        self.pdf_preview.hide()
+
+        # Splitter: tree (trái) | pdf preview (phải)
+        self._splitter = QSplitter(Qt.Horizontal)
+        self._splitter.addWidget(self.tree_widget)
+        self._splitter.addWidget(self.pdf_preview)
+        self._splitter.setSizes([10000, 0])
+        self._splitter.setHandleWidth(4)
+        self._splitter.setStyleSheet("QSplitter::handle { background: rgba(255,255,255,15); border-radius: 2px; }")
+        body.addWidget(self._splitter, 3)
 
         # ── Right stack ──────────────────────────────────────────
         self._right_stack = QStackedWidget()
@@ -619,6 +634,20 @@ class FileSearchApp(QMainWindow):
         else:
             QMessageBox.warning(self, "Error", "Folder not found.")
 
+    def _on_tree_item_clicked(self, item):
+        path = item.text(4)
+        if path.lower().endswith(".pdf"):
+            if not self.pdf_preview.isVisible():
+                total = self._splitter.width()
+                half = total // 2
+                self._splitter.setSizes([half, half])
+                self.pdf_preview.show()
+            self.pdf_preview.load(path)
+        else:
+            self.pdf_preview.hide()
+            self.pdf_preview.clear()
+            self._splitter.setSizes([10000, 0])
+
     def open_file(self, item):
         path = item.text(4)
         if os.path.exists(path):
@@ -702,7 +731,13 @@ class FileSearchApp(QMainWindow):
         name = item.text()
         if name in self.containers:
             for fp, _ in self.containers[name]:
-                self.container_files_list.addItem(os.path.basename(fp))
+                list_item = QListWidgetItem(os.path.basename(fp))
+                if not os.path.exists(fp):
+                    list_item.setForeground(QBrush(QColor("#f85149")))
+                    list_item.setToolTip(f"File không còn tồn tại:\n{fp}")
+                else:
+                    list_item.setToolTip(fp)
+                self.container_files_list.addItem(list_item)
 
     def open_file_from_container(self, item):
         c_item = self.containers_list.currentItem()

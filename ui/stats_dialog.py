@@ -61,10 +61,10 @@ class _ContribGrid(QWidget):
                 pass
 
         today = datetime.now().date()
-        # Bắt đầu từ thứ Hai của tuần chứa ngày (today - WEEKS*7 ngày)
-        start = today - timedelta(days=WEEKS * 7 - 1)
-        # Lùi về thứ Hai gần nhất
-        start -= timedelta(days=start.weekday())
+        # Thứ Hai của tuần hiện tại
+        this_monday = today - timedelta(days=today.weekday())
+        # Lùi về WEEKS-1 tuần
+        start = this_monday - timedelta(weeks=WEEKS - 1)
 
         # Xây ma trận [col][row] = count, col=tuần, row=0(Mon)..6(Sun)
         self._grid = []
@@ -80,10 +80,12 @@ class _ContribGrid(QWidget):
         h = 7 * (CELL + GAP) - GAP
         self.setFixedSize(w, h)
         self.setToolTip(f"{WEEKS} tuần gần nhất")
+        self.setAttribute(Qt.WA_OpaquePaintEvent, True)
 
     def paintEvent(self, _):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
+        p.fillRect(self.rect(), QColor("#161b22"))
         p.setPen(Qt.NoPen)
         for col, week in enumerate(self._grid):
             for row, cnt in enumerate(week):
