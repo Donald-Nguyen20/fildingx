@@ -60,15 +60,38 @@ class LLMSettingsDialog(QDialog):
         layout = QVBoxLayout(self)
         form = QFormLayout()
 
+        # OpenRouter
+        or_row = QHBoxLayout()
         self.ed_openrouter = QLineEdit(cfg.get("openrouter_api_key",""))
         self.ed_openrouter.setEchoMode(QLineEdit.Password)
-        form.addRow("OpenRouter API key:", self.ed_openrouter)
+        btn_or = QPushButton("🔑 Get key")
+        btn_or.setFixedWidth(80)
+        btn_or.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://openrouter.ai/keys")))
+        or_row.addWidget(self.ed_openrouter)
+        or_row.addWidget(btn_or)
+        form.addRow("OpenRouter API key:", or_row)
 
+        # Groq
+        groq_row = QHBoxLayout()
         self.ed_groq = QLineEdit(cfg.get("groq_api_key",""))
         self.ed_groq.setEchoMode(QLineEdit.Password)
-        form.addRow("Groq API key:", self.ed_groq)
+        btn_groq = QPushButton("🔑 Get key")
+        btn_groq.setFixedWidth(80)
+        btn_groq.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://console.groq.com/keys")))
+        groq_row.addWidget(self.ed_groq)
+        groq_row.addWidget(btn_groq)
+        form.addRow("Groq API key:", groq_row)
 
-
+        # Gemini
+        gemini_row = QHBoxLayout()
+        self.ed_gemini = QLineEdit(cfg.get("gemini_api_key",""))
+        self.ed_gemini.setEchoMode(QLineEdit.Password)
+        btn_gemini = QPushButton("🔑 Get key")
+        btn_gemini.setFixedWidth(80)
+        btn_gemini.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://aistudio.google.com/app/apikey")))
+        gemini_row.addWidget(self.ed_gemini)
+        gemini_row.addWidget(btn_gemini)
+        form.addRow("Gemini API key:", gemini_row)
 
         self.ed_ollama_host = QLineEdit(cfg.get("ollama_host","http://localhost:11434"))
         form.addRow("Ollama host:", self.ed_ollama_host)
@@ -103,8 +126,9 @@ QComboBox QAbstractItemView {
     def on_save(self):
         cfg = load_llm_config()
         cfg["openrouter_api_key"] = self.ed_openrouter.text().strip()
-        cfg["groq_api_key"] = self.ed_groq.text().strip()
-        cfg["ollama_host"] = self.ed_ollama_host.text().strip() or "http://localhost:11434"
+        cfg["groq_api_key"]       = self.ed_groq.text().strip()
+        cfg["gemini_api_key"]     = self.ed_gemini.text().strip()
+        cfg["ollama_host"]        = self.ed_ollama_host.text().strip() or "http://localhost:11434"
 
         try:
             save_llm_config(cfg)
@@ -457,6 +481,11 @@ QPushButton:pressed { background: rgba(0,0,0,0.14); }
                     f'<i>✅ LLM: {self.cmb_provider.currentText()} | {model} — '
                     f'<a href="https://console.groq.com/keys">https://console.groq.com/keys</a></i>'
                 )
+            elif provider == "gemini":
+                self.chat_display.append(
+                    f'<i>✅ LLM: {self.cmb_provider.currentText()} | {model} — '
+                    f'<a href="https://aistudio.google.com/app/apikey">https://aistudio.google.com/app/apikey</a></i>'
+                )
             else:
                 self.chat_display.append(
                     f"<i>✅ LLM: {self.cmb_provider.currentText()} | {model}</i>"
@@ -474,20 +503,18 @@ QPushButton:pressed { background: rgba(0,0,0,0.14); }
                 or ("401" in msg and "Unauthorized" in msg)
             ):
 
-                # NOTE: tùy code của anh đang lưu provider ở biến nào
-                # Ví dụ: self.provider_key hoặc self.current_provider
-                provider = getattr(self, "provider_key", None) or getattr(self, "current_provider", None)
-
                 if provider == "openrouter":
                     extra = ' — Get API key: <a href="https://openrouter.ai/">https://openrouter.ai/</a>'
                 elif provider == "groq":
                     extra = ' — Get API key: <a href="https://console.groq.com/keys">https://console.groq.com/keys</a>'
+                elif provider == "gemini":
+                    extra = ' — Get API key: <a href="https://aistudio.google.com/app/apikey">https://aistudio.google.com/app/apikey</a>'
                 else:
-                    # fallback nếu không xác định provider
                     extra = (
                         ' — Get API key: '
                         '<a href="https://openrouter.ai/">OpenRouter</a> | '
-                        '<a href="https://console.groq.com/keys">Groq</a>'
+                        '<a href="https://console.groq.com/keys">Groq</a> | '
+                        '<a href="https://aistudio.google.com/app/apikey">Gemini</a>'
                     )
 
             self.chat_display.append(f"<i>⚠️ Cannot init LLM: {msg}{extra}</i>")

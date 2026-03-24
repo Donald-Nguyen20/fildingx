@@ -204,7 +204,8 @@ class FileSearchApp(QMainWindow):
         from PySide6.QtGui import QFont as _QFont
 
         for emoji, tip, idx in [("🗂️","Containers",0),("🛠️","Tools",1),
-                                 ("🧩","Add-ons",2),("📚","Learning",3)]:
+                                 ("🧩","Add-ons",2),("📚","Learning",3),
+                                 ("📄","Preview",4)]:
             btn = QPushButton()
             btn.setFixedSize(72, 72)
             btn.setToolTip(tip)
@@ -309,6 +310,18 @@ class FileSearchApp(QMainWindow):
         if index == 3:                          # Learning → dialog
             clicked_btn.setChecked(False)
             VectorStoreDialog(self).exec()
+            return
+        if index == 4:                          # Preview → toggle splitter
+            is_on = self.pdf_preview.isVisible()
+            if is_on:
+                self.pdf_preview.hide()
+                self._splitter.setSizes([10000, 0])
+                clicked_btn.setChecked(False)
+            else:
+                total = self._splitter.width()
+                self._splitter.setSizes([total // 2, total // 2])
+                self.pdf_preview.show()
+                clicked_btn.setChecked(True)
             return
         already_visible = self._right_stack.isVisible()
         already_same    = self._right_stack.currentIndex() == index
@@ -635,18 +648,13 @@ class FileSearchApp(QMainWindow):
             QMessageBox.warning(self, "Error", "Folder not found.")
 
     def _on_tree_item_clicked(self, item):
+        if not self.pdf_preview.isVisible():
+            return
         path = item.text(4)
         if path.lower().endswith(".pdf"):
-            if not self.pdf_preview.isVisible():
-                total = self._splitter.width()
-                half = total // 2
-                self._splitter.setSizes([half, half])
-                self.pdf_preview.show()
             self.pdf_preview.load(path)
         else:
-            self.pdf_preview.hide()
             self.pdf_preview.clear()
-            self._splitter.setSizes([10000, 0])
 
     def open_file(self, item):
         path = item.text(4)
@@ -760,6 +768,12 @@ class FileSearchApp(QMainWindow):
         for fp, _ in self.containers.get(c_item.text(), []):
             if os.path.basename(fp) == item.text():
                 self.notes_window.display_note_for_file(c_item.text(), fp)
+                # Trigger PDF preview nếu đang bật
+                if self.pdf_preview.isVisible():
+                    if fp.lower().endswith(".pdf"):
+                        self.pdf_preview.load(fp)
+                    else:
+                        self.pdf_preview.clear()
                 return
 
     def show_context_menu_for_container(self, pos):

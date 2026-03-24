@@ -5,9 +5,10 @@ from core.llm_config import load_llm_config
 
 # Provider keys used internally + labels shown in UI
 PROVIDERS: List[Tuple[str, str]] = [
-    ("ollama", "Ollama (Local)"),
-    ("openrouter", "OpenRouter (Cloud)"),
-    ("groq", "Groq (Cloud)"),
+    ("ollama",      "Ollama (Local)"),
+    ("openrouter",  "OpenRouter (Cloud)"),
+    ("groq",        "Groq (Cloud)"),
+    ("gemini",      "Gemini (Google)"),
 ]
 
 class BaseLLMClient:
@@ -86,6 +87,31 @@ class LLMClientGroq(OpenAICompatibleChatClient):
             timeout=180,
         )
 
+class LLMClientGemini(BaseLLMClient):
+    """Google Gemini via REST API (không cần SDK)."""
+    BASE = "https://generativelanguage.googleapis.com/v1beta/models"
+
+    def __init__(self, api_key: str, model: str = "gemini-1.5-flash", timeout: int = 180):
+        if not api_key:
+            raise ValueError("Missing API key.")
+        self.api_key = api_key
+        self.model   = model
+        self.timeout = timeout
+
+    def generate(self, prompt: str) -> str:
+        url = f"{self.BASE}/{self.model}:generateContent?key={self.api_key}"
+        payload = {
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {"temperature": 0.2, "maxOutputTokens": 2048},
+        }
+        r = requests.post(url, json=payload, timeout=self.timeout)
+        r.raise_for_status()
+        data = r.json()
+        try:
+            return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+        except (KeyError, IndexError):
+            return ""
+
 
 
 def create_llm_client(provider_key: str, model_override: str = "") -> BaseLLMClient:
@@ -108,6 +134,10 @@ def create_llm_client(provider_key: str, model_override: str = "") -> BaseLLMCli
         model = model_override or cfg["groq_model"]
         return LLMClientGroq(api_key=api_key, model=model)
 
+    if provider_key == "gemini":
+        api_key = (cfg.get("gemini_api_key") or "").strip()
+        model = model_override or cfg.get("gemini_model", "gemini-1.5-flash")
+        return LLMClientGemini(api_key=api_key, model=model)
 
     # fallback
     model = (cfg.get("ollama_model") or "llama3.1:8b").strip()

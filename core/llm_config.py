@@ -6,10 +6,12 @@ from pathlib import Path
 DEFAULT_CONFIG = {
     "openrouter_api_key": "",
     "groq_api_key": "",
+    "gemini_api_key": "",
     "ollama_host": "http://localhost:11434",
     "ollama_model": "llama3.1:8b",
     "openrouter_model": "meta-llama/llama-3.3-70b-instruct:free",
     "groq_model": "llama-3.3-70b-versatile",
+    "gemini_model": "gemini-1.5-flash",
 }
 
 CONFIG_NAME = "llm_config.json"
