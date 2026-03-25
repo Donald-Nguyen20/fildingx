@@ -1,0 +1,9 @@
+PySide6
+requests
+PyMuPDF
+python-docx
+openpyxl
+python-pptx
+beautifulsoup4
+pywin32
+rapidfuzz

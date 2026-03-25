@@ -91,7 +91,7 @@ class LLMClientGemini(BaseLLMClient):
     """Google Gemini via REST API (không cần SDK)."""
     BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 
-    def __init__(self, api_key: str, model: str = "gemini-1.5-flash", timeout: int = 180):
+    def __init__(self, api_key: str, model: str = "gemini-2.0-flash", timeout: int = 180):
         if not api_key:
             raise ValueError("Missing API key.")
         self.api_key = api_key

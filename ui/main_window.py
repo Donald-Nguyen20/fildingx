@@ -39,8 +39,6 @@ from core.workers import DuplicateSearchWorker
 from ui.hud_widgets import qss_hud_metal_header_feel, qss_white_results, HudPanel
 from ui.tree_sorter import TreeSortHelper
 from ui.help_dialog import HelpDialog
-from ui.learning_vector_store import VectorStoreDialog
-
 from ui.notes_window import NotesWindow
 from ui.index_search_window import IndexSearchWindow
 from ui.list_files_window import show_list_files_window
@@ -56,7 +54,6 @@ class FileSearchApp(QMainWindow):
 
         self.containers:      dict = {}
         self.exe_addons:      list = []
-        self._ai_popup             = None
         self._dup_worker           = None
         self._sidebar_btns:   list = []
         self._right_stack          = None
@@ -143,23 +140,6 @@ class FileSearchApp(QMainWindow):
 
         h.addStretch(1)
 
-        self.btn_ai = QPushButton("🤖")
-        self.btn_ai.setToolTip("Open AI Chat")
-        self.btn_ai.setFixedSize(62, 52)
-        self.btn_ai.setStyleSheet("""
-            QPushButton {
-                background: rgba(0,220,255,18);
-                border: 1px solid rgba(0,220,255,150);
-                border-radius: 8px;
-                font-family: "Segoe UI Emoji";
-                font-size: 36px;
-            }
-            QPushButton:hover  { background: rgba(0,220,255,30); }
-            QPushButton:pressed{ background: rgba(0,220,255,42); }
-        """)
-        self.btn_ai.clicked.connect(self.toggle_ai_popup)
-        h.addWidget(self.btn_ai)
-
         self.root_layout.addWidget(toolbar)
 
     def _setup_body(self):
@@ -204,8 +184,7 @@ class FileSearchApp(QMainWindow):
         from PySide6.QtGui import QFont as _QFont
 
         for emoji, tip, idx in [("🗂️","Containers",0),("🛠️","Tools",1),
-                                 ("🧩","Add-ons",2),("📚","Learning",3),
-                                 ("📄","Preview",4)]:
+                                 ("🧩","Add-ons",2),("📄","Preview",3)]:
             btn = QPushButton()
             btn.setFixedSize(72, 72)
             btn.setToolTip(tip)
@@ -307,11 +286,7 @@ class FileSearchApp(QMainWindow):
         self.root_layout.addLayout(body)
 
     def _switch_panel(self, index: int, clicked_btn: QPushButton):
-        if index == 3:                          # Learning → dialog
-            clicked_btn.setChecked(False)
-            VectorStoreDialog(self).exec()
-            return
-        if index == 4:                          # Preview → toggle splitter
+        if index == 3:                          # Preview → toggle splitter
             is_on = self.pdf_preview.isVisible()
             if is_on:
                 self.pdf_preview.hide()
@@ -457,9 +432,6 @@ class FileSearchApp(QMainWindow):
 
     def toggle_hidden_frame_2(self):
         self._switch_panel(2, self._sidebar_btns[2])
-
-    def open_learning(self):
-        VectorStoreDialog(self).exec()
 
     # ══════════════════════════════════════════════════════════════
     #  FILE UTILS
@@ -964,19 +936,6 @@ class FileSearchApp(QMainWindow):
                 QMessageBox.critical(self, "Error", f"Failed to open {path}: {e}")
         else:
             QMessageBox.warning(self, "Not Found", f"{path} does not exist.")
-
-    # ══════════════════════════════════════════════════════════════
-    #  AI POPUP
-    # ══════════════════════════════════════════════════════════════
-
-    def toggle_ai_popup(self):
-        if self._ai_popup is None:
-            from ui.ai_chat_popup import AIChatPopup
-            self._ai_popup = AIChatPopup(main_app=self, parent=self)
-        if self._ai_popup.isVisible():
-            self._ai_popup.hide()
-        else:
-            self._ai_popup.show_below_widget(self.btn_ai, gap=8)
 
     # ══════════════════════════════════════════════════════════════
     #  OTHER DIALOGS

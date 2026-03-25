@@ -5,13 +5,126 @@ import fitz
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QTabWidget, QComboBox, QFileDialog, QToolButton,
+    QDialog, QFormLayout, QLineEdit, QMessageBox,
 )
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QPixmap, QImage, QTextCharFormat, QFont
+from PySide6.QtGui import QDesktopServices
+from PySide6.QtCore import QUrl
 
 import paths
 from core.llm_client import create_llm_client, PROVIDERS
+from core.llm_config import load_llm_config, save_llm_config, get_config_path
 from ui.notes_window import RichTextEdit
+
+
+class LLMSettingsDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("LLM Settings")
+        self.setModal(True)
+        self.setMinimumWidth(520)
+
+        cfg = load_llm_config()
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+
+        or_row = QHBoxLayout()
+        self.ed_openrouter = QLineEdit(cfg.get("openrouter_api_key", ""))
+        self.ed_openrouter.setEchoMode(QLineEdit.Password)
+        btn_or = QPushButton("🔑 Get key")
+        btn_or.setFixedWidth(80)
+        btn_or.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://openrouter.ai/keys")))
+        or_row.addWidget(self.ed_openrouter)
+        or_row.addWidget(btn_or)
+        form.addRow("OpenRouter API key:", or_row)
+
+        groq_row = QHBoxLayout()
+        self.ed_groq = QLineEdit(cfg.get("groq_api_key", ""))
+        self.ed_groq.setEchoMode(QLineEdit.Password)
+        btn_groq = QPushButton("🔑 Get key")
+        btn_groq.setFixedWidth(80)
+        btn_groq.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://console.groq.com/keys")))
+        groq_row.addWidget(self.ed_groq)
+        groq_row.addWidget(btn_groq)
+        form.addRow("Groq API key:", groq_row)
+
+        gemini_row = QHBoxLayout()
+        self.ed_gemini = QLineEdit(cfg.get("gemini_api_key", ""))
+        self.ed_gemini.setEchoMode(QLineEdit.Password)
+        btn_gemini = QPushButton("🔑 Get key")
+        btn_gemini.setFixedWidth(80)
+        btn_gemini.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://aistudio.google.com/app/apikey")))
+        gemini_row.addWidget(self.ed_gemini)
+        gemini_row.addWidget(btn_gemini)
+        form.addRow("Gemini API key:", gemini_row)
+
+        self.ed_ollama_host = QLineEdit(cfg.get("ollama_host", "http://localhost:11434"))
+        form.addRow("Ollama host:", self.ed_ollama_host)
+
+        layout.addLayout(form)
+
+        btns = QHBoxLayout()
+        btns.addStretch(1)
+        btn_save = QPushButton("Save")
+        btn_cancel = QPushButton("Cancel")
+        btn_save.clicked.connect(self.on_save)
+        btn_cancel.clicked.connect(self.reject)
+        btns.addWidget(btn_save)
+        btns.addWidget(btn_cancel)
+        layout.addLayout(btns)
+
+        self.setStyleSheet("""
+            QDialog {
+                background: #F5F7FA;
+                color: #1a1a1a;
+            }
+            QLabel {
+                color: #1a1a1a;
+                background: transparent;
+                font-size: 13px;
+                font-weight: 600;
+            }
+            QLineEdit {
+                background: #FFFFFF;
+                color: #1a1a1a;
+                border: 1px solid #C0C8D8;
+                border-radius: 6px;
+                padding: 6px 10px;
+                font-size: 13px;
+            }
+            QLineEdit:focus {
+                border: 1px solid #4A90D9;
+            }
+            QPushButton {
+                background: #E8EDF5;
+                color: #1a1a1a;
+                border: 1px solid #C0C8D8;
+                border-radius: 6px;
+                padding: 6px 14px;
+                font-size: 13px;
+            }
+            QPushButton:hover {
+                background: #D0DAF0;
+                border: 1px solid #4A90D9;
+            }
+            QPushButton:pressed {
+                background: #B8C8E8;
+            }
+        """)
+
+    def on_save(self):
+        cfg = load_llm_config()
+        cfg["openrouter_api_key"] = self.ed_openrouter.text().strip()
+        cfg["groq_api_key"]       = self.ed_groq.text().strip()
+        cfg["gemini_api_key"]     = self.ed_gemini.text().strip()
+        cfg["ollama_host"]        = self.ed_ollama_host.text().strip() or "http://localhost:11434"
+        try:
+            save_llm_config(cfg)
+            QMessageBox.information(self, "Saved", f"Saved to:\n{get_config_path()}")
+            self.accept()
+        except Exception as e:
+            QMessageBox.critical(self, "Save failed", f"{type(e).__name__}: {e}")
 
 
 # ── Worker: chạy LLM ở background ────────────────────────────────
@@ -90,7 +203,7 @@ class PdfPreviewWidget(QWidget):
         lay.setSpacing(4)
 
         # File name header
-        self.lbl_name = QLabel("Chọn file PDF để xem trước")
+        self.lbl_name = QLabel("Select a PDF file to preview")
         self.lbl_name.setAlignment(Qt.AlignCenter)
         self.lbl_name.setWordWrap(True)
         self.lbl_name.setStyleSheet("color: #8b949e; font-size: 10px; padding: 2px;")
@@ -178,8 +291,8 @@ class PdfPreviewWidget(QWidget):
 
         # Font size
         self.cbo_font_size = QComboBox()
-        self.cbo_font_size.addItems([str(s) for s in range(8, 31, 2)])
-        self.cbo_font_size.setCurrentText("12")
+        self.cbo_font_size.addItems([str(s) for s in range(8, 32)])
+        self.cbo_font_size.setCurrentText("15")
         self.cbo_font_size.setFixedWidth(54)
         self.cbo_font_size.currentTextChanged.connect(self._change_font_size)
         toolbar.addWidget(QLabel("Size:"))
@@ -208,7 +321,7 @@ class PdfPreviewWidget(QWidget):
         # Insert image
         btn_img = QPushButton("🖼 Ảnh")
         btn_img.setFixedHeight(26)
-        btn_img.setToolTip("Chèn ảnh")
+        btn_img.setToolTip("Insert image")
         btn_img.clicked.connect(self._insert_image)
         toolbar.addWidget(btn_img)
 
@@ -225,6 +338,13 @@ class PdfPreviewWidget(QWidget):
         self.btn_generate.clicked.connect(self._generate_summary)
         toolbar.addWidget(self.btn_generate)
 
+        # LLM Settings
+        btn_settings = QPushButton("⚙")
+        btn_settings.setFixedSize(26, 26)
+        btn_settings.setToolTip("LLM Settings (API keys)")
+        btn_settings.clicked.connect(self._open_llm_settings)
+        toolbar.addWidget(btn_settings)
+
         # Save
         self.btn_save = QPushButton("💾 Save")
         self.btn_save.setFixedHeight(26)
@@ -236,7 +356,7 @@ class PdfPreviewWidget(QWidget):
         # Rich text editor
         self.txt_summary = RichTextEdit()
         self.txt_summary.setPlaceholderText(
-            "Chưa có ghi chú. Bấm ⚡ để AI tóm tắt, hoặc tự ghi chú tại đây."
+            "No notes yet. Click ⚡ to generate an AI summary, or write your own notes here."
         )
         self.txt_summary.setStyleSheet("""
             QTextEdit {
@@ -245,7 +365,7 @@ class PdfPreviewWidget(QWidget):
                 border: none;
                 border-radius: 6px;
                 padding: 8px;
-                font-size: 12px;
+                font-size: 15px;
             }
         """)
         slay.addWidget(self.txt_summary, 1)
@@ -283,7 +403,7 @@ class PdfPreviewWidget(QWidget):
             self._doc = None
         self._path     = None
         self._page_idx = 0
-        self.lbl_name.setText("Chọn file PDF để xem trước")
+        self.lbl_name.setText("Select a PDF file to preview")
         self.lbl_page.clear()
         self.lbl_counter.setText("—")
         self.btn_prev.setEnabled(False)
@@ -391,11 +511,11 @@ class PdfPreviewWidget(QWidget):
             return
         self.btn_generate.setEnabled(False)
         self.btn_generate.setText("…")
-        self.txt_summary.setPlainText("Đang xử lý…")
+        self.txt_summary.setPlainText("Processing…")
 
         text = "\n".join(page.get_text("text") for page in self._doc).strip()
         if not text:
-            self.txt_summary.setPlainText("Không đọc được nội dung PDF.")
+            self.txt_summary.setPlainText("Could not extract text from this PDF.")
             self.btn_generate.setEnabled(True)
             self.btn_generate.setText("⚡")
             return
@@ -412,9 +532,12 @@ class PdfPreviewWidget(QWidget):
         self.btn_generate.setText("⚡")
 
     def _on_summary_error(self, msg: str):
-        self.txt_summary.setPlainText(f"Lỗi: {msg}")
+        self.txt_summary.setPlainText(f"Error: {msg}")
         self.btn_generate.setEnabled(True)
         self.btn_generate.setText("⚡")
+
+    def _open_llm_settings(self):
+        LLMSettingsDialog(self).exec()
 
     def closeEvent(self, event):
         if self._path:
