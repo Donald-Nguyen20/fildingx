@@ -141,24 +141,100 @@ class SummaryWorker(QThread):
         try:
             client = create_llm_client(self.provider)
             prompt = (
-                "Bạn là chuyên gia phân tích tài liệu kỹ thuật. "
-                "Đọc toàn bộ nội dung tài liệu dưới đây và viết bản tóm tắt CHI TIẾT theo cấu trúc sau:\n\n"
-                "1. **Tổng quan**: Tên tài liệu, mục đích, phạm vi áp dụng, đối tượng sử dụng.\n"
-                "2. **Nội dung từng phần**: Với MỖI phần/chương/mục trong tài liệu, mô tả:\n"
-                "   - Tiêu đề phần đó\n"
-                "   - Nội dung cụ thể (giữ nguyên thông số kỹ thuật, con số, đơn vị, tên thiết bị, mã hiệu)\n"
-                "   - Yêu cầu hoặc điều kiện quan trọng trong phần đó\n"
-                "3. **Thông số & dữ liệu quan trọng**: Liệt kê tất cả thông số kỹ thuật, giá trị giới hạn, điều kiện vận hành.\n"
-                "4. **Cảnh báo & lưu ý bắt buộc**: Tất cả warning, caution, note quan trọng.\n"
-                "5. **Quy trình / Các bước thực hiện** (nếu có): Mô tả từng bước cụ thể.\n"
-                "6. **Kết luận**: Điểm mấu chốt cần nhớ khi làm việc với tài liệu này.\n\n"
-                "Trả lời bằng ngôn ngữ của tài liệu. "
-                "KHÔNG được bỏ qua thông tin kỹ thuật quan trọng. "
-                "Viết đầy đủ, cụ thể, tránh nói chung chung.\n\n"
+                "You are an expert technical document analyst with deep comprehension skills. "
+                "Your task is to produce a comprehensive, structured briefing of the document below — "
+                "at the depth and fidelity of a senior engineer who has fully internalized its contents.\n\n"
+
+                "Follow this structure precisely:\n\n"
+
+                "## 1. Document Identity\n"
+                "- Full title, document number/revision (if present)\n"
+                "- Purpose: what problem does this document solve or what process does it govern?\n"
+                "- Scope: what systems, equipment, processes, or scenarios are covered?\n"
+                "- Intended audience and prerequisites\n\n"
+
+                "## 2. Section-by-Section Breakdown\n"
+                "For EVERY section, subsection, or chapter present in the document:\n"
+                "- Section title and number\n"
+                "- Core content summary (preserve all technical parameters, values, units, "
+                "part numbers, model names, tolerances, and standards verbatim)\n"
+                "- Key requirements, conditions, or constraints defined in that section\n"
+                "- Dependencies or references to other sections/standards\n\n"
+
+                "## 3. Critical Technical Data\n"
+                "Extract and list ALL of the following (if present):\n"
+                "- Electrical/mechanical/chemical specifications and tolerances\n"
+                "- Operating ranges (voltage, temperature, pressure, frequency, etc.)\n"
+                "- Thresholds, limits, and set-points\n"
+                "- Material grades, fluid specs, torque values, clearances\n"
+                "- Performance benchmarks and acceptance criteria\n\n"
+
+                "## 4. Warnings, Cautions & Mandatory Notices\n"
+                "List every WARNING, CAUTION, NOTE, and IMPORTANT statement with:\n"
+                "- Its exact location (section reference)\n"
+                "- The risk or consequence if ignored\n"
+                "- Any required protective action or precondition\n\n"
+
+                "## 5. Procedures & Step-by-Step Instructions\n"
+                "For any procedure defined in the document:\n"
+                "- Name and objective of the procedure\n"
+                "- Required tools, parts, or preconditions\n"
+                "- Each step in sequence with exact values and actions\n"
+                "- Verification/sign-off checkpoints\n\n"
+
+                "## 6. Diagrams, Tables & Visual Content\n"
+                "Describe all figures, schematics, tables, and charts mentioned or embedded:\n"
+                "- What each visual represents\n"
+                "- Key data points or relationships shown\n\n"
+
+                "## 7. References & Standards\n"
+                "List all external standards, codes, regulations, or documents cited "
+                "(e.g., ISO, IEC, ASME, NFPA, OEM manuals).\n\n"
+
+                "## 8. Key Takeaways\n"
+                "Summarize the 5–10 most critical facts an operator, engineer, or technician "
+                "must know before working with this document. Be specific — no generalities.\n\n"
+
+                "--- RULES ---\n"
+                "- Respond in the SAME LANGUAGE as the source document.\n"
+                "- NEVER omit numerical data, part numbers, model codes, or units.\n"
+                "- Do NOT paraphrase safety-critical content — preserve its exact meaning.\n"
+                "- If a section is absent from the document, omit that heading entirely.\n"
+                "- Prioritize depth and accuracy over brevity.\n\n"
+
+                "--- DOCUMENT CONTENT ---\n"
                 f"{self.text[:30000]}"
             )
             result = client.generate(prompt)
             self.done.emit(result)
+        except Exception as e:
+            self.error.emit(str(e))
+
+
+# ── Worker: dịch sang tiếng Việt ─────────────────────────────────
+class TranslateWorker(QThread):
+    done  = Signal(str)
+    error = Signal(str)
+
+    def __init__(self, text: str, provider: str):
+        super().__init__()
+        self.text     = text
+        self.provider = provider
+
+    def run(self):
+        try:
+            client = create_llm_client(self.provider)
+            prompt = (
+                "Translate the following technical document analysis into Vietnamese.\n"
+                "RULES:\n"
+                "- Keep ALL technical English terms as-is "
+                "(e.g., trip, interlock, bearing, rotor, valve, RPM, bar, °C, ISO, IEC, etc.)\n"
+                "- Only translate the explanatory text, descriptions, and analysis\n"
+                "- Preserve all formatting: headings, bullet points, section numbers, ⚠️ symbols\n"
+                "- Do NOT add or remove any content\n\n"
+                f"{self.text}"
+            )
+            self.done.emit(client.generate(prompt))
         except Exception as e:
             self.error.emit(str(e))
 
@@ -189,10 +265,14 @@ def _save_summary(file_path: str, html: str):
 class PdfPreviewWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._doc      = None
-        self._page_idx = 0
-        self._path     = None
-        self._worker   = None
+        self._doc              = None
+        self._page_idx         = 0
+        self._path             = None
+        self._worker           = None
+        self._translate_worker = None
+        self._original_text    = None
+        self._translated_text  = None
+        self._is_translated    = False
         self.setMinimumWidth(300)
         self.setFocusPolicy(Qt.WheelFocus)
         self._setup_ui()
@@ -255,7 +335,7 @@ class PdfPreviewWidget(QWidget):
         nav.addWidget(self.btn_next)
         vlay.addLayout(nav)
 
-        self.tabs.addTab(viewer_widget, "📄 Trang")
+        self.tabs.addTab(viewer_widget, "📄 Page")
 
         # ── Tab 2: Notes + Summary ────────────────────────────────
         sum_widget = QWidget()
@@ -263,7 +343,7 @@ class PdfPreviewWidget(QWidget):
         slay.setContentsMargins(0, 4, 0, 0)
         slay.setSpacing(4)
 
-        # Toolbar: font + định dạng + generate + save
+        # Toolbar: font + format + generate + save
         toolbar_widget = QWidget()
         toolbar_widget.setStyleSheet("""
             QWidget {
@@ -319,7 +399,7 @@ class PdfPreviewWidget(QWidget):
         toolbar.addStretch(1)
 
         # Insert image
-        btn_img = QPushButton("🖼 Ảnh")
+        btn_img = QPushButton("🖼 Image")
         btn_img.setFixedHeight(26)
         btn_img.setToolTip("Insert image")
         btn_img.clicked.connect(self._insert_image)
@@ -337,6 +417,12 @@ class PdfPreviewWidget(QWidget):
         self.btn_generate.setToolTip("Generate summary")
         self.btn_generate.clicked.connect(self._generate_summary)
         toolbar.addWidget(self.btn_generate)
+
+        self.btn_translate = QPushButton("🌐 VI")
+        self.btn_translate.setFixedHeight(26)
+        self.btn_translate.setToolTip("Toggle English / Vietnamese")
+        self.btn_translate.clicked.connect(self._toggle_translate)
+        toolbar.addWidget(self.btn_translate)
 
         # LLM Settings
         btn_settings = QPushButton("⚙")
@@ -370,7 +456,7 @@ class PdfPreviewWidget(QWidget):
         """)
         slay.addWidget(self.txt_summary, 1)
 
-        self.tabs.addTab(sum_widget, "📝 Ghi chú")
+        self.tabs.addTab(sum_widget, "📝 Notes")
 
     # ── Load file ────────────────────────────────────────────────
     def load(self, path: str):
@@ -481,7 +567,7 @@ class PdfPreviewWidget(QWidget):
 
     def _insert_image(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, "Chọn ảnh", "", "Images (*.png *.jpg *.jpeg *.bmp)"
+            self, "Select image", "", "Images (*.png *.jpg *.jpeg *.bmp)"
         )
         if path:
             self.txt_summary.textCursor().insertImage(path)
@@ -527,6 +613,10 @@ class PdfPreviewWidget(QWidget):
         self._worker.start()
 
     def _on_summary_done(self, result: str):
+        self._original_text   = result
+        self._translated_text = None
+        self._is_translated   = False
+        self.btn_translate.setText("🌐 VI")
         self.txt_summary.setPlainText(result)
         self.btn_generate.setEnabled(True)
         self.btn_generate.setText("⚡")
@@ -535,6 +625,40 @@ class PdfPreviewWidget(QWidget):
         self.txt_summary.setPlainText(f"Error: {msg}")
         self.btn_generate.setEnabled(True)
         self.btn_generate.setText("⚡")
+
+    def _toggle_translate(self):
+        if not self._original_text:
+            return
+        if self._is_translated:
+            self.txt_summary.setPlainText(self._original_text)
+            self._is_translated = False
+            self.btn_translate.setText("🌐 VI")
+        else:
+            if self._translated_text:
+                # Dùng cache, không gọi API
+                self.txt_summary.setPlainText(self._translated_text)
+                self._is_translated = True
+                self.btn_translate.setText("🌐 EN")
+            else:
+                self.btn_translate.setEnabled(False)
+                self.btn_translate.setText("⏳")
+                provider = self.cbo_provider.currentData()
+                self._translate_worker = TranslateWorker(self._original_text, provider)
+                self._translate_worker.done.connect(self._on_translate_done)
+                self._translate_worker.error.connect(self._on_translate_error)
+                self._translate_worker.start()
+
+    def _on_translate_done(self, result: str):
+        self._translated_text = result
+        self.txt_summary.setPlainText(result)
+        self._is_translated = True
+        self.btn_translate.setEnabled(True)
+        self.btn_translate.setText("🌐 EN")
+
+    def _on_translate_error(self, msg: str):
+        self.txt_summary.setPlainText(f"Translation error: {msg}")
+        self.btn_translate.setEnabled(True)
+        self.btn_translate.setText("🌐 VI")
 
     def _open_llm_settings(self):
         LLMSettingsDialog(self).exec()

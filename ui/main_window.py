@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
     QLabel, QLineEdit, QPushButton, QFileDialog,
     QTreeWidget, QListWidget, QListWidgetItem, QMessageBox,
     QTextEdit, QDialog, QMenu, QComboBox, QLCDNumber, QApplication,
-    QStackedWidget, QSplitter,
+    QStackedWidget, QSplitter, QTabWidget,
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QCursor, QPalette, QColor, QAction, QKeySequence, QBrush
@@ -39,8 +39,7 @@ from core.workers import DuplicateSearchWorker
 from ui.hud_widgets import qss_hud_metal_header_feel, qss_white_results, HudPanel
 from ui.tree_sorter import TreeSortHelper
 from ui.help_dialog import HelpDialog
-from ui.notes_window import NotesWindow
-from ui.index_search_window import IndexSearchWindow
+from ui.index_search_window import IndexSearchWindow, IndexSearchWidget
 from ui.list_files_window import show_list_files_window
 from ui.pdf_preview import PdfPreviewWidget
 
@@ -73,8 +72,7 @@ class FileSearchApp(QMainWindow):
         self.load_data_from_file()
         self.load_exe_addons()
 
-        self.notes_window = NotesWindow(parent=self)
-        self.notes_window.main_app = self
+
         os.makedirs(paths.IMAGE_DIR, exist_ok=True)
 
     # ══════════════════════════════════════════════════════════════
@@ -247,7 +245,7 @@ class FileSearchApp(QMainWindow):
         self.tree_widget.itemClicked.connect(lambda *_: self.tree_widget.setFocus())
         self.tree_widget.setColumnCount(6)
         self.tree_widget.setHeaderLabels(["FILE NAME","DATE MODIFIED","TYPE","SIZE (MB)","PATH","IN CONTAINERS"])
-        self.tree_widget.setColumnWidth(0, 500)
+        self.tree_widget.setColumnWidth(0, 700)
         self.tree_widget.setColumnWidth(1, 129)
         self.tree_widget.setColumnWidth(2, 80)
         self.tree_widget.setColumnWidth(3, 90)
@@ -264,9 +262,32 @@ class FileSearchApp(QMainWindow):
         self.pdf_preview.setStyleSheet("background: #13131f; border-radius: 8px;")
         self.pdf_preview.hide()
 
-        # Splitter: tree (trái) | pdf preview (phải)
+        # ── Tab: File Search | DB Search ─────────────────────────
+        self._search_tabs = QTabWidget()
+        self._search_tabs.setStyleSheet("""
+            QTabWidget::pane { border: none; }
+            QTabBar::tab {
+                background: rgba(255,255,255,10);
+                color: rgba(220,230,255,180);
+                padding: 6px 18px;
+                border-radius: 4px;
+                margin-right: 2px;
+                font-size: 12px;
+            }
+            QTabBar::tab:selected {
+                background: rgba(40,180,110,50);
+                color: white;
+                border-bottom: 2px solid rgba(60,210,140,220);
+            }
+            QTabBar::tab:hover { background: rgba(255,255,255,20); }
+        """)
+        self._search_tabs.addTab(self.tree_widget, "🔍 File Search")
+        self.db_search_widget = IndexSearchWidget()
+        self._search_tabs.addTab(self.db_search_widget, "🗄 DB Search")
+
+        # Splitter: tabs (trái) | pdf preview (phải)
         self._splitter = QSplitter(Qt.Horizontal)
-        self._splitter.addWidget(self.tree_widget)
+        self._splitter.addWidget(self._search_tabs)
         self._splitter.addWidget(self.pdf_preview)
         self._splitter.setSizes([10000, 0])
         self._splitter.setHandleWidth(4)
@@ -379,7 +400,6 @@ class FileSearchApp(QMainWindow):
             (QPushButton("Get Path"),                    self.get_link_from_tree_view),
             (QPushButton("Get Name"),                    self.get_name_from_tree_view),
             (QPushButton("List Files"),                  self.list_files_in_folder),
-            (QPushButton("🔍 Contents"),                 self.open_index_interface),
         ]:
             if fn:
                 btn.clicked.connect(fn)
@@ -739,7 +759,6 @@ class FileSearchApp(QMainWindow):
             return
         for fp, _ in self.containers.get(c_item.text(), []):
             if os.path.basename(fp) == item.text():
-                self.notes_window.display_note_for_file(c_item.text(), fp)
                 # Trigger PDF preview nếu đang bật
                 if self.pdf_preview.isVisible():
                     if fp.lower().endswith(".pdf"):

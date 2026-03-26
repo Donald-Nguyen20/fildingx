@@ -162,6 +162,7 @@ promp.json
 # ###########################################################################
 Funtion/__pycache__/
 Rag_funtions/__pycache__/
+db_list.json
 
 exports/
 screenshots/
