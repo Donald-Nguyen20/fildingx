@@ -10,7 +10,13 @@
       "Bash(dir \"%LOCALAPPDATA%\\\\ms-playwright\")",
       "Bash(python -c \"from playwright.sync_api import sync_playwright; print\\(''''ok''''\\)\" 2)",
       "Bash(1 python:*)",
-      "Bash(du -sh \"/c/Users/Admin/AppData/Local/ms-playwright/\"*)"
+      "Bash(du -sh \"/c/Users/Admin/AppData/Local/ms-playwright/\"*)",
+      "Bash(python -c \":*)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\(''e:/book/Vanphong/tim file/7/ui/help_dialog.py'', encoding=''utf-8''\\).read\\(\\)\\); print\\(''OK''\\)\")",
+      "Bash(python -c \"import notebooklm; print\\(notebooklm.__file__\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\(''e:/book/Vanphong/tim file/7/ui/notebooklm_window.py'', encoding=''utf-8''\\).read\\(\\)\\); print\\(''OK''\\)\")",
+      "Bash(/dev/null du:*)",
+      "Bash(du -sh /e/book/Vanphong/tim file/7/dist/Finding8/_internal/*)"
     ]
   }
 }

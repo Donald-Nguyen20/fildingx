@@ -561,7 +561,7 @@ class FileSearchApp(QMainWindow):
                 name0 = item.text(0)
                 if not name0.startswith("📌"):
                     item.setText(0, f"📌 {name0}")
-                item.setToolTip(0, "Đã lưu vào: " + ", ".join(names))
+                item.setToolTip(0, "Saved to: " + ", ".join(names))
                 item.setText(5, ", ".join(names))   # cột riêng, không đụng PATH
             else:
                 for col in range(self.tree_widget.columnCount()):
@@ -630,12 +630,84 @@ class FileSearchApp(QMainWindow):
 
     def show_treeview_context_menu(self, position):
         item = self.tree_widget.itemAt(position)
-        if item:
-            menu = QMenu(self)
-            menu.addAction("Open Folder").triggered.connect(
-                lambda: self._open_folder_path(os.path.dirname(item.text(4)))
-            )
-            menu.exec(QCursor.pos())
+        if not item:
+            return
+        menu = QMenu(self)
+        menu.addAction("Open Folder").triggered.connect(
+            lambda: self._open_folder_path(os.path.dirname(item.text(4)))
+        )
+        menu.addSeparator()
+        menu.addAction("📓 Add to NotebookLM").triggered.connect(
+            self._add_selected_to_notebooklm
+        )
+        menu.exec(QCursor.pos())
+
+    def _add_selected_to_notebooklm(self):
+        from ui.notebooklm_window import is_nlm_logged_in, NLMNotebookPickerDialog, AddSourceWorker, ListSourcesWorker
+        if not is_nlm_logged_in():
+            QMessageBox.warning(self, "Not Logged In",
+                "Please log in to NotebookLM first.\n\nGo to the 📓 NotebookLM tab and click 🔑 Switch Account.")
+            return
+        selected = self.tree_widget.selectedItems()
+        if not selected:
+            return
+        nb_id = NLMNotebookPickerDialog.pick(self)
+        if not nb_id:
+            return
+        NLM_SUPPORTED = {".pdf", ".txt", ".doc", ".docx", ".pptx", ".md"}
+        all_paths = [it.text(4) for it in selected if os.path.isfile(it.text(4))]
+        paths_to_add = [p for p in all_paths if os.path.splitext(p)[1].lower() in NLM_SUPPORTED]
+        unsupported = [os.path.basename(p) for p in all_paths if p not in paths_to_add]
+        if unsupported:
+            QMessageBox.warning(self, "Unsupported Format",
+                "NotebookLM only accepts: .pdf, .txt, .doc, .docx, .pptx, .md\n\n"
+                "Skipping the following files:\n" + "\n".join(f"  • {n}" for n in unsupported))
+        if not paths_to_add:
+            return
+
+        # Fetch existing sources trước để kiểm tra trùng
+        lw = ListSourcesWorker(nb_id)
+        lw.done.connect(lambda sources, nb=nb_id, paths=paths_to_add:
+            self._do_add_after_check(nb, paths, sources))
+        lw.error.connect(lambda e, nb=nb_id, paths=paths_to_add:
+            self._do_add_after_check(nb, paths, []))  # nếu lấy list lỗi thì add luôn
+        self._nlm_list_worker = lw
+        lw.start()
+
+    def _do_add_after_check(self, nb_id: str, paths_to_add: list, existing_sources: list):
+        from ui.notebooklm_window import AddSourceWorker
+        existing_titles = set()
+        for s in existing_sources:
+            t = getattr(s, "title", None) or getattr(s, "name", None) or ""
+            if t:
+                existing_titles.add(t.strip().lower())
+
+        skipped, to_upload = [], []
+        for p in paths_to_add:
+            fname = os.path.basename(p)
+            if fname.strip().lower() in existing_titles:
+                skipped.append(fname)
+            else:
+                to_upload.append(p)
+
+        if skipped:
+            QMessageBox.warning(self, "Duplicate Files",
+                "The following files already exist in the notebook and will be skipped:\n" +
+                "\n".join(f"  • {n}" for n in skipped))
+        if not to_upload:
+            return
+
+        self._nlm_add_workers = []
+        for file_path in to_upload:
+            w = AddSourceWorker(nb_id, file_path)
+            w.done.connect(lambda p=file_path: None)  # silent
+            w.error.connect(lambda e, p=file_path: QMessageBox.warning(
+                self, "NotebookLM Error", f"{os.path.basename(p)}:\n{e}"
+            ))
+            self._nlm_add_workers.append(w)
+            w.start()
+        QMessageBox.information(self, "NotebookLM",
+            f"Adding {len(to_upload)} file(s) to NotebookLM in the background…")
 
     def _open_folder_path(self, folder: str):
         if os.path.exists(folder):
@@ -738,7 +810,7 @@ class FileSearchApp(QMainWindow):
                 list_item = QListWidgetItem(os.path.basename(fp))
                 if not os.path.exists(fp):
                     list_item.setForeground(QBrush(QColor("#f85149")))
-                    list_item.setToolTip(f"File không còn tồn tại:\n{fp}")
+                    list_item.setToolTip(f"File no longer exists:\n{fp}")
                 else:
                     list_item.setToolTip(fp)
                 self.container_files_list.addItem(list_item)

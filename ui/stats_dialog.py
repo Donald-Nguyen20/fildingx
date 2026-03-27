@@ -79,7 +79,7 @@ class _ContribGrid(QWidget):
         w = WEEKS * (CELL + GAP) - GAP
         h = 7 * (CELL + GAP) - GAP
         self.setFixedSize(w, h)
-        self.setToolTip(f"{WEEKS} tuần gần nhất")
+        self.setToolTip(f"Last {WEEKS} weeks")
         self.setAttribute(Qt.WA_OpaquePaintEvent, True)
 
     def paintEvent(self, _):
@@ -142,7 +142,7 @@ class _StatCard(QFrame):
         name.setStyleSheet("color: #e6edf3;")
         info.addWidget(name)
 
-        lbl_last = QLabel(f"Lần cuối: {row['last_open']}")
+        lbl_last = QLabel(f"Last opened: {row['last_open']}")
         lbl_last.setStyleSheet("color: #8b949e; font-size: 9px;")
         info.addWidget(lbl_last)
 
@@ -167,7 +167,7 @@ class StatsDialog(QDialog):
     def __init__(self, stats_path: str, parent=None):
         super().__init__(parent)
         self.stats_path = stats_path
-        self.setWindowTitle("Thống kê file đã mở")
+        self.setWindowTitle("File Open Statistics")
         self.resize(880, 560)
         self.setModal(True)
         self.setStyleSheet("""
@@ -200,23 +200,23 @@ class StatsDialog(QDialog):
         now = datetime.now()
         top = QHBoxLayout()
 
-        top.addWidget(QLabel("Năm:"))
+        top.addWidget(QLabel("Year:"))
         self.cbo_year = QComboBox()
-        self.cbo_year.addItem("Tất cả", 0)
+        self.cbo_year.addItem("All", 0)
         for y in range(now.year, now.year - 6, -1):
             self.cbo_year.addItem(str(y), y)
         self.cbo_year.setCurrentIndex(1)
         top.addWidget(self.cbo_year)
 
-        top.addWidget(QLabel("Tháng:"))
+        top.addWidget(QLabel("Month:"))
         self.cbo_month = QComboBox()
-        self.cbo_month.addItem("Tất cả", 0)
-        for i, m in enumerate(["T1","T2","T3","T4","T5","T6",
-                                "T7","T8","T9","T10","T11","T12"], 1):
+        self.cbo_month.addItem("All", 0)
+        for i, m in enumerate(["Jan","Feb","Mar","Apr","May","Jun",
+                                "Jul","Aug","Sep","Oct","Nov","Dec"], 1):
             self.cbo_month.addItem(m, i)
         top.addWidget(self.cbo_month)
 
-        btn = QPushButton("Xem")
+        btn = QPushButton("View")
         btn.clicked.connect(self.refresh)
         top.addWidget(btn)
         top.addStretch()
@@ -247,7 +247,7 @@ class StatsDialog(QDialog):
         vlay.setSpacing(6)
 
         if not rows:
-            lbl = QLabel("Chưa có dữ liệu cho khoảng thời gian này.")
+            lbl = QLabel("No data available for this period.")
             lbl.setAlignment(Qt.AlignCenter)
             lbl.setStyleSheet("color: #484f58; font-size: 12px;")
             vlay.addWidget(lbl)
@@ -260,4 +260,4 @@ class StatsDialog(QDialog):
         self.scroll.setWidget(container)
 
         total = sum(r["count"] for r in rows)
-        self.lbl_summary.setText(f"{len(rows)} file  •  {total} lần mở")
+        self.lbl_summary.setText(f"{len(rows)} file(s)  •  {total} open(s)")

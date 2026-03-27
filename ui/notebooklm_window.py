@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
     QSplitter, QFileDialog, QMessageBox, QTabWidget, QWidget,
     QComboBox,
 )
-from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtCore import Qt, QThread, Signal, QTimer
 from PySide6.QtGui import QFont
 
 
@@ -118,6 +118,48 @@ class DeleteNotebookWorker(QThread):
             self.error.emit(str(e))
 
 
+class RenameNotebookWorker(QThread):
+    done  = Signal(str)   # new title
+    error = Signal(str)
+
+    def __init__(self, notebook_id: str, new_title: str):
+        super().__init__()
+        self.notebook_id = notebook_id
+        self.new_title   = new_title
+
+    def run(self):
+        try:
+            from notebooklm import NotebookLMClient
+            async def _rename():
+                async with await NotebookLMClient.from_storage() as client:
+                    nb = await client.notebooks.rename(self.notebook_id, self.new_title)
+                    return getattr(nb, "title", self.new_title)
+            title = _run_async(_rename())
+            self.done.emit(title)
+        except Exception as e:
+            self.error.emit(str(e))
+
+
+class ListSourcesWorker(QThread):
+    done  = Signal(list)
+    error = Signal(str)
+
+    def __init__(self, notebook_id: str):
+        super().__init__()
+        self.notebook_id = notebook_id
+
+    def run(self):
+        try:
+            from notebooklm import NotebookLMClient
+            async def _fetch():
+                async with await NotebookLMClient.from_storage() as client:
+                    return await client.sources.list(self.notebook_id)
+            sources = _run_async(_fetch())
+            self.done.emit(sources)
+        except Exception as e:
+            self.error.emit(str(e))
+
+
 class AddSourceWorker(QThread):
     done  = Signal()
     error = Signal(str)
@@ -127,17 +169,43 @@ class AddSourceWorker(QThread):
         self.notebook_id = notebook_id
         self.file_path   = file_path
 
+    @staticmethod
+    def _doc_to_docx(doc_path: str) -> str:
+        """Convert .doc → .docx bằng Word COM, trả về path file tạm."""
+        import tempfile, win32com.client as win32
+        word = win32.Dispatch("Word.Application")
+        word.Visible = False
+        tmp = tempfile.mktemp(suffix=".docx")
+        try:
+            doc = word.Documents.Open(os.path.abspath(doc_path))
+            doc.SaveAs(tmp, FileFormat=16)  # 16 = wdFormatXMLDocument (.docx)
+            doc.Close(False)
+        finally:
+            word.Quit()
+        return tmp
+
     def run(self):
+        tmp_file = None
         try:
             from notebooklm import NotebookLMClient
             from pathlib import Path
+            upload_path = self.file_path
+            if self.file_path.lower().endswith(".doc"):
+                tmp_file = self._doc_to_docx(self.file_path)
+                upload_path = tmp_file
             async def _add():
                 async with await NotebookLMClient.from_storage() as client:
-                    await client.sources.add_file(self.notebook_id, Path(self.file_path), wait=True)
+                    await client.sources.add_file(self.notebook_id, Path(upload_path), wait=True)
             _run_async(_add())
             self.done.emit()
         except Exception as e:
             self.error.emit(str(e))
+        finally:
+            if tmp_file and os.path.exists(tmp_file):
+                try:
+                    os.remove(tmp_file)
+                except Exception:
+                    pass
 
 
 _SUMMARIZE_PROMPT = (
@@ -146,6 +214,15 @@ _SUMMARIZE_PROMPT = (
     "warnings or critical notices, and key takeaways. "
     "Use plain text only — no markdown, no ### or ** symbols, no bullet asterisks. "
     "Use the document's own section titles as headings."
+)
+
+_TRANSLATE_VI_PROMPT = (
+    "Now provide a comprehensive summary of the same document in Vietnamese. "
+    "Follow the same structure and section headings as the document. "
+    "Include all main topics, key findings, procedures, technical data, warnings, and key takeaways — same level of detail as the English summary. "
+    "Write in proper Vietnamese with full diacritical marks and tone marks (ă, â, đ, ê, ô, ơ, ư and all tone accents). "
+    "Do NOT use ASCII transliteration (write 'không' not 'khong', 'được' not 'duoc', etc.). "
+    "Use plain text only — no markdown, no ### or ** symbols, no bullet asterisks."
 )
 
 
@@ -172,9 +249,13 @@ class NLMAutoSummarizeWorker(QThread):
                         nb_id = getattr(nb, "id", None) or getattr(nb, "notebook_id", "")
                     source = await client.sources.add_file(nb_id, Path(self.file_path), wait=True)
                     sid = getattr(source, "source_id", None) or getattr(source, "id", None)
-                    result = await client.chat.ask(nb_id, _SUMMARIZE_PROMPT, source_ids=[sid])
+                    result_orig = await client.chat.ask(nb_id, _SUMMARIZE_PROMPT, source_ids=[sid])
+                    summary_orig = (getattr(result_orig, "answer", None) or str(result_orig)).strip()
+                    result_vi = await client.chat.ask(nb_id, _TRANSLATE_VI_PROMPT, source_ids=[sid])
+                    summary_vi = (getattr(result_vi, "answer", None) or str(result_vi)).strip()
                     await client.sources.delete(nb_id, sid)
-                    return getattr(result, "answer", None) or str(result)
+                    separator = "\n\n" + "─" * 48 + "\n🇻🇳  BẢN TIẾNG VIỆT\n" + "─" * 48 + "\n\n"
+                    return summary_orig + separator + summary_vi
             text = _run_async(_work())
             self.done.emit(text)
         except Exception as e:
@@ -337,6 +418,10 @@ class NotebookLMWidget(QWidget):
 
         self._current_notebook_id = None
         self._workers = []
+        self._thinking_step = 0
+        self._thinking_timer = QTimer(self)
+        self._thinking_timer.setInterval(500)
+        self._thinking_timer.timeout.connect(self._tick_thinking)
 
         self._setup_ui()
 
@@ -363,7 +448,7 @@ class NotebookLMWidget(QWidget):
         self.btn_save_login = QPushButton("✅ Save Login")
         self.btn_save_login.setFixedHeight(32)
         self.btn_save_login.setEnabled(False)
-        self.btn_save_login.setToolTip("Bấm sau khi đã đăng nhập xong trên browser")
+        self.btn_save_login.setToolTip("Click after you have finished logging in on the browser")
         self.btn_save_login.clicked.connect(self._save_login)
         self.btn_refresh = QPushButton("🔄 Refresh")
         self.btn_refresh.setFixedHeight(32)
@@ -390,6 +475,9 @@ class NotebookLMWidget(QWidget):
 
         self.lst_notebooks = QListWidget()
         self.lst_notebooks.currentItemChanged.connect(self._on_notebook_selected)
+        self.lst_notebooks.setStyleSheet("QListWidget { font-size: 16px; font-weight: bold; } QListWidget::item { padding: 6px 4px; }")
+        self.lst_notebooks.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.lst_notebooks.customContextMenuRequested.connect(self._nb_context_menu)
         left_lay.addWidget(self.lst_notebooks, 1)
 
         nb_btn_row = QHBoxLayout()
@@ -424,6 +512,11 @@ class NotebookLMWidget(QWidget):
         self.chat_display.setPlaceholderText("Chat history will appear here…")
         self.chat_display.setStyleSheet("font-size: 18px;")
         chat_lay.addWidget(self.chat_display, 1)
+
+        self.lbl_thinking = QLabel("")
+        self.lbl_thinking.setStyleSheet("font-size: 14px; color: #89b4fa; padding: 2px 4px;")
+        self.lbl_thinking.setVisible(False)
+        chat_lay.addWidget(self.lbl_thinking)
 
         input_row = QHBoxLayout()
         self.chat_input = QLineEdit()
@@ -506,12 +599,28 @@ class NotebookLMWidget(QWidget):
         self._workers.append(w)
         w.start()
 
+    @staticmethod
+    def _notebook_emoji(title: str) -> str:
+        t = title.lower()
+        if any(k in t for k in ("boiler", "lo hoi", "steam", "furnace", "burner")): return "🔥"
+        if any(k in t for k in ("turbine", "generator", "rotor")): return "⚙️"
+        if any(k in t for k in ("electric", "dien", "điện", "power")): return "⚡"
+        if any(k in t for k in ("pump", "bom", "bơm", "valve", "van")): return "🔧"
+        if any(k in t for k in ("safety", "an toan", "an toàn", "hazard", "alarm")): return "⚠️"
+        if any(k in t for k in ("chemistry", "water", "nuoc", "nước", "chemical")): return "💧"
+        if any(k in t for k in ("procedure", "sop", "operation", "quy trinh", "quy trình")): return "📋"
+        if any(k in t for k in ("drawing", "ban ve", "bản vẽ", "piping", "diagram")): return "📐"
+        if any(k in t for k in ("report", "bao cao", "báo cáo", "summary")): return "📊"
+        if any(k in t for k in ("training", "huan luyen", "huấn luyện", "course")): return "🎓"
+        return "📓"
+
     def _on_notebooks_loaded(self, notebooks):
         self.lst_notebooks.clear()
         for nb in notebooks:
             title = getattr(nb, "title", None) or getattr(nb, "name", str(nb))
             nb_id  = getattr(nb, "id", None) or getattr(nb, "notebook_id", "")
-            item = QListWidgetItem(title)
+            emoji = self._notebook_emoji(title)
+            item = QListWidgetItem(f"{emoji}  {title}")
             item.setData(Qt.UserRole, nb_id)
             self.lst_notebooks.addItem(item)
         self.lbl_status.setText(f"🟢 {len(notebooks)} notebook(s) loaded")
@@ -523,6 +632,35 @@ class NotebookLMWidget(QWidget):
             return
         w = CreateNotebookWorker(title.strip())
         w.done.connect(lambda nb: self._load_notebooks())
+        w.error.connect(lambda e: QMessageBox.critical(self, "Error", e))
+        self._workers.append(w)
+        w.start()
+
+    def _nb_context_menu(self, pos):
+        from PySide6.QtWidgets import QMenu
+        item = self.lst_notebooks.itemAt(pos)
+        if not item:
+            return
+        menu = QMenu(self)
+        act_rename = menu.addAction("✏️ Rename")
+        act_delete = menu.addAction("🗑 Delete")
+        action = menu.exec(self.lst_notebooks.mapToGlobal(pos))
+        if action == act_rename:
+            self._rename_notebook(item)
+        elif action == act_delete:
+            self._delete_notebook()
+
+    def _rename_notebook(self, item):
+        from PySide6.QtWidgets import QInputDialog
+        nb_id = item.data(Qt.UserRole)
+        old_title = item.text().split("  ", 1)[-1]  # bỏ emoji prefix
+        new_title, ok = QInputDialog.getText(
+            self, "Rename Notebook", "New name:", text=old_title
+        )
+        if not ok or not new_title.strip() or new_title.strip() == old_title:
+            return
+        w = RenameNotebookWorker(nb_id, new_title.strip())
+        w.done.connect(lambda t: self._load_notebooks())
         w.error.connect(lambda e: QMessageBox.critical(self, "Error", e))
         self._workers.append(w)
         w.start()
@@ -558,8 +696,43 @@ class NotebookLMWidget(QWidget):
         self.btn_send.setEnabled(True)
         self.btn_add_file.setEnabled(True)
         self.chat_display.clear()
+        self._load_sources()
+
+    def _load_sources(self):
+        if not self._current_notebook_id:
+            return
+        self.lst_sources.clear()
+        self.lst_sources.addItem("⏳ Loading…")
+        w = ListSourcesWorker(self._current_notebook_id)
+        w.done.connect(self._on_sources_loaded)
+        w.error.connect(lambda e: (self.lst_sources.clear(), self.lst_sources.addItem(f"Error: {e}")))
+        self._workers.append(w)
+        w.start()
+
+    def _on_sources_loaded(self, sources):
+        self.lst_sources.clear()
+        if not sources:
+            self.lst_sources.addItem("(no sources)")
+            return
+        for s in sources:
+            title = getattr(s, "title", None) or getattr(s, "name", None) or str(s)
+            self.lst_sources.addItem(QListWidgetItem(f"📄 {title}"))
 
     # ── Chat ──────────────────────────────────────────────────────
+
+    def _start_thinking(self):
+        self._thinking_step = 0
+        self.lbl_thinking.setVisible(True)
+        self._thinking_timer.start()
+
+    def _stop_thinking(self):
+        self._thinking_timer.stop()
+        self.lbl_thinking.setVisible(False)
+
+    def _tick_thinking(self):
+        frames = ["🤔 Thinking", "🤔 Thinking·", "🤔 Thinking··", "🤔 Thinking···"]
+        self.lbl_thinking.setText(frames[self._thinking_step % len(frames)])
+        self._thinking_step += 1
 
     def _send_chat(self):
         if not self._current_notebook_id:
@@ -570,6 +743,7 @@ class NotebookLMWidget(QWidget):
         self.chat_display.append(f"<b style='color:#89b4fa'>You:</b> {question}")
         self.chat_input.clear()
         self.btn_send.setEnabled(False)
+        self._start_thinking()
 
         w = ChatWorker(self._current_notebook_id, question)
         w.done.connect(self._on_chat_done)
@@ -578,6 +752,7 @@ class NotebookLMWidget(QWidget):
         w.start()
 
     def _on_chat_done(self, text: str, citations: list):
+        self._stop_thinking()
         html = self._md_to_html(text)
         self.chat_display.append(f"<b style='color:#a6e3a1'>NotebookLM:</b><br>{html}")
         if citations:
@@ -598,10 +773,36 @@ class NotebookLMWidget(QWidget):
         self.chat_display.append("<br>")
         self.btn_send.setEnabled(True)
 
+    _LATEX_MAP = {
+        r"\rightarrow": "→", r"\leftarrow": "←",
+        r"\Rightarrow": "⇒", r"\Leftarrow": "⇐",
+        r"\leftrightarrow": "↔", r"\Leftrightarrow": "⇔",
+        r"\leq": "≤", r"\geq": "≥", r"\neq": "≠",
+        r"\approx": "≈", r"\times": "×", r"\div": "÷",
+        r"\pm": "±", r"\infty": "∞", r"\cdot": "·",
+        r"\alpha": "α", r"\beta": "β", r"\gamma": "γ",
+        r"\delta": "δ", r"\Delta": "Δ", r"\mu": "μ",
+        r"\pi": "π", r"\sigma": "σ", r"\theta": "θ",
+        r"\sum": "∑", r"\prod": "∏", r"\int": "∫",
+        r"\sqrt": "√", r"\partial": "∂",
+    }
+
+    @staticmethod
+    def _replace_latex(text: str) -> str:
+        import re
+        def _sub(m):
+            inner = m.group(1).strip()
+            for sym, uni in NotebookLMWidget._LATEX_MAP.items():
+                inner = inner.replace(sym, uni)
+            # nếu còn lại chỉ là text thuần → trả về text không có $
+            return inner
+        return re.sub(r"\$([^$]+)\$", _sub, text)
+
     @staticmethod
     def _md_to_html(text: str) -> str:
         """Convert basic markdown to HTML for display."""
         import re
+        text = NotebookLMWidget._replace_latex(text)
         lines = text.split("\n")
         out = []
         for line in lines:
@@ -626,6 +827,7 @@ class NotebookLMWidget(QWidget):
         return result
 
     def _on_chat_error(self, msg: str):
+        self._stop_thinking()
         self.chat_display.append(f"<b style='color:#f38ba8'>Error:</b> {msg}")
         self.btn_send.setEnabled(True)
 
@@ -636,9 +838,19 @@ class NotebookLMWidget(QWidget):
             return
         path, _ = QFileDialog.getOpenFileName(
             self, "Select File", "",
-            "Documents (*.pdf *.txt *.docx *.pptx *.md)"
+            "Documents (*.pdf *.txt *.doc *.docx *.pptx *.md)"
         )
         if not path:
+            return
+        # Kiểm tra trùng với danh sách source đang hiển thị
+        fname = os.path.basename(path).strip().lower()
+        existing = []
+        for i in range(self.lst_sources.count()):
+            t = self.lst_sources.item(i).text().lstrip("📄 ").strip().lower()
+            existing.append(t)
+        if fname in existing:
+            QMessageBox.warning(self, "Duplicate File",
+                f'"{os.path.basename(path)}" already exists in this notebook.')
             return
         self.btn_add_file.setEnabled(False)
         w = AddSourceWorker(self._current_notebook_id, path)
@@ -652,8 +864,7 @@ class NotebookLMWidget(QWidget):
 
     def _on_source_added(self):
         self.btn_add_file.setEnabled(True)
-        self.lst_sources.addItem(QListWidgetItem("✅ File added"))
-        QMessageBox.information(self, "Success", "File added to notebook!")
+        self._load_sources()  # reload danh sách thực tế
 
 
 # ── Dialog wrapper (backward compat) ─────────────────────────────

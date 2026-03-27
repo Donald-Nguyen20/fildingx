@@ -59,7 +59,7 @@ class HelpDialog(QDialog):
             "Batch Rename (đổi tên hàng loạt)": self.page_batch_rename(),
             "Index Search (SQLite DB)": self.page_index_search(),
             "Tools / EXE Launcher": self.page_tools_exe(),
-            "AI Popup (RAG Chat / Jarvis)": self.page_ai_popup(),
+            "NotebookLM & Dịch thuật": self.page_notebooklm(),
             "Shortcuts & Mouse Actions": self.page_shortcuts(),
             "Workflow Templates (Best practice)": self.page_workflow_templates(),
             "Troubleshooting": self.page_troubleshooting(),
@@ -109,12 +109,12 @@ class HelpDialog(QDialog):
           <tr>
             <td><b>Search by Name</b></td>
             <td>Tìm theo tên file + query nâng cao</td>
-            <td>Khi nhớ “một phần tên”, mã KKS, tag, số hiệu bản vẽ…</td>
+            <td>Khi nhớ "một phần tên", mã KKS, tag, số hiệu bản vẽ…</td>
           </tr>
           <tr>
             <td><b>Containers</b></td>
             <td>Gom file theo dự án/ca/khoản mục</td>
-            <td>Tạo “bộ hồ sơ” cho từng công việc (SOP, bản vẽ, báo cáo…)</td>
+            <td>Tạo "bộ hồ sơ" cho từng công việc (SOP, bản vẽ, báo cáo…)</td>
           </tr>
           <tr>
             <td><b>Notes</b></td>
@@ -137,9 +137,14 @@ class HelpDialog(QDialog):
             <td>Mở tool theo workflow (CAD, PDF, DCS viewer, …)</td>
           </tr>
           <tr>
-            <td><b>AI Popup (RAG)</b></td>
-            <td>Chat hỏi tài liệu SOP/notes/bộ hồ sơ vector store</td>
-            <td>Hỏi “theo tài liệu nội bộ” và có nguồn trích dẫn</td>
+            <td><b>NotebookLM</b></td>
+            <td>Chat hỏi tài liệu qua Google NotebookLM, tóm tắt file trong Notes</td>
+            <td>Hỏi "theo tài liệu kỹ thuật" có trích nguồn, tóm tắt nhanh PDF</td>
+          </tr>
+          <tr>
+            <td><b>Dịch thuật</b></td>
+            <td>Dịch nội dung Notes sang tiếng Việt qua LLM API</td>
+            <td>Khi cần đọc hiểu tài liệu kỹ thuật tiếng Anh</td>
           </tr>
         </table>
 
@@ -209,7 +214,7 @@ class HelpDialog(QDialog):
         </ul>
 
         <div class="hint">
-          <b>Mẹo:</b> Nếu bạn chỉ nhớ “na ná” tên file, hãy dùng <b>fuzzy</b> (xem mục Advanced Query).
+          <b>Mẹo:</b> Nếu bạn chỉ nhớ "na ná" tên file, hãy dùng <b>fuzzy</b> (xem mục Advanced Query).
         </div>
         </body>
         """
@@ -223,34 +228,34 @@ class HelpDialog(QDialog):
         <h3>1) Wildcard bằng dấu *</h3>
         <p>Dùng <code>*</code> để tìm file chứa nhiều phần theo thứ tự linh hoạt.</p>
         <ul>
-          <li><code>UAT*Trip</code> → tên file có “UAT” và sau đó có “Trip”.</li>
+          <li><code>UAT*Trip</code> → tên file có "UAT" và sau đó có "Trip".</li>
           <li><code>Trip*UAT</code> → đảo thứ tự.</li>
-          <li><b>Gợi ý:</b> dùng khi file có format tên dài: “system_subsystem_topic_date”.</li>
+          <li><b>Gợi ý:</b> dùng khi file có format tên dài: "system_subsystem_topic_date".</li>
         </ul>
 
         <h3>2) Query kiểu A % B (include/exclude)</h3>
         <p>Dạng này rất mạnh khi bạn muốn <b>chứa A nhưng loại B</b>.</p>
         <div class="ok">
           <b>Ví dụ:</b><br/>
-          <code>UAT % drawing</code> → tìm các file có “UAT” nhưng <b>không</b> chứa “drawing”.<br/>
-          <code>Generator % old</code> → chứa “Generator”, loại các file có “old”.
+          <code>UAT % drawing</code> → tìm các file có "UAT" nhưng <b>không</b> chứa "drawing".<br/>
+          <code>Generator % old</code> → chứa "Generator", loại các file có "old".
         </div>
         <div class="hint">
-          <b>Lưu ý:</b> Dấu <code>%</code> là “lọc loại trừ”, cực hợp để tránh file backup: <code>report % backup</code>, <code>P&ID % temp</code>.
+          <b>Lưu ý:</b> Dấu <code>%</code> là "lọc loại trừ", cực hợp để tránh file backup: <code>report % backup</code>, <code>P&ID % temp</code>.
         </div>
 
         <h3>3) Fuzzy search bằng tiền tố @</h3>
-        <p>Dùng <code>@keyword</code> để tìm “gần đúng” (khi bạn nhớ sai chính tả, hoặc file bị viết tắt).</p>
+        <p>Dùng <code>@keyword</code> để tìm "gần đúng" (khi bạn nhớ sai chính tả, hoặc file bị viết tắt).</p>
         <ul>
-          <li><code>@deareator</code> → vẫn có thể ra “deaerator”.</li>
-          <li><code>@vibration</code> → ra cả “vib”, “vibra”, “vibration”.</li>
+          <li><code>@deareator</code> → vẫn có thể ra "deaerator".</li>
+          <li><code>@vibration</code> → ra cả "vib", "vibra", "vibration".</li>
         </ul>
 
         <h3>4) Synonyms (từ đồng nghĩa) & chỉnh sửa</h3>
         <p>App có file <code>synonyms.json</code> để mở rộng từ khóa. Bạn có thể chỉnh từ đồng nghĩa trong UI.</p>
         <ul>
-          <li>Ví dụ: “UAT” đồng nghĩa “Unit Aux Transformer”.</li>
-          <li>Ví dụ: “GSU” đồng nghĩa “GSUT”, “Generator Step-up Transformer”.</li>
+          <li>Ví dụ: "UAT" đồng nghĩa "Unit Aux Transformer".</li>
+          <li>Ví dụ: "GSU" đồng nghĩa "GSUT", "Generator Step-up Transformer".</li>
         </ul>
 
         <div class="warn">
@@ -293,7 +298,7 @@ class HelpDialog(QDialog):
         {self._base_style()}
         <body>
         <h2>Containers (nhóm công việc)</h2>
-        <p>Containers giúp bạn gom file thành “bộ hồ sơ” theo công việc – giống playlist nhưng dành cho tài liệu kỹ thuật.</p>
+        <p>Containers giúp bạn gom file thành "bộ hồ sơ" theo công việc – giống playlist nhưng dành cho tài liệu kỹ thuật.</p>
 
         <h3>Tạo container</h3>
         <ol>
@@ -313,7 +318,7 @@ class HelpDialog(QDialog):
           <li>Click container để xem danh sách file trong container.</li>
           <li>Mở file: double-click file trong container.</li>
           <li>Copy nhanh: copy file name / copy full path để share.</li>
-          <li>Xóa file khỏi container: remove item (không xóa file gốc nếu app thiết kế đúng theo “remove from list”).</li>
+          <li>Xóa file khỏi container: remove item (không xóa file gốc nếu app thiết kế đúng theo "remove from list").</li>
           <li>Xóa container: delete container (chỉ xóa nhóm, không xóa file gốc).</li>
         </ul>
 
@@ -331,7 +336,7 @@ class HelpDialog(QDialog):
         <body>
         <h2>Notes (ghi chú theo file)</h2>
 
-        <p>Notes giúp bạn lưu “tri thức cá nhân” ngay cạnh tài liệu: nhận xét, kết luận, checklist, ảnh chụp hiện trường/đồ thị.</p>
+        <p>Notes giúp bạn lưu "tri thức cá nhân" ngay cạnh tài liệu: nhận xét, kết luận, checklist, ảnh chụp hiện trường/đồ thị.</p>
 
         <h3>Mở Notes</h3>
         <ul>
@@ -407,7 +412,7 @@ class HelpDialog(QDialog):
         <ul>
           <li>Chuẩn hóa tên file theo hệ thống (System-Equipment-DocType-Date).</li>
           <li>Thêm prefix/suffix cho một nhóm file.</li>
-          <li>Loại bỏ ký tự thừa, khoảng trắng, “final-final-2” …</li>
+          <li>Loại bỏ ký tự thừa, khoảng trắng, "final-final-2" …</li>
         </ul>
 
         <h3>Quy trình an toàn</h3>
@@ -430,7 +435,7 @@ class HelpDialog(QDialog):
         <body>
         <h2>Index Search (SQLite DB)</h2>
 
-        <p>Index Search dùng database SQLite để tìm rất nhanh trong một “chỉ mục” đã xây sẵn.</p>
+        <p>Index Search dùng database SQLite để tìm rất nhanh trong một "chỉ mục" đã xây sẵn.</p>
 
         <h3>Cách dùng</h3>
         <ol>
@@ -447,7 +452,7 @@ class HelpDialog(QDialog):
         </ul>
 
         <div class="hint">
-          <b>Mẹo:</b> Nếu bạn đã có DB index content, đây là cách tìm “từ trong nội dung” nhanh hơn RAG.
+          <b>Mẹo:</b> Nếu bạn đã có DB index content, đây là cách tìm "từ trong nội dung" nhanh hơn RAG.
           RAG phù hợp hơn cho hỏi-đáp, tóm tắt, giải thích theo tài liệu.
         </div>
         </body>
@@ -459,7 +464,7 @@ class HelpDialog(QDialog):
         <body>
         <h2>Tools / EXE Launcher</h2>
 
-        <p>Tính năng này giúp bạn “gắn” các phần mềm/EXE hay dùng vào giao diện để mở nhanh.</p>
+        <p>Tính năng này giúp bạn "gắn" các phần mềm/EXE hay dùng vào giao diện để mở nhanh.</p>
 
         <h3>Ví dụ tool nên gắn</h3>
         <ul>
@@ -484,41 +489,65 @@ class HelpDialog(QDialog):
         </body>
         """
 
-    def page_ai_popup(self) -> str:
+    def page_notebooklm(self) -> str:
         return f"""
         {self._base_style()}
         <body>
-        <h2>AI Popup (RAG Chat / Jarvis)</h2>
+        <h2>NotebookLM &amp; Dịch thuật</h2>
 
-        <p>AI Popup cho phép bạn hỏi đáp dựa trên <b>Vector Store</b> (FAISS + metadata). Nó trả lời theo tài liệu và có <b>Sources</b>.</p>
-
-        <h3>Khái niệm nhanh</h3>
-        <ul>
-          <li><b>Vector Store</b>: thư mục chứa <code>index.faiss</code> + <code>metadata.json</code> + <code>base_path.txt</code>.</li>
-          <li><b>Retriever</b>: tìm top-k đoạn liên quan.</li>
-          <li><b>LLM</b>: viết câu trả lời dựa trên context + prompt SOP.</li>
-        </ul>
-
-        <h3>Cách dùng</h3>
+        <h3>Tab NotebookLM</h3>
+        <p>Kết nối với <b>Google NotebookLM</b> để chat hỏi đáp tài liệu kỹ thuật có trích nguồn.</p>
         <ol>
-          <li>Bật AI Popup (toggle) từ app chính.</li>
-          <li>Bấm <b>Load Vector Store</b> → chọn folder vector store.</li>
-          <li>Nhập câu hỏi → Send.</li>
-          <li>Xem <b>Sources</b> bên phải → click để mở file nguồn.</li>
+          <li>Lần đầu: bấm <b>🔑 Switch Account</b> → trình duyệt mở → đăng nhập Google → bấm <b>✅ Save Login</b>.</li>
+          <li>Các lần sau: app tự load danh sách notebook (không cần đăng nhập lại).</li>
+          <li>Chọn notebook → tab <b>Chat</b>: nhập câu hỏi → Send.</li>
+          <li>Kết quả có phần <b>Sources</b> ghi rõ file và đoạn trích.</li>
+          <li>Tab <b>Sources</b>: xem danh sách file đã thêm vào notebook đang chọn.</li>
         </ol>
 
-        <h3>Hỏi gì hiệu quả?</h3>
+        <div class="hint">
+          <b>File đăng nhập:</b> <code>%USERPROFILE%\.notebooklm\storage_state.json</code><br>
+          Lưu cookie Google. Xóa file này để đăng nhập lại tài khoản khác.
+        </div>
+
+        <h3>Tóm tắt file trong Notes (NbLM)</h3>
+        <p>Mở PDF trong Preview → tab <b>Notes</b> → bấm <b>📓 NbLM</b>:</p>
+        <ol>
+          <li>App tự upload file lên notebook đầu tiên của tài khoản.</li>
+          <li>Gửi lệnh tóm tắt → nhận kết quả → xóa source khỏi notebook.</li>
+          <li>Nội dung tóm tắt hiện trong ô Notes, có thể chỉnh sửa và lưu.</li>
+        </ol>
+        <div class="warn">Cần đã đăng nhập NotebookLM. Nếu chưa có notebook nào, app tự tạo notebook <i>Auto Summary</i>.</div>
+
+        <h3>Dịch thuật (🌐 VI)</h3>
+        <p>Trong tab <b>Notes</b> → bấm <b>🌐 VI</b> để dịch nội dung sang tiếng Việt qua LLM API.</p>
         <ul>
-          <li><b>Tóm tắt</b>: “Tóm tắt SOP shutdown cho hệ …”</li>
-          <li><b>Checklist</b>: “Checklist trước khi restart …”</li>
-          <li><b>Giải thích</b>: “Vì sao cần …, trích theo tài liệu?”</li>
-          <li><b>So sánh</b>: “So sánh 2 procedure … có khác gì?”</li>
+          <li>Bấm lại <b>🌐 VI</b> để toggle về bản gốc.</li>
+          <li>Provider dịch cấu hình tại <b>⚙ Settings</b> → mục <i>Translate Provider</i>.</li>
         </ul>
 
-        <div class="warn">
-          <b>Lưu ý:</b> AI Popup trả lời tốt khi vector store được build sạch (ít rác, dedup tốt, chunk hợp lý).
-          Nếu kết quả lạ, hãy rebuild store hoặc bổ sung tài liệu.
-        </div>
+        <h3>Cấu hình LLM (API Keys)</h3>
+        <p>Bấm <b>⚙</b> trong tab Notes để mở LLM Settings. File cấu hình lưu tại:</p>
+        <table>
+          <tr><th>Chế độ</th><th>Đường dẫn</th></tr>
+          <tr>
+            <td>Chạy trực tiếp (Python)</td>
+            <td><code>&lt;thư mục project&gt;\llm_config.json</code></td>
+          </tr>
+          <tr>
+            <td>Chạy từ EXE</td>
+            <td><code>&lt;thư mục chứa Finding8.exe&gt;\llm_config.json</code></td>
+          </tr>
+        </table>
+
+        <h3>Providers hỗ trợ</h3>
+        <table>
+          <tr><th>Provider</th><th>Model mặc định</th><th>Ghi chú</th></tr>
+          <tr><td>Gemini</td><td>gemini-2.5-flash-preview</td><td>Cần Gemini API key</td></tr>
+          <tr><td>OpenRouter</td><td>llama-3.3-70b (free)</td><td>Cần OpenRouter API key</td></tr>
+          <tr><td>Groq</td><td>llama-3.3-70b-versatile</td><td>Cần Groq API key</td></tr>
+          <tr><td>Ollama</td><td>llama3.1:8b</td><td>Chạy local, không cần key</td></tr>
+        </table>
         </body>
         """
 
@@ -559,7 +588,7 @@ class HelpDialog(QDialog):
           <li>Search theo tag/KKS: <code>87G</code>, <code>40</code>, <code>UAT</code>…</li>
           <li>Tạo container: <code>Trip-YYYY-MM-DD-Shift</code></li>
           <li>Add vào container: SLD, logic trip, SOE/log, SOP, báo cáo cũ</li>
-          <li>Notes: ghi “Symptom → Evidence → Hypothesis → Action”</li>
+          <li>Notes: ghi "Symptom → Evidence → Hypothesis → Action"</li>
           <li>(Nếu có vector store) hỏi AI: checklist & trích SOP</li>
         </ol>
 
@@ -573,7 +602,7 @@ class HelpDialog(QDialog):
         <h3>Template 3 – Dọn tài liệu (khử trùng)</h3>
         <ol>
           <li>Quét Duplicates theo từng thư mục con</li>
-          <li>Giữ bản mới nhất hoặc bản “đúng chuẩn naming”</li>
+          <li>Giữ bản mới nhất hoặc bản "đúng chuẩn naming"</li>
           <li>Batch rename để đồng bộ tên</li>
         </ol>
         </body>
@@ -619,7 +648,7 @@ class HelpDialog(QDialog):
         </ul>
 
         <div class="ok">
-          <b>Pro tip:</b> Nếu bạn muốn app “không bao giờ đơ”, hãy chuyển các tác vụ nặng
+          <b>Pro tip:</b> Nếu bạn muốn app "không bao giờ đơ", hãy chuyển các tác vụ nặng
           (search folder lớn, duplicates, build store) sang <b>QThread/QRunnable</b>.
         </div>
         </body>
