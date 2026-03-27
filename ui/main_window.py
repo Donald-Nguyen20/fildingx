@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QFrame,
     QLabel, QLineEdit, QPushButton, QFileDialog,
     QTreeWidget, QListWidget, QListWidgetItem, QMessageBox,
-    QTextEdit, QDialog, QMenu, QComboBox, QLCDNumber, QApplication,
+    QTextEdit, QDialog, QMenu, QLCDNumber, QApplication,
     QStackedWidget, QSplitter, QTabWidget,
 )
 from PySide6.QtCore import Qt
@@ -36,10 +36,11 @@ import core.synonym_manager   as synonym_manager
 import core.excel_bridge      as excel_bridge
 from core.workers import DuplicateSearchWorker
 
-from ui.hud_widgets import qss_hud_metal_header_feel, qss_white_results, HudPanel
+from ui.hud_widgets import qss_hud_metal_header_feel, qss_white_results
 from ui.tree_sorter import TreeSortHelper
 from ui.help_dialog import HelpDialog
 from ui.index_search_window import IndexSearchWindow, IndexSearchWidget
+from ui.notebooklm_window import NotebookLMWidget
 from ui.list_files_window import show_list_files_window
 from ui.pdf_preview import PdfPreviewWidget
 
@@ -227,6 +228,7 @@ class FileSearchApp(QMainWindow):
             self._sidebar_btns.append(btn)
             sb_lay.addWidget(btn)
 
+        sb_lay.addStretch()
         body.addWidget(sidebar)
 
         # ── Tree ─────────────────────────────────────────────────
@@ -259,7 +261,6 @@ class FileSearchApp(QMainWindow):
 
         # ── PDF Preview ───────────────────────────────────────────
         self.pdf_preview = PdfPreviewWidget()
-        self.pdf_preview.setStyleSheet("background: #13131f; border-radius: 8px;")
         self.pdf_preview.hide()
 
         # ── Tab: File Search | DB Search ─────────────────────────
@@ -284,6 +285,8 @@ class FileSearchApp(QMainWindow):
         self._search_tabs.addTab(self.tree_widget, "🔍 File Search")
         self.db_search_widget = IndexSearchWidget()
         self._search_tabs.addTab(self.db_search_widget, "🗄 DB Search")
+        self.notebooklm_widget = NotebookLMWidget()
+        self._search_tabs.addTab(self.notebooklm_widget, "📓 NotebookLM")
 
         # Splitter: tabs (trái) | pdf preview (phải)
         self._splitter = QSplitter(Qt.Horizontal)
@@ -496,6 +499,7 @@ class FileSearchApp(QMainWindow):
         folder = QFileDialog.getExistingDirectory(self, "Select Folder")
         if folder:
             self.folder_entry.setText(folder)
+
 
     def search_files(self):
         folder  = self.folder_entry.text().strip()
@@ -862,6 +866,7 @@ class FileSearchApp(QMainWindow):
     # ══════════════════════════════════════════════════════════════
     #  EXCEL INTEGRATION
     # ══════════════════════════════════════════════════════════════
+
 
     def open_or_create_notes(self):
         try:

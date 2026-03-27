@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"from notebooklm import auth; help\\(auth\\)\")",
+      "Bash(python -m playwright install chromium)",
+      "Bash(python -c \"from notebooklm import NotebookLMClient; import inspect; print\\(inspect.getsource\\(NotebookLMClient.from_storage\\)\\)\")",
+      "Bash(python -m notebooklm login --help)",
+      "Bash(python -m pip show notebooklm)",
+      "Read(//c/Users/**)",
+      "Bash(dir \"%LOCALAPPDATA%\\\\ms-playwright\")",
+      "Bash(python -c \"from playwright.sync_api import sync_playwright; print\\(''''ok''''\\)\" 2)",
+      "Bash(1 python:*)",
+      "Bash(du -sh \"/c/Users/Admin/AppData/Local/ms-playwright/\"*)"
+    ]
+  }
+}

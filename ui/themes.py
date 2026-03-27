@@ -79,7 +79,7 @@ QScrollBar::handle:vertical { background:rgba(40,110,160,70); border-radius:5px;
 QScrollBar::handle:vertical:hover { background:rgba(40,110,160,110); }
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height:0px; }
 QSplitter::handle { background:rgba(40,110,160,35); }
-QTreeWidget, QListWidget, QTableWidget, QTextBrowser {
+QTreeWidget, QListWidget, QTableWidget, QTextBrowser, QWidget#pdfContent {
     background:rgba(255,255,255,255); color:rgba(15,23,42,255);
     border:1px solid rgba(180,190,200,255); border-radius:10px; padding:8px;
 }
@@ -156,7 +156,7 @@ QScrollBar::handle:vertical { background:rgba(255,200,80,65); border-radius:5px;
 QScrollBar::handle:vertical:hover { background:rgba(255,215,0,110); }
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height:0px; }
 QSplitter::handle { background:rgba(255,200,80,30); }
-QTreeWidget, QListWidget, QTableWidget, QTextBrowser {
+QTreeWidget, QListWidget, QTableWidget, QTextBrowser, QWidget#pdfContent {
     background:rgba(12,16,34,245); color:rgba(235,220,175,255);
     border:1px solid rgba(255,200,80,60); border-radius:10px; padding:8px;
 }
@@ -233,7 +233,7 @@ QScrollBar::handle:vertical { background:rgba(0,200,100,60); border-radius:5px; 
 QScrollBar::handle:vertical:hover { background:rgba(0,255,136,105); }
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height:0px; }
 QSplitter::handle { background:rgba(0,200,100,28); }
-QTreeWidget, QListWidget, QTableWidget, QTextBrowser {
+QTreeWidget, QListWidget, QTableWidget, QTextBrowser, QWidget#pdfContent {
     background:rgba(6,10,8,245); color:rgba(185,235,210,255);
     border:1px solid rgba(0,200,100,55); border-radius:10px; padding:8px;
 }
@@ -310,7 +310,7 @@ QScrollBar::handle:vertical { background:rgba(155,90,255,62); border-radius:5px;
 QScrollBar::handle:vertical:hover { background:rgba(180,130,255,110); }
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height:0px; }
 QSplitter::handle { background:rgba(155,90,255,28); }
-QTreeWidget, QListWidget, QTableWidget, QTextBrowser {
+QTreeWidget, QListWidget, QTableWidget, QTextBrowser, QWidget#pdfContent {
     background:rgba(14,7,30,246); color:rgba(215,200,255,255);
     border:1px solid rgba(155,90,255,58); border-radius:10px; padding:8px;
 }
@@ -387,7 +387,7 @@ QScrollBar::handle:vertical { background:rgba(220,150,125,62); border-radius:5px
 QScrollBar::handle:vertical:hover { background:rgba(245,180,158,112); }
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height:0px; }
 QSplitter::handle { background:rgba(220,150,125,28); }
-QTreeWidget, QListWidget, QTableWidget, QTextBrowser {
+QTreeWidget, QListWidget, QTableWidget, QTextBrowser, QWidget#pdfContent {
     background:rgba(14,10,12,246); color:rgba(245,228,218,255);
     border:1px solid rgba(220,150,125,55); border-radius:10px; padding:8px;
 }
@@ -464,7 +464,7 @@ QScrollBar::handle:vertical { background:rgba(0,150,255,62); border-radius:5px; 
 QScrollBar::handle:vertical:hover { background:rgba(0,180,255,112); }
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height:0px; }
 QSplitter::handle { background:rgba(0,150,255,30); }
-QTreeWidget, QListWidget, QTableWidget, QTextBrowser {
+QTreeWidget, QListWidget, QTableWidget, QTextBrowser, QWidget#pdfContent {
     background:rgba(255,255,255,252); color:rgba(10,28,65,255);
     border:1px solid rgba(0,150,255,58); border-radius:10px; padding:8px;
 }

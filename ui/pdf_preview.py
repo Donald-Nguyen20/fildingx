@@ -14,7 +14,7 @@ from PySide6.QtCore import QUrl
 
 import paths
 from core.llm_client import create_llm_client, PROVIDERS
-from core.llm_config import load_llm_config, save_llm_config, get_config_path
+from core.llm_config import load_llm_config, save_llm_config, get_config_path, DEFAULT_CONFIG
 from ui.notes_window import RichTextEdit
 
 
@@ -61,6 +61,15 @@ class LLMSettingsDialog(QDialog):
 
         self.ed_ollama_host = QLineEdit(cfg.get("ollama_host", "http://localhost:11434"))
         form.addRow("Ollama host:", self.ed_ollama_host)
+
+        self.cbo_translate = QComboBox()
+        for key, label in PROVIDERS:
+            self.cbo_translate.addItem(label, key)
+        saved = cfg.get("translate_provider", "gemini")
+        idx = self.cbo_translate.findData(saved)
+        if idx >= 0:
+            self.cbo_translate.setCurrentIndex(idx)
+        form.addRow("Translate provider:", self.cbo_translate)
 
         layout.addLayout(form)
 
@@ -115,100 +124,17 @@ class LLMSettingsDialog(QDialog):
 
     def on_save(self):
         cfg = load_llm_config()
-        cfg["openrouter_api_key"] = self.ed_openrouter.text().strip()
-        cfg["groq_api_key"]       = self.ed_groq.text().strip()
-        cfg["gemini_api_key"]     = self.ed_gemini.text().strip()
-        cfg["ollama_host"]        = self.ed_ollama_host.text().strip() or "http://localhost:11434"
+        cfg["openrouter_api_key"]  = self.ed_openrouter.text().strip()
+        cfg["groq_api_key"]        = self.ed_groq.text().strip()
+        cfg["gemini_api_key"]      = self.ed_gemini.text().strip()
+        cfg["ollama_host"]         = self.ed_ollama_host.text().strip() or "http://localhost:11434"
+        cfg["translate_provider"]  = self.cbo_translate.currentData()
         try:
             save_llm_config(cfg)
             QMessageBox.information(self, "Saved", f"Saved to:\n{get_config_path()}")
             self.accept()
         except Exception as e:
             QMessageBox.critical(self, "Save failed", f"{type(e).__name__}: {e}")
-
-
-# ── Worker: chạy LLM ở background ────────────────────────────────
-class SummaryWorker(QThread):
-    done  = Signal(str)
-    error = Signal(str)
-
-    def __init__(self, text: str, provider: str):
-        super().__init__()
-        self.text     = text
-        self.provider = provider
-
-    def run(self):
-        try:
-            client = create_llm_client(self.provider)
-            prompt = (
-                "You are an expert technical document analyst with deep comprehension skills. "
-                "Your task is to produce a comprehensive, structured briefing of the document below — "
-                "at the depth and fidelity of a senior engineer who has fully internalized its contents.\n\n"
-
-                "Follow this structure precisely:\n\n"
-
-                "## 1. Document Identity\n"
-                "- Full title, document number/revision (if present)\n"
-                "- Purpose: what problem does this document solve or what process does it govern?\n"
-                "- Scope: what systems, equipment, processes, or scenarios are covered?\n"
-                "- Intended audience and prerequisites\n\n"
-
-                "## 2. Section-by-Section Breakdown\n"
-                "For EVERY section, subsection, or chapter present in the document:\n"
-                "- Section title and number\n"
-                "- Core content summary (preserve all technical parameters, values, units, "
-                "part numbers, model names, tolerances, and standards verbatim)\n"
-                "- Key requirements, conditions, or constraints defined in that section\n"
-                "- Dependencies or references to other sections/standards\n\n"
-
-                "## 3. Critical Technical Data\n"
-                "Extract and list ALL of the following (if present):\n"
-                "- Electrical/mechanical/chemical specifications and tolerances\n"
-                "- Operating ranges (voltage, temperature, pressure, frequency, etc.)\n"
-                "- Thresholds, limits, and set-points\n"
-                "- Material grades, fluid specs, torque values, clearances\n"
-                "- Performance benchmarks and acceptance criteria\n\n"
-
-                "## 4. Warnings, Cautions & Mandatory Notices\n"
-                "List every WARNING, CAUTION, NOTE, and IMPORTANT statement with:\n"
-                "- Its exact location (section reference)\n"
-                "- The risk or consequence if ignored\n"
-                "- Any required protective action or precondition\n\n"
-
-                "## 5. Procedures & Step-by-Step Instructions\n"
-                "For any procedure defined in the document:\n"
-                "- Name and objective of the procedure\n"
-                "- Required tools, parts, or preconditions\n"
-                "- Each step in sequence with exact values and actions\n"
-                "- Verification/sign-off checkpoints\n\n"
-
-                "## 6. Diagrams, Tables & Visual Content\n"
-                "Describe all figures, schematics, tables, and charts mentioned or embedded:\n"
-                "- What each visual represents\n"
-                "- Key data points or relationships shown\n\n"
-
-                "## 7. References & Standards\n"
-                "List all external standards, codes, regulations, or documents cited "
-                "(e.g., ISO, IEC, ASME, NFPA, OEM manuals).\n\n"
-
-                "## 8. Key Takeaways\n"
-                "Summarize the 5–10 most critical facts an operator, engineer, or technician "
-                "must know before working with this document. Be specific — no generalities.\n\n"
-
-                "--- RULES ---\n"
-                "- Respond in the SAME LANGUAGE as the source document.\n"
-                "- NEVER omit numerical data, part numbers, model codes, or units.\n"
-                "- Do NOT paraphrase safety-critical content — preserve its exact meaning.\n"
-                "- If a section is absent from the document, omit that heading entirely.\n"
-                "- Prioritize depth and accuracy over brevity.\n\n"
-
-                "--- DOCUMENT CONTENT ---\n"
-                f"{self.text[:30000]}"
-            )
-            result = client.generate(prompt)
-            self.done.emit(result)
-        except Exception as e:
-            self.error.emit(str(e))
 
 
 # ── Worker: dịch sang tiếng Việt ─────────────────────────────────
@@ -268,7 +194,6 @@ class PdfPreviewWidget(QWidget):
         self._doc              = None
         self._page_idx         = 0
         self._path             = None
-        self._worker           = None
         self._translate_worker = None
         self._original_text    = None
         self._translated_text  = None
@@ -286,33 +211,39 @@ class PdfPreviewWidget(QWidget):
         self.lbl_name = QLabel("Select a PDF file to preview")
         self.lbl_name.setAlignment(Qt.AlignCenter)
         self.lbl_name.setWordWrap(True)
-        self.lbl_name.setStyleSheet("color: #8b949e; font-size: 10px; padding: 2px;")
+        self.lbl_name.setStyleSheet("font-size: 10px; padding: 2px;")
         lay.addWidget(self.lbl_name)
 
         # Tabs
         self.tabs = QTabWidget()
         self.tabs.setStyleSheet("""
-            QTabWidget::pane { border: none; background: #13131f; }
+            QTabWidget::pane { border: none; }
             QTabBar::tab {
-                background: rgba(255,255,255,8);
-                color: #8b949e;
-                padding: 5px 14px;
+                background: rgba(255,255,255,10);
+                color: rgba(220,230,255,180);
+                padding: 6px 18px;
                 border-radius: 4px;
                 margin-right: 2px;
+                font-size: 12px;
             }
-            QTabBar::tab:selected { background: rgba(40,180,110,50); color: white; }
+            QTabBar::tab:selected {
+                background: rgba(40,180,110,50);
+                color: white;
+                border-bottom: 2px solid rgba(60,210,140,220);
+            }
+            QTabBar::tab:hover { background: rgba(255,255,255,20); }
         """)
         lay.addWidget(self.tabs, 1)
 
         # ── Tab 1: PDF viewer ─────────────────────────────────────
         viewer_widget = QWidget()
+        viewer_widget.setObjectName("pdfContent")
         vlay = QVBoxLayout(viewer_widget)
         vlay.setContentsMargins(0, 4, 0, 0)
         vlay.setSpacing(4)
 
         self.lbl_page = QLabel()
         self.lbl_page.setAlignment(Qt.AlignCenter)
-        self.lbl_page.setStyleSheet("background: #1a1a2e; border-radius: 6px;")
         vlay.addWidget(self.lbl_page, 1)
 
         nav = QHBoxLayout()
@@ -323,7 +254,7 @@ class PdfPreviewWidget(QWidget):
 
         self.lbl_counter = QLabel("—")
         self.lbl_counter.setAlignment(Qt.AlignCenter)
-        self.lbl_counter.setStyleSheet("color: #8b949e; font-size: 11px;")
+        self.lbl_counter.setStyleSheet("font-size: 11px;")
 
         self.btn_next = QPushButton("▶")
         self.btn_next.setFixedSize(36, 30)
@@ -339,32 +270,13 @@ class PdfPreviewWidget(QWidget):
 
         # ── Tab 2: Notes + Summary ────────────────────────────────
         sum_widget = QWidget()
+        sum_widget.setObjectName("pdfContent")
         slay = QVBoxLayout(sum_widget)
         slay.setContentsMargins(0, 4, 0, 0)
         slay.setSpacing(4)
 
         # Toolbar: font + format + generate + save
         toolbar_widget = QWidget()
-        toolbar_widget.setStyleSheet("""
-            QWidget {
-                background: rgba(255,255,255,12);
-                border-radius: 6px;
-            }
-            QLabel { color: #c9d1d9; font-size: 11px; background: transparent; }
-            QComboBox {
-                background: #2d333b; color: #e6edf3;
-                border: 1px solid #444c56; border-radius: 4px;
-                padding: 2px 6px; font-size: 11px;
-            }
-            QComboBox QAbstractItemView { background: #2d333b; color: #e6edf3; }
-            QToolButton, QPushButton {
-                background: #2d333b; color: #e6edf3;
-                border: 1px solid #444c56; border-radius: 4px;
-                font-size: 11px; padding: 2px 6px;
-            }
-            QToolButton:hover, QPushButton:hover { background: #373e47; }
-            QToolButton:checked { background: rgba(40,180,110,80); border-color: rgba(60,210,140,180); }
-        """)
         toolbar = QHBoxLayout(toolbar_widget)
         toolbar.setContentsMargins(6, 4, 6, 4)
         toolbar.setSpacing(4)
@@ -379,61 +291,57 @@ class PdfPreviewWidget(QWidget):
         toolbar.addWidget(self.cbo_font_size)
 
         # Bold
+        _btn_ss = "padding: 2px 6px; font-size: 11px;"
+
         self.btn_bold = QToolButton()
         self.btn_bold.setText("B")
         self.btn_bold.setCheckable(True)
         self.btn_bold.setFixedSize(28, 26)
-        self.btn_bold.setStyleSheet(self.btn_bold.styleSheet() + "font-weight: bold;")
+        self.btn_bold.setStyleSheet(_btn_ss + "font-weight: bold;")
         self.btn_bold.clicked.connect(self._toggle_bold)
         toolbar.addWidget(self.btn_bold)
 
-        # Italic
         self.btn_italic = QToolButton()
         self.btn_italic.setText("I")
         self.btn_italic.setCheckable(True)
         self.btn_italic.setFixedSize(28, 26)
-        self.btn_italic.setStyleSheet(self.btn_italic.styleSheet() + "font-style: italic;")
+        self.btn_italic.setStyleSheet(_btn_ss + "font-style: italic;")
         self.btn_italic.clicked.connect(self._toggle_italic)
         toolbar.addWidget(self.btn_italic)
 
         toolbar.addStretch(1)
 
-        # Insert image
         btn_img = QPushButton("🖼 Image")
         btn_img.setFixedHeight(26)
+        btn_img.setStyleSheet(_btn_ss)
         btn_img.setToolTip("Insert image")
         btn_img.clicked.connect(self._insert_image)
         toolbar.addWidget(btn_img)
 
-        # Provider + Generate
-        self.cbo_provider = QComboBox()
-        for key, label in PROVIDERS:
-            self.cbo_provider.addItem(label, key)
-        self.cbo_provider.setFixedWidth(140)
-        toolbar.addWidget(self.cbo_provider)
-
-        self.btn_generate = QPushButton("⚡ AI")
-        self.btn_generate.setFixedHeight(26)
-        self.btn_generate.setToolTip("Generate summary")
-        self.btn_generate.clicked.connect(self._generate_summary)
-        toolbar.addWidget(self.btn_generate)
-
         self.btn_translate = QPushButton("🌐 VI")
         self.btn_translate.setFixedHeight(26)
+        self.btn_translate.setStyleSheet(_btn_ss)
         self.btn_translate.setToolTip("Toggle English / Vietnamese")
         self.btn_translate.clicked.connect(self._toggle_translate)
         toolbar.addWidget(self.btn_translate)
 
-        # LLM Settings
+        self.btn_nlm_summary = QPushButton("📓 NbLM")
+        self.btn_nlm_summary.setFixedHeight(26)
+        self.btn_nlm_summary.setStyleSheet(_btn_ss)
+        self.btn_nlm_summary.setToolTip("Summarize with NotebookLM (upload → get guide → delete)")
+        self.btn_nlm_summary.clicked.connect(self._nlm_summarize)
+        toolbar.addWidget(self.btn_nlm_summary)
+
         btn_settings = QPushButton("⚙")
         btn_settings.setFixedSize(26, 26)
+        btn_settings.setStyleSheet(_btn_ss)
         btn_settings.setToolTip("LLM Settings (API keys)")
         btn_settings.clicked.connect(self._open_llm_settings)
         toolbar.addWidget(btn_settings)
 
-        # Save
         self.btn_save = QPushButton("💾 Save")
         self.btn_save.setFixedHeight(26)
+        self.btn_save.setStyleSheet(_btn_ss)
         self.btn_save.clicked.connect(self._save_note)
         toolbar.addWidget(self.btn_save)
 
@@ -442,18 +350,11 @@ class PdfPreviewWidget(QWidget):
         # Rich text editor
         self.txt_summary = RichTextEdit()
         self.txt_summary.setPlaceholderText(
-            "No notes yet. Click ⚡ to generate an AI summary, or write your own notes here."
+            "No notes yet. Click 📓 NbLM to summarize with NotebookLM, or write your own notes here."
         )
-        self.txt_summary.setStyleSheet("""
-            QTextEdit {
-                background: #1a1a2e;
-                color: #c9d1d9;
-                border: none;
-                border-radius: 6px;
-                padding: 8px;
-                font-size: 15px;
-            }
-        """)
+        font = self.txt_summary.font()
+        font.setPointSize(11)
+        self.txt_summary.setFont(font)
         slay.addWidget(self.txt_summary, 1)
 
         self.tabs.addTab(sum_widget, "📝 Notes")
@@ -591,41 +492,6 @@ class PdfPreviewWidget(QWidget):
             from PySide6.QtCore import QTimer
             QTimer.singleShot(1500, lambda: self.btn_save.setText("💾 Save"))
 
-    # ── Generate summary ─────────────────────────────────────────
-    def _generate_summary(self):
-        if not self._path or not self._doc:
-            return
-        self.btn_generate.setEnabled(False)
-        self.btn_generate.setText("…")
-        self.txt_summary.setPlainText("Processing…")
-
-        text = "\n".join(page.get_text("text") for page in self._doc).strip()
-        if not text:
-            self.txt_summary.setPlainText("Could not extract text from this PDF.")
-            self.btn_generate.setEnabled(True)
-            self.btn_generate.setText("⚡")
-            return
-
-        provider = self.cbo_provider.currentData()
-        self._worker = SummaryWorker(text, provider)
-        self._worker.done.connect(self._on_summary_done)
-        self._worker.error.connect(self._on_summary_error)
-        self._worker.start()
-
-    def _on_summary_done(self, result: str):
-        self._original_text   = result
-        self._translated_text = None
-        self._is_translated   = False
-        self.btn_translate.setText("🌐 VI")
-        self.txt_summary.setPlainText(result)
-        self.btn_generate.setEnabled(True)
-        self.btn_generate.setText("⚡")
-
-    def _on_summary_error(self, msg: str):
-        self.txt_summary.setPlainText(f"Error: {msg}")
-        self.btn_generate.setEnabled(True)
-        self.btn_generate.setText("⚡")
-
     def _toggle_translate(self):
         if not self._original_text:
             return
@@ -642,7 +508,7 @@ class PdfPreviewWidget(QWidget):
             else:
                 self.btn_translate.setEnabled(False)
                 self.btn_translate.setText("⏳")
-                provider = self.cbo_provider.currentData()
+                provider = load_llm_config().get("translate_provider", "gemini")
                 self._translate_worker = TranslateWorker(self._original_text, provider)
                 self._translate_worker.done.connect(self._on_translate_done)
                 self._translate_worker.error.connect(self._on_translate_error)
@@ -659,6 +525,39 @@ class PdfPreviewWidget(QWidget):
         self.txt_summary.setPlainText(f"Translation error: {msg}")
         self.btn_translate.setEnabled(True)
         self.btn_translate.setText("🌐 VI")
+
+    def _nlm_summarize(self):
+        if not self._path:
+            return
+        from ui.notebooklm_window import is_nlm_logged_in, NLMAutoSummarizeWorker
+        if not is_nlm_logged_in():
+            QMessageBox.warning(self, "Not Logged In",
+                "Please log in to NotebookLM first.\n\nGo to the 📓 NotebookLM tab and click 🔑 Switch Account.")
+            return
+        self.btn_nlm_summary.setEnabled(False)
+        self.btn_nlm_summary.setText("⏳")
+        self.txt_summary.setPlainText("Uploading to NotebookLM and generating summary…")
+        self._nlm_worker = NLMAutoSummarizeWorker(self._path)
+        self._nlm_worker.done.connect(self._on_nlm_done)
+        self._nlm_worker.error.connect(self._on_nlm_error)
+        self._nlm_worker.start()
+
+    def _on_nlm_done(self, text: str):
+        self._original_text   = text
+        self._translated_text = None
+        self._is_translated   = False
+        self.btn_translate.setText("🌐 VI")
+        self.txt_summary.setPlainText(text)
+        self.btn_nlm_summary.setEnabled(True)
+        self.btn_nlm_summary.setText("📓 NbLM")
+
+    def _on_nlm_error(self, msg: str):
+        self.txt_summary.setPlainText(f"NotebookLM error: {msg}")
+        self.btn_nlm_summary.setEnabled(True)
+        self.btn_nlm_summary.setText("📓 NbLM")
+
+    def _open_llm_summary(self):
+        LLMSettingsDialog(self).exec()
 
     def _open_llm_settings(self):
         LLMSettingsDialog(self).exec()
