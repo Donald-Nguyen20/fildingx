@@ -16,7 +16,13 @@
       "Bash(python -c \"import notebooklm; print\\(notebooklm.__file__\\)\")",
       "Bash(python -c \"import ast; ast.parse\\(open\\(''e:/book/Vanphong/tim file/7/ui/notebooklm_window.py'', encoding=''utf-8''\\).read\\(\\)\\); print\\(''OK''\\)\")",
       "Bash(/dev/null du:*)",
-      "Bash(du -sh /e/book/Vanphong/tim file/7/dist/Finding8/_internal/*)"
+      "Bash(du -sh /e/book/Vanphong/tim file/7/dist/Finding8/_internal/*)",
+      "Bash(python -m py_compile Finding8.py ui/pdf_preview.py ui/stats_dialog.py ui/help_dialog.py)",
+      "Bash(python -c \"import sys; sys.path.insert\\(0, ''.''\\); from ui import pdf_preview; print\\(''pdf_preview OK''\\)\")",
+      "Bash(python -c \"import sys; sys.path.insert\\(0, ''.''\\); from ui import notebooklm_window; print\\(''notebooklm_window OK''\\)\")",
+      "Bash(python -c \"from PySide6.QtWidgets import QTextEdit; qte = QTextEdit\\(\\); print\\(hasattr\\(qte.textCursor\\(\\), ''insertImage''\\)\\)\")",
+      "Bash(python -c \"import notebooklm; import inspect; print\\(inspect.getfile\\(notebooklm\\)\\)\")",
+      "Bash(grep -rn \"def login\\\\|playwright\\\\|storage_state\\\\|chromium\\\\|browser\" \"C:\\\\Users\\\\Admin\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python312\\\\Lib\\\\site-packages\\\\notebooklm\"\" --include=\"*.py \" -l)"
     ]
   }
 }

@@ -287,6 +287,8 @@ class FileSearchApp(QMainWindow):
         self._search_tabs.addTab(self.db_search_widget, "🗄 DB Search")
         self.notebooklm_widget = NotebookLMWidget()
         self._search_tabs.addTab(self.notebooklm_widget, "📓 NotebookLM")
+        self.notebooklm_widget.open_preview.connect(self._open_preview_from_nlm)
+        self.notebooklm_widget.goto_page_signal.connect(self.pdf_preview.goto_page)
 
         # Splitter: tabs (trái) | pdf preview (phải)
         self._splitter = QSplitter(Qt.Horizontal)
@@ -708,6 +710,14 @@ class FileSearchApp(QMainWindow):
             w.start()
         QMessageBox.information(self, "NotebookLM",
             f"Adding {len(to_upload)} file(s) to NotebookLM in the background…")
+
+    def _open_preview_from_nlm(self, file_path: str, page_num):
+        if not self.pdf_preview.isVisible():
+            self.pdf_preview.show()
+            self._splitter.setSizes([6000, 4000])
+        self.pdf_preview.load(file_path)
+        if page_num is not None and page_num > 0:
+            self.pdf_preview.goto_page(page_num)
 
     def _open_folder_path(self, folder: str):
         if os.path.exists(folder):

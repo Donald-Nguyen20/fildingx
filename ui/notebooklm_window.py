@@ -5,7 +5,66 @@ import asyncio
 import subprocess
 import sys
 import os
+import threading
 from pathlib import Path
+
+
+def _load_source_map() -> dict:
+    """Load nlm_source_map.json. Returns {} nếu chưa có hoặc lỗi.
+    Hỗ trợ cả format cũ {"name": "path"} và mới {"name": {"path":..., "notebooks":[...]}}.
+    """
+    import json
+    try:
+        from paths import NLM_SOURCE_MAP
+        with open(NLM_SOURCE_MAP, "r", encoding="utf-8") as f:
+            raw = json.load(f)
+        # Migrate format cũ
+        migrated = {}
+        for k, v in raw.items():
+            if isinstance(v, str):
+                migrated[k] = {"path": v, "notebooks": []}
+            else:
+                migrated[k] = v
+        return migrated
+    except Exception:
+        return {}
+
+
+def _save_source_map(src_map: dict):
+    """Ghi nlm_source_map.json, bỏ các entry file không còn tồn tại."""
+    import json
+    try:
+        from paths import NLM_SOURCE_MAP
+        # Loại entry path không hợp lệ
+        clean = {k: v for k, v in src_map.items()
+                 if isinstance(v, dict) and os.path.isfile(v.get("path", ""))}
+        with open(NLM_SOURCE_MAP, "w", encoding="utf-8") as f:
+            json.dump(clean, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+def _upsert_source_map(source_title: str, file_path: str, notebook_id: str = ""):
+    """Thêm hoặc cập nhật entry trong source map."""
+    src_map = _load_source_map()
+    entry = src_map.get(source_title, {"path": file_path, "notebooks": []})
+    entry["path"] = file_path
+    if notebook_id and notebook_id not in entry.get("notebooks", []):
+        entry.setdefault("notebooks", []).append(notebook_id)
+    src_map[source_title] = entry
+    _save_source_map(src_map)
+
+
+def _lookup_source_path(source_title: str) -> str | None:
+    """Tìm đường dẫn local từ tên source. Trả None nếu không có."""
+    src_map = _load_source_map()
+    entry = src_map.get(source_title) or next(
+        (v for k, v in src_map.items() if k.lower() == source_title.lower()), None
+    )
+    if not entry:
+        return None
+    path = entry.get("path", "")
+    return path if os.path.isfile(path) else None
 
 
 def is_nlm_logged_in() -> bool:
@@ -39,27 +98,59 @@ class LoginWorker(QThread):
 
     def __init__(self):
         super().__init__()
-        self._proc = None
+        self._event = threading.Event()
 
     def run(self):
         try:
-            self._proc = subprocess.Popen(
-                [sys.executable, "-m", "notebooklm", "login"],
-                stdin=subprocess.PIPE,
-            )
-            self._proc.wait()
+            # Restore DefaultEventLoopPolicy for Playwright on Windows
+            if sys.platform == "win32":
+                asyncio.set_event_loop_policy(asyncio.DefaultEventLoopPolicy())
+
+            from playwright.sync_api import sync_playwright
+            from notebooklm.paths import get_storage_path, get_browser_profile_dir
+
+            storage_path   = get_storage_path()
+            browser_profile = get_browser_profile_dir()
+            storage_path.parent.mkdir(parents=True, exist_ok=True)
+            browser_profile.mkdir(parents=True, exist_ok=True)
+
+            with sync_playwright() as p:
+                context = p.chromium.launch_persistent_context(
+                    user_data_dir=str(browser_profile),
+                    headless=False,
+                    args=[
+                        "--disable-blink-features=AutomationControlled",
+                        "--password-store=basic",
+                    ],
+                    ignore_default_args=["--enable-automation"],
+                )
+                page = context.pages[0] if context.pages else context.new_page()
+                page.goto("https://notebooklm.google.com/")
+
+                # Chờ user bấm "Save Login"
+                self._event.wait()
+
+                # Force .google.com cookies
+                page.goto("https://accounts.google.com/", wait_until="load")
+                page.goto("https://notebooklm.google.com/", wait_until="load")
+
+                context.storage_state(path=str(storage_path))
+                try:
+                    storage_path.chmod(0o600)
+                except Exception:
+                    pass
+                context.close()
+
             self.done.emit()
         except Exception as e:
             self.error.emit(str(e))
+        finally:
+            if sys.platform == "win32":
+                asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     def confirm(self):
-        """Gửi ENTER để lưu cookies sau khi đăng nhập xong trên browser."""
-        if self._proc and self._proc.poll() is None:
-            try:
-                self._proc.stdin.write(b"\n")
-                self._proc.stdin.flush()
-            except Exception:
-                pass
+        """Gửi tín hiệu lưu cookies sau khi đăng nhập xong."""
+        self._event.set()
 
 
 class ListNotebooksWorker(QThread):
@@ -160,6 +251,27 @@ class ListSourcesWorker(QThread):
             self.error.emit(str(e))
 
 
+class DeleteSourceWorker(QThread):
+    done  = Signal()
+    error = Signal(str)
+
+    def __init__(self, notebook_id: str, source_id: str):
+        super().__init__()
+        self.notebook_id = notebook_id
+        self.source_id   = source_id
+
+    def run(self):
+        try:
+            from notebooklm import NotebookLMClient
+            async def _delete():
+                async with await NotebookLMClient.from_storage() as client:
+                    await client.sources.delete(self.notebook_id, self.source_id)
+            _run_async(_delete())
+            self.done.emit()
+        except Exception as e:
+            self.error.emit(str(e))
+
+
 class AddSourceWorker(QThread):
     done  = Signal()
     error = Signal(str)
@@ -197,6 +309,13 @@ class AddSourceWorker(QThread):
                 async with await NotebookLMClient.from_storage() as client:
                     await client.sources.add_file(self.notebook_id, Path(upload_path), wait=True)
             _run_async(_add())
+            # Save source map
+            if not self.file_path.lower().endswith(".doc"):
+                _upsert_source_map(
+                    os.path.basename(self.file_path),
+                    self.file_path,
+                    self.notebook_id,
+                )
             self.done.emit()
         except Exception as e:
             self.error.emit(str(e))
@@ -294,6 +413,7 @@ class NLMSummarizeWorker(QThread):
             self.error.emit(str(e))
 
 
+
 class ChatWorker(QThread):
     done  = Signal(str, list)   # answer, deduplicated citations
     error = Signal(str)
@@ -335,6 +455,49 @@ class ChatWorker(QThread):
             self.done.emit(text, citations)
         except Exception as e:
             self.error.emit(str(e))
+
+
+class PageFindWorker(QThread):
+    """Runs _find_page_for_citation in background; emits found(page) when done."""
+    found = Signal(int)   # page index (0-based)
+
+    def __init__(self, pdf_path: str, cited_text: str):
+        super().__init__()
+        self.pdf_path   = pdf_path
+        self.cited_text = cited_text
+
+    def run(self):
+        import re
+        try:
+            import fitz
+            doc = fitz.open(self.pdf_path)
+            # Pass 1: exact snippet (shrinking)
+            for length in (60, 40, 20):
+                snippet = self.cited_text[:length].strip()
+                if len(snippet) < 8:
+                    continue
+                for i in range(len(doc)):
+                    if doc[i].search_for(snippet):
+                        doc.close()
+                        self.found.emit(i)
+                        return
+            # Pass 2: uppercase keyword matching
+            keywords = list(dict.fromkeys(
+                re.findall(r'\b[A-Z][A-Z0-9_\-]{3,}\b', self.cited_text)))[:8]
+            if keywords:
+                best_page, best_score = None, 0
+                for i in range(len(doc)):
+                    score = sum(1 for k in keywords if k in doc[i].get_text())
+                    if score > best_score:
+                        best_score, best_page = score, i
+                if best_score >= 3:
+                    doc.close()
+                    self.found.emit(best_page)
+                    return
+            doc.close()
+        except Exception:
+            pass
+        # Not found — do not emit (preview stays at page 0)
 
 
 # ── Notebook Picker Dialog (used from external windows) ──────────
@@ -407,14 +570,33 @@ class NLMNotebookPickerDialog(QDialog):
         return None
 
 
+# ── Chat display with clickable source links ─────────────────────
+
+class ChatDisplay(QTextEdit):
+    link_clicked = Signal(str)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setReadOnly(True)
+
+    def mousePressEvent(self, e):
+        anchor = self.anchorAt(e.pos())
+        if anchor and anchor.startswith("nlm://"):
+            self.link_clicked.emit(anchor)
+        else:
+            super().mousePressEvent(e)
+
+
 # ── Embedded Widget ───────────────────────────────────────────────
 
 class NotebookLMWidget(QWidget):
     """Embedded widget — dùng trong tab hoặc dialog."""
-
+    open_preview    = Signal(str, object)  # file_path, page_num (int or None)
+    goto_page_signal = Signal(int)          # jump to page after background search
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._citation_refs: list = []
 
         self._current_notebook_id = None
         self._workers = []
@@ -507,10 +689,10 @@ class NotebookLMWidget(QWidget):
         self.lbl_nb_name.setStyleSheet("font-size: 13px; font-weight: bold; color: #89b4fa;")
         chat_lay.addWidget(self.lbl_nb_name)
 
-        self.chat_display = QTextEdit()
-        self.chat_display.setReadOnly(True)
+        self.chat_display = ChatDisplay()
         self.chat_display.setPlaceholderText("Chat history will appear here…")
         self.chat_display.setStyleSheet("font-size: 18px;")
+        self.chat_display.link_clicked.connect(self._on_source_link_clicked)
         chat_lay.addWidget(self.chat_display, 1)
 
         self.lbl_thinking = QLabel("")
@@ -540,6 +722,8 @@ class NotebookLMWidget(QWidget):
 
         src_lay.addWidget(QLabel("Files added to this notebook:"))
         self.lst_sources = QListWidget()
+        self.lst_sources.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.lst_sources.customContextMenuRequested.connect(self._show_source_context_menu)
         src_lay.addWidget(self.lst_sources, 1)
 
         src_btn_row = QHBoxLayout()
@@ -716,7 +900,39 @@ class NotebookLMWidget(QWidget):
             return
         for s in sources:
             title = getattr(s, "title", None) or getattr(s, "name", None) or str(s)
-            self.lst_sources.addItem(QListWidgetItem(f"📄 {title}"))
+            sid   = getattr(s, "source_id", None) or getattr(s, "id", None) or ""
+            item  = QListWidgetItem(f"📄 {title}")
+            item.setData(Qt.UserRole, sid)   # lưu source_id
+            self.lst_sources.addItem(item)
+
+    def _show_source_context_menu(self, pos):
+        item = self.lst_sources.itemAt(pos)
+        if not item:
+            return
+        from PySide6.QtWidgets import QMenu
+        menu = QMenu(self)
+        menu.addAction("🗑 Delete Source").triggered.connect(
+            lambda: self._delete_source(item)
+        )
+        menu.exec(self.lst_sources.mapToGlobal(pos))
+
+    def _delete_source(self, item):
+        from PySide6.QtWidgets import QMessageBox
+        title = item.text().lstrip("📄 ").strip()
+        sid   = item.data(Qt.UserRole)
+        if not sid:
+            QMessageBox.warning(self, "Error", "Cannot delete: source ID not found.")
+            return
+        reply = QMessageBox.question(self, "Delete Source",
+            f'Delete "{title}" from this notebook?',
+            QMessageBox.Yes | QMessageBox.No)
+        if reply != QMessageBox.Yes:
+            return
+        w = DeleteSourceWorker(self._current_notebook_id, sid)
+        w.done.connect(lambda: self._load_sources())
+        w.error.connect(lambda e: QMessageBox.critical(self, "Error", e))
+        self._workers.append(w)
+        w.start()
 
     # ── Chat ──────────────────────────────────────────────────────
 
@@ -753,18 +969,22 @@ class NotebookLMWidget(QWidget):
 
     def _on_chat_done(self, text: str, citations: list):
         self._stop_thinking()
+        self._citation_refs = citations
         html = self._md_to_html(text)
-        self.chat_display.append(f"<b style='color:#a6e3a1'>NotebookLM:</b><br>{html}")
+        self.chat_display.append(f"<b style='color:#a6e3a1'>Mr Finder:</b><br>{html}")
         if citations:
             parts = []
             for i, c in enumerate(citations, 1):
                 quote  = c.get("text", "")
                 source = c.get("source", "")
                 short  = quote[:150] + ("…" if len(quote) > 150 else "")
+                src_html = (
+                    f" <a href='nlm://{i-1}' style='color:#1d4ed8;text-decoration:underline'>{source}</a>"
+                    if source else ""
+                )
                 parts.append(
-                    f"<span style='color:#15803d'>[{i}]"
-                    + (f" <span style='color:#1d4ed8'>{source}</span>" if source else "")
-                    + f"</span> <i style='color:#374151'>\"{short}\"</i>"
+                    f"<span style='color:#15803d'>[{i}]{src_html}</span>"
+                    f" <i style='color:#374151'>\"{short}\"</i>"
                 )
             self.chat_display.append(
                 "<span style='font-size:15px;color:#b45309'>──────────────── Sources ────────────────</span><br>"
@@ -772,6 +992,47 @@ class NotebookLMWidget(QWidget):
             )
         self.chat_display.append("<br>")
         self.btn_send.setEnabled(True)
+
+    def _on_source_link_clicked(self, href: str):
+        try:
+            idx = int(href.replace("nlm://", ""))
+            c = self._citation_refs[idx]
+            source     = c.get("source", "")
+            cited_text = c.get("text", "")
+        except Exception:
+            return
+
+        # Tìm trong source map
+        local_path = _lookup_source_path(source)
+
+        if not local_path:
+            from PySide6.QtWidgets import QFileDialog, QMessageBox
+            answer = QMessageBox.question(self, "File not found",
+                f'"{source}" not in local map.\nLocate the file manually?',
+                QMessageBox.Yes | QMessageBox.No)
+            if answer != QMessageBox.Yes:
+                return
+            local_path, _ = QFileDialog.getOpenFileName(
+                self, f"Locate: {source}", "", "PDF Files (*.pdf)")
+            if not local_path:
+                return
+            _upsert_source_map(source, local_path, self._current_notebook_id or "")
+
+        if not local_path.lower().endswith(".pdf"):
+            return
+        # Open preview immediately (no lag), then find the right page in background
+        self.open_preview.emit(local_path, None)
+        if cited_text.strip():
+            worker = PageFindWorker(local_path, cited_text)
+            worker.found.connect(self.goto_page_signal)
+            worker.finished.connect(worker.deleteLater)
+            # Keep a reference so GC doesn't collect it before it finishes
+            if not hasattr(self, "_page_find_workers"):
+                self._page_find_workers = []
+            self._page_find_workers.append(worker)
+            worker.finished.connect(lambda: self._page_find_workers.remove(worker)
+                                    if worker in self._page_find_workers else None)
+            worker.start()
 
     _LATEX_MAP = {
         r"\rightarrow": "→", r"\leftarrow": "←",

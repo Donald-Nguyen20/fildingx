@@ -82,7 +82,12 @@ class NotesWindow(QDialog):
             self, "Select Image", "", "Images (*.png *.xpm *.jpg *.jpeg *.bmp)"
         )
         if path:
-            self.note_text.textCursor().insertImage(path)
+            import base64, os
+            ext = os.path.splitext(path)[1].lower().lstrip(".")
+            with open(path, "rb") as f:
+                b64 = base64.b64encode(f.read()).decode()
+            cursor = self.note_text.textCursor()
+            cursor.insertHtml(f'<img src="data:image/{ext};base64,{b64}">')
 
     def _save_note(self):
         if not (self.selected_container and self.selected_file):

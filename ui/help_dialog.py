@@ -506,7 +506,7 @@ class HelpDialog(QDialog):
         </ol>
 
         <div class="hint">
-          <b>File đăng nhập:</b> <code>%USERPROFILE%\.notebooklm\storage_state.json</code><br>
+          <b>File đăng nhập:</b> <code>%USERPROFILE%\\.notebooklm\\storage_state.json</code><br>
           Lưu cookie Google. Xóa file này để đăng nhập lại tài khoản khác.
         </div>
 
@@ -532,11 +532,11 @@ class HelpDialog(QDialog):
           <tr><th>Chế độ</th><th>Đường dẫn</th></tr>
           <tr>
             <td>Chạy trực tiếp (Python)</td>
-            <td><code>&lt;thư mục project&gt;\llm_config.json</code></td>
+            <td><code>&lt;thư mục project&gt;\\llm_config.json</code></td>
           </tr>
           <tr>
             <td>Chạy từ EXE</td>
-            <td><code>&lt;thư mục chứa Finding8.exe&gt;\llm_config.json</code></td>
+            <td><code>&lt;thư mục chứa Finding8.exe&gt;\\llm_config.json</code></td>
           </tr>
         </table>
 

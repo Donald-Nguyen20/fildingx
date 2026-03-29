@@ -385,8 +385,11 @@ class PdfPreviewWidget(QWidget):
     def clear(self):
         if self._path:
             self._save_note(silent=True)
-        if self._doc:
-            self._doc.close()
+        if self._doc is not None:
+            try:
+                self._doc.close()
+            except Exception:
+                pass
             self._doc = None
         self._path     = None
         self._page_idx = 0
@@ -422,6 +425,12 @@ class PdfPreviewWidget(QWidget):
         self.lbl_counter.setText(f"{self._page_idx + 1} / {total}")
         self.btn_prev.setEnabled(self._page_idx > 0)
         self.btn_next.setEnabled(self._page_idx < total - 1)
+
+    def goto_page(self, page_num: int):
+        if self._doc is not None:
+            page_num = max(0, min(page_num, len(self._doc) - 1))
+            self._page_idx = page_num
+            self._render()
 
     def _prev_page(self):
         if self._doc and self._page_idx > 0:
@@ -471,7 +480,12 @@ class PdfPreviewWidget(QWidget):
             self, "Select image", "", "Images (*.png *.jpg *.jpeg *.bmp)"
         )
         if path:
-            self.txt_summary.textCursor().insertImage(path)
+            import base64
+            ext = os.path.splitext(path)[1].lower().lstrip(".")
+            with open(path, "rb") as f:
+                b64 = base64.b64encode(f.read()).decode()
+            cursor = self.txt_summary.textCursor()
+            cursor.insertHtml(f'<img src="data:image/{ext};base64,{b64}">')
 
     # ── Save / Load ──────────────────────────────────────────────
     def _load_existing_summary(self, path: str):
