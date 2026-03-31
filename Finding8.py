@@ -43,3 +43,4 @@ if __name__ == "__main__":
     window = FileSearchApp()
     window.showMaximized()
     sys.exit(app.exec())
+ 
