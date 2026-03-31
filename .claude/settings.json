@@ -22,7 +22,18 @@
       "Bash(python -c \"import sys; sys.path.insert\\(0, ''.''\\); from ui import notebooklm_window; print\\(''notebooklm_window OK''\\)\")",
       "Bash(python -c \"from PySide6.QtWidgets import QTextEdit; qte = QTextEdit\\(\\); print\\(hasattr\\(qte.textCursor\\(\\), ''insertImage''\\)\\)\")",
       "Bash(python -c \"import notebooklm; import inspect; print\\(inspect.getfile\\(notebooklm\\)\\)\")",
-      "Bash(grep -rn \"def login\\\\|playwright\\\\|storage_state\\\\|chromium\\\\|browser\" \"C:\\\\Users\\\\Admin\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python312\\\\Lib\\\\site-packages\\\\notebooklm\"\" --include=\"*.py \" -l)"
+      "Bash(grep -rn \"def login\\\\|playwright\\\\|storage_state\\\\|chromium\\\\|browser\" \"C:\\\\Users\\\\Admin\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python312\\\\Lib\\\\site-packages\\\\notebooklm\"\" --include=\"*.py \" -l)",
+      "Bash(python -c \"from PySide6.QtWebEngineWidgets import QWebEngineView; print\\(''ok''\\)\")",
+      "Read(//e/book/Vanphong/tim file/7 2>/dev/**)",
+      "Bash(grep -rn \"NLMAuto\\\\|NbLM\\\\|btn_nblm\" 'e:/book/Vanphong/tim file/7' --include=*.py)",
+      "Bash(python -c \"from ui.pdf_preview import PdfPreviewWidget; print\\(''pdf_preview ok''\\)\")",
+      "Bash(python -c \"from ui.notebooklm_window import MindMapWorker; print\\(''MindMapWorker ok''\\)\")",
+      "Bash(python -c \"from ui.pdf_preview import PdfPreviewWidget; print\\(''ok''\\)\")",
+      "Bash(python -c \"from ui.notebooklm_window import MindMapWorker, _mindmap_to_html; print\\(''ok''\\)\")",
+      "Bash(python -c \"from ui.notebooklm_window import MindMapWorker; print\\(''ok''\\)\")",
+      "Bash(python -c \"from ui.pdf_preview import PdfPreviewWidget; from ui.notebooklm_window import _mindmap_to_html; print\\(''ok''\\)\")",
+      "Bash(python -c \"from ui.notebooklm_window import _mindmap_to_html; print\\(''ok''\\)\")",
+      "Bash(python -c \"from ui.pdf_preview import PdfPreviewWidget, MindMapPage; print\\(''ok''\\)\")"
     ]
   }
 }

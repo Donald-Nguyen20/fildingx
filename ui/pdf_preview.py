@@ -5,17 +5,27 @@ import fitz
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QTabWidget, QComboBox, QFileDialog, QToolButton,
-    QDialog, QFormLayout, QLineEdit, QMessageBox,
+    QDialog, QFormLayout, QLineEdit, QMessageBox, QSplitter,
 )
-from PySide6.QtCore import Qt, QThread, Signal
-from PySide6.QtGui import QPixmap, QImage, QTextCharFormat, QFont
-from PySide6.QtGui import QDesktopServices
-from PySide6.QtCore import QUrl
+from PySide6.QtCore import Qt, QThread, Signal, QUrl
+from PySide6.QtGui import QPixmap, QImage, QTextCharFormat, QFont, QDesktopServices
+from PySide6.QtWebEngineCore import QWebEnginePage
+from PySide6.QtWebEngineWidgets import QWebEngineView
 
 import paths
 from core.llm_client import create_llm_client, PROVIDERS
-from core.llm_config import load_llm_config, save_llm_config, get_config_path, DEFAULT_CONFIG
+from core.llm_config import load_llm_config, save_llm_config, get_config_path
 from ui.notes_window import RichTextEdit
+
+
+class MindMapPage(QWebEnginePage):
+    """Custom page that intercepts console.log('mm:...') messages from the mind map HTML."""
+    action = Signal(str)
+
+    def javaScriptConsoleMessage(self, level, message, lineNumber, sourceID):  # noqa: N803
+        if message.startswith("mm:"):
+            self.action.emit(message)
+        # suppress all other console noise silently
 
 
 class LLMSettingsDialog(QDialog):
@@ -332,6 +342,29 @@ class PdfPreviewWidget(QWidget):
         self.btn_nlm_summary.clicked.connect(self._nlm_summarize)
         toolbar.addWidget(self.btn_nlm_summary)
 
+        self.btn_mind_map = QPushButton("🗺 Mind Map")
+        self.btn_mind_map.setFixedHeight(26)
+        self.btn_mind_map.setStyleSheet(_btn_ss)
+        self.btn_mind_map.setToolTip("Generate mind map with NotebookLM")
+        self.btn_mind_map.clicked.connect(self._nlm_mind_map)
+        toolbar.addWidget(self.btn_mind_map)
+
+        self.btn_regen_map = QPushButton("🔄")
+        self.btn_regen_map.setFixedSize(26, 26)
+        self.btn_regen_map.setStyleSheet(_btn_ss)
+        self.btn_regen_map.setToolTip("Regenerate mind map (clears cache)")
+        self.btn_regen_map.setVisible(False)
+        self.btn_regen_map.clicked.connect(self._regen_mind_map)
+        toolbar.addWidget(self.btn_regen_map)
+
+        self.btn_fullscreen_map = QPushButton("⛶")
+        self.btn_fullscreen_map.setFixedSize(26, 26)
+        self.btn_fullscreen_map.setStyleSheet(_btn_ss)
+        self.btn_fullscreen_map.setToolTip("Open mind map fullscreen")
+        self.btn_fullscreen_map.setVisible(False)
+        self.btn_fullscreen_map.clicked.connect(self._open_mindmap_fullscreen)
+        toolbar.addWidget(self.btn_fullscreen_map)
+
         btn_settings = QPushButton("⚙")
         btn_settings.setFixedSize(26, 26)
         btn_settings.setStyleSheet(_btn_ss)
@@ -347,6 +380,10 @@ class PdfPreviewWidget(QWidget):
 
         slay.addWidget(toolbar_widget)
 
+        # Vertical splitter: text notes (top) | mind map (bottom)
+        self._notes_splitter = QSplitter(Qt.Vertical)
+        notes_splitter = self._notes_splitter
+
         # Rich text editor
         self.txt_summary = RichTextEdit()
         self.txt_summary.setPlaceholderText(
@@ -355,7 +392,22 @@ class PdfPreviewWidget(QWidget):
         font = self.txt_summary.font()
         font.setPointSize(11)
         self.txt_summary.setFont(font)
-        slay.addWidget(self.txt_summary, 1)
+        notes_splitter.addWidget(self.txt_summary)
+
+        # Mind map viewer (hidden until generated)
+        try:
+            self._web_view = QWebEngineView()
+            self._mm_page = MindMapPage(self._web_view)
+            self._mm_page.action.connect(self._on_mindmap_action)
+            self._web_view.setPage(self._mm_page)
+            self._web_view.setVisible(False)
+            notes_splitter.addWidget(self._web_view)
+        except Exception:
+            self._web_view = None
+
+        notes_splitter.setStretchFactor(0, 2)
+        notes_splitter.setStretchFactor(1, 3)
+        slay.addWidget(notes_splitter, 1)
 
         self.tabs.addTab(sum_widget, "📝 Notes")
 
@@ -569,6 +621,119 @@ class PdfPreviewWidget(QWidget):
         self.txt_summary.setPlainText(f"NotebookLM error: {msg}")
         self.btn_nlm_summary.setEnabled(True)
         self.btn_nlm_summary.setText("📓 NbLM")
+
+    def _mindmap_path(self) -> str | None:
+        """Return path to cached mindmap HTML for current file, or None."""
+        if not self._path:
+            return None
+        import hashlib, paths
+        h = hashlib.md5(self._path.encode()).hexdigest()[:12]
+        os.makedirs(paths.MINDMAP_DIR, exist_ok=True)
+        return os.path.join(paths.MINDMAP_DIR, f"{h}.html")
+
+    def _nlm_mind_map(self):
+        if not self._path:
+            return
+        if self._web_view is None:
+            QMessageBox.warning(self, "Not Available",
+                "QWebEngineView is not installed.\nInstall PySide6-WebEngine to use Mind Map.")
+            return
+        # Toggle: if already visible, hide it
+        if self._web_view.isVisible():
+            self._web_view.setVisible(False)
+            self.btn_regen_map.setVisible(False)
+            self.btn_fullscreen_map.setVisible(False)
+            self.btn_mind_map.setText("🗺 Mind Map")
+            return
+        # Check cache first
+        cached = self._mindmap_path()
+        if cached and os.path.isfile(cached):
+            with open(cached, "r", encoding="utf-8") as f:
+                html = f.read()
+            self._show_mindmap(html)
+            return
+        # Need to generate — check login
+        from ui.notebooklm_window import is_nlm_logged_in, MindMapWorker
+        if not is_nlm_logged_in():
+            QMessageBox.warning(self, "Not Logged In",
+                "Please log in to NotebookLM first.\n\nGo to the 📓 NotebookLM tab and click 🔑 Switch Account.")
+            return
+        self.btn_mind_map.setEnabled(False)
+        self.btn_mind_map.setText("⏳")
+        self._web_view.setHtml("<p style='font-family:sans-serif;color:#cdd6f4;padding:16px'>Generating mind map…</p>")
+        self._show_mindmap_panel()
+        self._mindmap_worker = MindMapWorker(self._path)
+        self._mindmap_worker.done.connect(self._on_mindmap_done)
+        self._mindmap_worker.error.connect(self._on_mindmap_error)
+        self._mindmap_worker.start()
+
+    def _show_mindmap_panel(self):
+        self._web_view.setVisible(True)
+        self.btn_regen_map.setVisible(True)
+        self.btn_fullscreen_map.setVisible(True)
+        total = self._notes_splitter.height()
+        self._notes_splitter.setSizes([max(100, total // 2), max(200, total // 2)])
+        for i in range(self.tabs.count()):
+            if self.tabs.tabText(i).startswith("📝"):
+                self.tabs.setCurrentIndex(i)
+                break
+
+    def _show_mindmap(self, html: str):
+        self._web_view.setHtml(html)
+        self._show_mindmap_panel()
+
+    def _on_mindmap_action(self, action: str):
+        if action == "mm:fullscreen":
+            self._open_mindmap_fullscreen()
+
+    def _open_mindmap_fullscreen(self):
+        """Open mind map in a maximized dialog."""
+        cached = self._mindmap_path()
+        if not cached or not os.path.isfile(cached):
+            return
+        from PySide6.QtWidgets import QDialog, QVBoxLayout
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Mind Map — " + os.path.basename(self._path or ""))
+        dlg.setLayout(QVBoxLayout())
+        dlg.layout().setContentsMargins(0, 0, 0, 0)
+        view = QWebEngineView()
+        page = MindMapPage(view)
+        view.setPage(page)
+        view.load(QUrl.fromLocalFile(cached))
+        dlg.layout().addWidget(view)
+        dlg.showMaximized()
+        dlg.exec()
+
+    def _regen_mind_map(self):
+        """Delete cache and regenerate mind map for current file."""
+        cached = self._mindmap_path()
+        if cached and os.path.isfile(cached):
+            try:
+                os.remove(cached)
+            except Exception:
+                pass
+        self._web_view.setVisible(False)
+        self.btn_regen_map.setVisible(False)
+        self._nlm_mind_map()
+
+    def _on_mindmap_done(self, html: str):
+        # Save to cache
+        cached = self._mindmap_path()
+        if cached:
+            try:
+                with open(cached, "w", encoding="utf-8") as f:
+                    f.write(html)
+            except Exception:
+                pass
+        self._web_view.setHtml(html)
+        self.btn_mind_map.setEnabled(True)
+        self.btn_mind_map.setText("🗺 Mind Map")
+
+    def _on_mindmap_error(self, msg: str):
+        self._web_view.setHtml(
+            f"<p style='font-family:sans-serif;color:red;padding:16px'>Mind map error: {msg}</p>")
+        self.btn_mind_map.setEnabled(True)
+        self.btn_mind_map.setText("🗺 Mind Map")
 
     def _open_llm_summary(self):
         LLMSettingsDialog(self).exec()
