@@ -1,8 +1,8 @@
 <!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>【NOT TO DHI】VP1-C-L1-P-HCC-30070 rev.D System Description and Operation Philosophy for Water Sootblower.pdf</title>
+<html><head><meta charset="utf-8"><title>VP1-0-EPC-E-GEN-00012-I ELECTRICAL OPERATION PHILOSOPHY.pdf</title>
 <style>
   *{box-sizing:border-box;}
-  html,body{margin:0;padding:0;background:#0d0f1a;width:100%;height:100%;overflow:hidden;font-family:sans-serif;}
+  html,body{margin:0;padding:0;background:#080c14;width:100%;height:100%;overflow:hidden;font-family:sans-serif;}
   #app{width:100%;height:100%;}
   svg{width:100%;height:100%;display:block;cursor:grab;}
   svg.dragging{cursor:grabbing;}
@@ -11,7 +11,7 @@
   .lk{fill:none;}
   text{pointer-events:none;dominant-baseline:middle;}
   #toolbar{position:fixed;top:8px;left:50%;transform:translateX(-50%);display:flex;gap:5px;z-index:20;
-    background:rgba(13,15,26,0.92);padding:6px 10px;border-radius:10px;
+    background:rgba(8,12,20,0.92);padding:6px 10px;border-radius:10px;
     border:1px solid rgba(255,255,255,0.1);backdrop-filter:blur(8px);}
   #toolbar button{background:rgba(255,255,255,0.07);color:#c8d4f0;border:1px solid rgba(255,255,255,0.13);
     border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;transition:background .15s;}
@@ -20,14 +20,16 @@
     border-radius:6px;padding:4px 8px;font-size:12px;width:140px;outline:none;}
   #search::placeholder{color:rgba(200,212,240,0.35);}
   #detail{position:fixed;max-width:260px;min-width:180px;
-    background:rgba(13,15,26,0.97);border:1px solid rgba(255,255,255,0.18);border-radius:12px;
+    background:rgba(8,12,20,0.97);border:1px solid rgba(255,255,255,0.14);border-radius:12px;
     padding:12px 14px;color:#c8d4f0;font-size:12px;display:none;z-index:30;line-height:1.6;
     box-shadow:0 4px 24px rgba(0,0,0,0.6);}
-  #detail .dtitle{font-weight:bold;font-size:13px;margin-bottom:6px;color:#89b4fa;word-break:break-word;}
-  #detail .dbread{font-size:10px;color:rgba(200,212,240,0.45);margin-bottom:6px;}
+  #detail .dtitle{font-weight:bold;font-size:13px;margin-bottom:6px;color:#60a5fa;word-break:break-word;}
+  #detail .dbread{font-size:10px;color:rgba(200,212,240,0.4);margin-bottom:6px;}
   #detail .dchildren{margin-top:6px;font-size:11px;color:#a0b0d0;}
   #detail .dchildren div{padding:2px 0;border-top:1px solid rgba(255,255,255,0.06);}
-  #detail .dclose{float:right;cursor:pointer;opacity:0.45;font-size:15px;line-height:1;margin-left:6px;}
+  #detail .dquote{margin-top:6px;font-size:11px;color:#c8d4f0;font-style:italic;border-left:2px solid #3b82f6;padding-left:8px;}
+  #detail .dpage{margin-top:4px;font-size:10px;color:rgba(200,212,240,0.4);}
+  #detail .dclose{float:right;cursor:pointer;opacity:0.4;font-size:15px;line-height:1;margin-left:6px;color:#c8d4f0;}
   #detail .dclose:hover{opacity:1;}
 </style></head><body>
 <div id="toolbar">
@@ -46,8 +48,8 @@
 </div>
 <div id="app"><svg id="svg"><g id="canvas"></g></svg></div>
 <script>
-const RAW={"name": "Hệ thống vòi thổi muội bằng nước (Hydrojet)", "children": [{"name": "Thiết bị chính", "children": [{"name": "Vòi thổi Hydrojet", "children": [{"name": "Số lượng: 4 bộ"}, {"name": "Lưu lượng: 11.4 lít/giây"}, {"name": "Kích thước vòi phun: 13.7mm"}]}, {"name": "Trạm bơm", "children": [{"name": "Số lượng: 2 bơm (1 chạy + 1 dự phòng)"}, {"name": "Áp suất thiết kế: 6.3 Mpa(g)"}, {"name": "Điều khiển biến tần (VFD)"}]}, {"name": "Cảm biến truyền nhiệt (HTS)", "children": [{"name": "Số lượng: 24 bộ"}, {"name": "Dải đo: 0-378 kW/m2"}, {"name": "Theo dõi tác động nhiệt"}]}]}, {"name": "Nguyên lý vận hành (ISB)", "children": [{"name": "Chế độ Auto", "children": [{"name": "Tự động hoàn toàn dựa trên phần mềm"}, {"name": "Dựa trên mục tiêu Mật độ dòng nhiệt trung bình"}]}, {"name": "Chế độ Advisory", "children": [{"name": "Hệ thống tính toán và đề xuất"}, {"name": "Người vận hành thực hiện lệnh chạy"}]}, {"name": "Chế độ Off/Manual", "children": [{"name": "Vận hành thủ công từ HMI"}, {"name": "Sử dụng cho bảo trì và chạy thử"}]}]}, {"name": "Hệ thống phụ trợ & Đường ống", "children": [{"name": "Đường hồi (Recirculation): Kiểm soát áp suất qua lỗ tiết lưu"}, {"name": "Van an toàn: Xả nước khi áp suất vượt 63 bar(g)"}, {"name": "Khí chèn (Seal air): Làm mát vòi phun và bộ mã hóa"}, {"name": "Trạm dừng (Stop Station): Nút dừng khẩn cấp tại hiện trường"}]}, {"name": "Cảnh báo và Giám sát", "children": [{"name": "Cảnh báo lỗi bơm: Không khởi động, lỗi dừng, quá nhiệt"}, {"name": "Cảnh báo dòng chảy: Lưu lượng thấp/cao"}, {"name": "Hệ thống Historian: Lưu trữ dữ liệu trong 3 năm"}, {"name": "Chỉ số Slagging Rate: Tối ưu hóa tần suất thổi"}]}]};
-const TITLE="【NOT TO DHI】VP1-C-L1-P-HCC-30070 rev.D System Description and Operation Philosophy for Water Sootblower.pdf";
+const RAW={"name": "ELECTRICAL OPERATION PHILOSOPHY", "children": [{"name": "System Configuration & Ratings", "children": [{"name": "Voltage Levels", "children": [{"name": "23.5kV Generator Voltage", "description": "Generator rated terminal voltage and voltage for IPB and generator main circuit breaker with +/- 5% tolerance.", "page": 11}, {"name": "10.5kV MV Power Supply", "description": "Voltage for motors above 200kW and for power distribution within the plant, maintained at +/- 5% of terminal voltage.", "page": 11}, {"name": "400V LV Power Supply", "description": "3-phase 4-wire standard voltages for power supplied to small electric power consumers and motors from 0.75kW up to 200kW.", "page": 11}, {"name": "DC 220V Emergency Loads", "description": "Voltage level of emergency loads such as turbine emergency oil pump and generator seal oil pump, generally 220V DC +10/-15%.", "page": 11}]}, {"name": "Voltage Drop Limits", "children": [{"name": "Max Total Voltage Drop: 5%", "description": "Maximum total voltage drop from transformer secondary terminal to final load terminal shall not exceed 5%.", "page": 11}, {"name": "Motor Starting Drop: 20%", "description": "When motor starting, the voltage drop on all motors shall be within 20%.", "page": 12}, {"name": "Lighting Circuit Drop: 3-5%", "description": "Lighting sub-circuits and sockets allow 3% at rated load, and a maximum of 5% on both feeders and branch circuits.", "page": 12}]}, {"name": "Grounding System", "children": [{"name": "23.5kV High Resistance Grounding", "description": "Generator main circuit 3ph 3W uses High Resistance grounding to limit earth fault voltage.", "page": 13}, {"name": "10.5kV Low Resistance Grounding", "description": "Medium Voltage 3ph 3W systems utilize Low Resistance grounding (IT method).", "page": 13}, {"name": "400V Direct Grounding (TN-S)", "description": "Low Voltage 400V 3ph 4W+PE and 230V systems utilize Direct grounding.", "page": 13}]}]}, {"name": "Equipment Specifications", "children": [{"name": "Generator & Excitation", "children": [{"name": "Generator Rating: 850MVA", "description": "3 phase, rotating field, cylindrical rotor, synchronous generator with rated voltage of 23.5kV and 0.85 lagging power factor.", "page": 60}, {"name": "Sub-Transient Reactance: 0.231p.u.", "description": "The generator's saturated sub-transient reactance Xd'' is specified as 0.231 per unit.", "page": 60}, {"name": "AVR Digital Type", "description": "The excitation control equipment consists of Automatic Voltage Regulator of the duplicated digital type with a manual control function.", "page": 60}]}, {"name": "Power Transformers", "children": [{"name": "GT: 425/680/850 MVA", "description": "Generator Step-up Transformer with ONAN/ONAF/ODAF cooling and 525/23.5kV voltage ratio.", "page": 61}, {"name": "UAT: 55/55/110 MVA", "description": "Unit Auxiliary Transformer with three windings and de-energized tap changer, rated at 23.5/11.5-11.5kV.", "page": 62}, {"name": "SST: 40/40/80 MVA", "description": "Station Service Transformer supplied from 110kV switchyard to provide commissioning power.", "page": 63}]}, {"name": "Emergency Diesel Generator", "children": [{"name": "EDG Rating: 2400kW", "description": "Standby rating of 2400kW (2200kW prime) at 400/230V, 50Hz, with a starting time to full loading of ≤ 10 seconds.", "page": 73}, {"name": "Fuel Oil Day Tank", "description": "The supply diesel generator shall include a fuel oil day tank conforming to NFPA 30.", "page": 73}]}]}, {"name": "Operation Procedures", "children": [{"name": "Normal Start-up Sequence", "children": [{"name": "Step 1: Essential Power", "description": "Before start-up, DC power, UPS power, and DCS monitoring and control systems must be available.", "page": 83}, {"name": "Step 2: Facilities", "description": "Availability of lighting, HVAC, fire fighting systems, and miscellaneous building facilities is required.", "page": 83}, {"name": "Step 3: Support Systems", "description": "Sea water, CWP, CCWP, desalination, chlorination, FGD, and water treatment systems must be energized.", "page": 83}, {"name": "Step 4: Fuel & Gas", "description": "Coal handling, fuel oil, H2 gas, CO2 gas, and N2 gas systems are brought online.", "page": 83}]}, {"name": "Bus Transfer Operations", "children": [{"name": "FTS Time: < 100ms", "description": "Fast Bus Transfer maximum operating time shall not be longer than 100 ms from lockout relay initiation.", "page": 92}, {"name": "10.5kV Manual Transfer", "description": "Parallel bus transfer employs the make-before-break principle through the DCS, ensuring continuous operation of consumers.", "page": 90}, {"name": "ATS Under Voltage: 70%", "description": "Automatic Transfer System tie breakers close after tripping based on bus under voltage operation at 70%.", "page": 137}]}, {"name": "House Load Operation", "children": [{"name": "HLO Duration Limit: 1 Hour", "description": "The plant shall be tripped if re-synchronization is not expected within one hour as per STG manufacturer recommendation.", "page": 104}, {"name": "Bypass Excess Steaming", "description": "HP-LP turbine bypass system caters to boiler excess steaming by dumping it to the condenser during house load operation.", "page": 103}]}]}, {"name": "Protection & Monitoring", "children": [{"name": "Relay Operating Times", "children": [{"name": "MV Feeder: 150ms", "description": "10.5kV feeder short-circuit protection (50/51) operating time is approximately 150 msec.", "page": 116}, {"name": "MV Incoming: 650ms", "description": "10.5kV incoming short-circuit protection (51) operating time is approximately 650 msec.", "page": 116}, {"name": "LV Feeder: 80ms", "description": "400V LV switchgear feeder short-circuit protection operating time is approximately 80 msec.", "page": 117}]}, {"name": "Control Indication", "children": [{"name": "DCS Monitoring", "description": "Monitoring of voltage, current, power, and frequency for generators and transformers is provided at the DCS.", "page": 141}, {"name": "GCP Local Control", "description": "The Generator Control Panel provides auto and manual synchronization and GCB status indication.", "page": 143}]}, {"name": "Lockout Relay Actions", "children": [{"name": "86G Generator Trip", "description": "Operation of generator protection activates the 86G lockout relay to trip the generator circuit breaker and field switch.", "page": 115}, {"name": "87OA Overall Protection", "description": "Overall differential protection covers Generator, GT, and UAT, serving as backup to unit protections.", "page": 111}]}]}]};
+const TITLE="VP1-0-EPC-E-GEN-00012-I ELECTRICAL OPERATION PHILOSOPHY.pdf";
 
 // ── Topic palettes (one per level-1 branch) ─────────────
 const PAL=[
@@ -71,6 +73,7 @@ function initTree(n,parent,level,topic){
   n._collapsed=(level>=3);
   n._topic=topic;
   n._detail=n.description||n.detail||n.content||'';
+  n._page=n.page||0;
   n.children=(n.children||[]);
   if(level===0) n.children.forEach((c,i)=>initTree(c,n,1,i%PAL.length));
   else          n.children.forEach(c=>initTree(c,n,level+1,topic));
@@ -132,7 +135,7 @@ function render(){
   vis.forEach(n=>{
     if(!n._parent) return;
     const p=n._parent;
-    const ECOLS=['#4a80c8','#4caf70','#d07030','#8060c0','#c04060','#30a898'];
+    const ECOLS=['#3b82f6','#10b981','#f59e0b','#a855f7','#f43f5e','#14b8a6'];
     const ec=ECOLS[Math.min(n._lv-1,ECOLS.length-1)];
     const pw=nw(p.name,p._lv);
     const x1=p._x+pw, y1=p._y+NH/2;
@@ -153,25 +156,25 @@ function render(){
 
     // Fill / stroke — color by level
     const LCOLS=[
-      {fill:'#1e2a4a',text:'#89b4fa',stroke:'#4a80c8'},  // lv0 blue
-      {fill:'#1a3d22',text:'#a6e3a1',stroke:'#4caf70'},  // lv1 green
-      {fill:'#3d2800',text:'#fab387',stroke:'#d07030'},  // lv2 orange
-      {fill:'#301a50',text:'#cba6f7',stroke:'#8060c0'},  // lv3 purple
-      {fill:'#3d1020',text:'#f38ba8',stroke:'#c04060'},  // lv4 red
-      {fill:'#0d3530',text:'#94e2d5',stroke:'#30a898'},  // lv5 teal
+      {fill:'#0f1b2d',text:'#60a5fa',stroke:'#3b82f6'},  // lv0 — sapphire
+      {fill:'#0d2b1e',text:'#34d399',stroke:'#10b981'},  // lv1 — emerald
+      {fill:'#2d1b00',text:'#fbbf24',stroke:'#f59e0b'},  // lv2 — amber
+      {fill:'#1e0d35',text:'#c084fc',stroke:'#a855f7'},  // lv3 — violet
+      {fill:'#2d0a14',text:'#fb7185',stroke:'#f43f5e'},  // lv4 — rose
+      {fill:'#012a2a',text:'#2dd4bf',stroke:'#14b8a6'},  // lv5 — cyan
     ];
     const lc=LCOLS[Math.min(n._lv,LCOLS.length-1)];
     let fill=lc.fill,textC=lc.text,strokeC=lc.stroke;
     let strokeW=n._lv===0?2.5:n._lv===1?2:1.2;
     let rx=n._lv===0?16:12;
-    if(stats){fill='#332600';textC='#ffd870';strokeC='#c09030';strokeW=2;rx=8;}
-    if(matched){fill='#2a1e00';strokeC='#ffd700';strokeW=2.5;textC='#ffd700';}
+    if(stats){fill='#422006';textC='#fde68a';strokeC='#d97706';strokeW=2;rx=8;}
+    if(matched){fill='#2a1e00';strokeC='#fbbf24';strokeW=2.5;textC='#fde68a';}
 
     const fs=n._lv===0?14:n._lv===1?12:11;
     const fw=n._lv<=1?'bold':'normal';
     const label=esc(n.name||'')+(n._collapsed&&hasKids?' ▸':'');
 
-    s+=`<g class="nd" onclick="nodeClick(${n._id},event)" ondblclick="askNbLM(${JSON.stringify(n.name||'')},event)">`;
+    s+=`<g class="nd" data-name="${esc(n.name||'')}" onclick="nodeClick(${n._id},event)">`;
     s+=`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${rx}" fill="${fill}" stroke="${strokeC}" stroke-width="${strokeW}"/>`;
     // Stats badge
     if(stats) s+=`<circle cx="${x+w-7}" cy="${y+7}" r="4" fill="#c09030" opacity="0.9"/>`;
@@ -195,9 +198,25 @@ function nodeClick(id,evt){
   if(n.children.length){n._collapsed=!n._collapsed;render();}
 }
 
-function askNbLM(name,evt){
+function nodeRightClick(name,evt){
+  evt.preventDefault();
   evt.stopPropagation();
-  if(name) console.log('mm:ask:'+name);
+  document.getElementById('ctx-menu')?.remove();
+  const m=document.createElement('div');
+  m.id='ctx-menu';
+  m.style.cssText=`position:fixed;left:${evt.clientX}px;top:${evt.clientY}px;
+    background:#313244;border:1px solid #45475a;border-radius:6px;
+    padding:4px 0;z-index:999;box-shadow:0 4px 12px #0006;min-width:160px;`;
+  const item=document.createElement('div');
+  item.textContent='📓 Send to NbLM';
+  item.style.cssText='padding:8px 14px;cursor:pointer;font-size:13px;color:#cdd6f4;';
+  item.onmouseenter=()=>item.style.background='#45475a';
+  item.onmouseleave=()=>item.style.background='';
+  item.onclick=()=>{m.remove();if(name)console.log('mm:ask:'+name);};
+  m.appendChild(item);
+  document.body.appendChild(m);
+  const close=()=>m.remove();
+  setTimeout(()=>document.addEventListener('click',close,{once:true}),0);
 }
 
 function breadcrumb(n){
@@ -220,6 +239,19 @@ function showDetail(n,evt){
   } else {
     chEl.innerHTML=''; chEl.style.display='none';
   }
+  // Quote + page
+  let quoteEl=document.getElementById('det-quote');
+  if(!quoteEl){quoteEl=document.createElement('div');quoteEl.id='det-quote';dlg.appendChild(quoteEl);}
+  let pageEl=document.getElementById('det-page');
+  if(!pageEl){pageEl=document.createElement('div');pageEl.id='det-page';dlg.appendChild(pageEl);}
+  if(n._detail){
+    quoteEl.className='dquote'; quoteEl.textContent='"'+n._detail+'"'; quoteEl.style.display='block';
+  } else { quoteEl.style.display='none'; }
+  if(n._page){
+    pageEl.className='dpage';
+    pageEl.innerHTML='<a href="#" onclick="goToPage('+n._page+');return false;" style="color:#60a5fa;text-decoration:underline;cursor:pointer;">📄 Page '+n._page+'</a>';
+    pageEl.style.display='block';
+  } else { pageEl.style.display='none'; }
   // position near click, avoid overflow
   dlg.style.display='block';
   const sw=window.innerWidth, sh=window.innerHeight;
@@ -231,6 +263,7 @@ function showDetail(n,evt){
   dlg.style.left=px+'px'; dlg.style.top=py+'px';
 }
 function closeDetail(){document.getElementById('detail').style.display='none';}
+function goToPage(pg){console.log('mm:page:'+pg);}
 
 // ── Search ───────────────────────────────────────────────
 function doSearch(val){
@@ -288,6 +321,30 @@ svg.addEventListener('click',()=>closeDetail());
 document.addEventListener('keydown',e=>{
   if(e.key==='Escape'){closeDetail();document.getElementById('search').value='';doSearch('');}
   if(e.key==='f'&&!e.ctrlKey&&!e.metaKey) fitScreen();
+});
+
+// ── Context menu (right-click node → Send to NbLM) ───────
+document.addEventListener('contextmenu', e=>{
+  e.preventDefault();
+  document.getElementById('ctx-menu')?.remove();
+  const g = e.target.closest('g.nd');
+  if(!g) return;
+  const name = g.getAttribute('data-name');
+  if(!name) return;
+  const m = document.createElement('div');
+  m.id = 'ctx-menu';
+  m.style.cssText = `position:fixed;left:${e.clientX}px;top:${e.clientY}px;
+    background:#313244;border:1px solid #45475a;border-radius:6px;
+    padding:4px 0;z-index:9999;box-shadow:0 4px 12px #0008;min-width:170px;`;
+  const item = document.createElement('div');
+  item.textContent = '📓 Send to NbLM';
+  item.style.cssText = 'padding:8px 14px;cursor:pointer;font-size:13px;color:#cdd6f4;white-space:nowrap;';
+  item.onmouseenter = ()=>item.style.background='#45475a';
+  item.onmouseleave = ()=>item.style.background='';
+  item.onclick = ()=>{ m.remove(); console.log('mm:ask:'+name); };
+  m.appendChild(item);
+  document.body.appendChild(m);
+  setTimeout(()=>document.addEventListener('click', ()=>m.remove(), {once:true}), 0);
 });
 
 // ── Init ─────────────────────────────────────────────────

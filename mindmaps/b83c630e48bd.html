@@ -1,8 +1,8 @@
 <!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>【NOT TO DHI】VP1-C-L1-M-GEN-00500 rev.0 Basic Operation Philosophy for Boiler.pdf</title>
+<html><head><meta charset="utf-8"><title>VP1-0-EPC-E-GEN-00012-I ELECTRICAL OPERATION PHILOSOPHY.pdf</title>
 <style>
   *{box-sizing:border-box;}
-  html,body{margin:0;padding:0;background:#0d0f1a;width:100%;height:100%;overflow:hidden;font-family:sans-serif;}
+  html,body{margin:0;padding:0;background:#080c14;width:100%;height:100%;overflow:hidden;font-family:sans-serif;}
   #app{width:100%;height:100%;}
   svg{width:100%;height:100%;display:block;cursor:grab;}
   svg.dragging{cursor:grabbing;}
@@ -11,7 +11,7 @@
   .lk{fill:none;}
   text{pointer-events:none;dominant-baseline:middle;}
   #toolbar{position:fixed;top:8px;left:50%;transform:translateX(-50%);display:flex;gap:5px;z-index:20;
-    background:rgba(13,15,26,0.92);padding:6px 10px;border-radius:10px;
+    background:rgba(8,12,20,0.92);padding:6px 10px;border-radius:10px;
     border:1px solid rgba(255,255,255,0.1);backdrop-filter:blur(8px);}
   #toolbar button{background:rgba(255,255,255,0.07);color:#c8d4f0;border:1px solid rgba(255,255,255,0.13);
     border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;transition:background .15s;}
@@ -20,14 +20,16 @@
     border-radius:6px;padding:4px 8px;font-size:12px;width:140px;outline:none;}
   #search::placeholder{color:rgba(200,212,240,0.35);}
   #detail{position:fixed;max-width:260px;min-width:180px;
-    background:rgba(13,15,26,0.97);border:1px solid rgba(255,255,255,0.18);border-radius:12px;
+    background:rgba(8,12,20,0.97);border:1px solid rgba(255,255,255,0.14);border-radius:12px;
     padding:12px 14px;color:#c8d4f0;font-size:12px;display:none;z-index:30;line-height:1.6;
     box-shadow:0 4px 24px rgba(0,0,0,0.6);}
-  #detail .dtitle{font-weight:bold;font-size:13px;margin-bottom:6px;color:#89b4fa;word-break:break-word;}
-  #detail .dbread{font-size:10px;color:rgba(200,212,240,0.45);margin-bottom:6px;}
+  #detail .dtitle{font-weight:bold;font-size:13px;margin-bottom:6px;color:#60a5fa;word-break:break-word;}
+  #detail .dbread{font-size:10px;color:rgba(200,212,240,0.4);margin-bottom:6px;}
   #detail .dchildren{margin-top:6px;font-size:11px;color:#a0b0d0;}
   #detail .dchildren div{padding:2px 0;border-top:1px solid rgba(255,255,255,0.06);}
-  #detail .dclose{float:right;cursor:pointer;opacity:0.45;font-size:15px;line-height:1;margin-left:6px;}
+  #detail .dquote{margin-top:6px;font-size:11px;color:#c8d4f0;font-style:italic;border-left:2px solid #3b82f6;padding-left:8px;}
+  #detail .dpage{margin-top:4px;font-size:10px;color:rgba(200,212,240,0.4);}
+  #detail .dclose{float:right;cursor:pointer;opacity:0.4;font-size:15px;line-height:1;margin-left:6px;color:#c8d4f0;}
   #detail .dclose:hover{opacity:1;}
 </style></head><body>
 <div id="toolbar">
@@ -46,8 +48,8 @@
 </div>
 <div id="app"><svg id="svg"><g id="canvas"></g></svg></div>
 <script>
-const RAW={"name": "Triết lý Vận hành Cơ bản cho Lò hơi (Dự án Nhiệt điện Vân Phong 1)", "children": [{"name": "Vận hành Bình thường", "children": [{"name": "Chế độ: Trực lưu (Khô), Đốt than, Điều khiển tự động"}, {"name": "Phạm vi tải: 40%NDC đến 100%NDC"}, {"name": "Kiểm soát nhiệt độ hơi: 566°C (Hơi chính & Tái nhiệt)"}, {"name": "Máy nghiền: 5 máy (4 vận hành, 1 dự phòng tại 100%NDC)"}, {"name": "Tốc độ tăng/giảm tải: 1-2%NDC/phút"}, {"name": "Áp suất: Vận hành theo áp suất trượt (Sliding pressure)"}]}, {"name": "Khởi động Lò hơi", "children": [{"name": "Các mốc APS: Chuẩn bị, Làm sạch, Đốt lửa, Lên tải"}, {"name": "Thời gian khởi động: Cực lạnh (>715 phút) đến Nóng (<220 phút)"}, {"name": "Chuyển đổi chế độ: Ướt sang Khô (tại 35%-40%NDC)"}, {"name": "Làm sạch nước: Xả đáy và Tuần hoàn để đạt chất lượng nước"}, {"name": "Hoàn thành: Đạt 50% tải ổn định với đủ số máy nghiền"}]}, {"name": "Dừng Lò hơi", "children": [{"name": "Trình tự APS: Giảm tải, Ngắt đồng bộ, Dừng lò, Dừng thiết bị phụ"}, {"name": "Điều kiện: Dừng tại 40%NDC với 2 máy nghiền"}, {"name": "Làm mát: Chế độ ủ lò (Bunking) hoặc làm mát cưỡng bức"}]}, {"name": "Hệ thống Nhiên liệu", "children": [{"name": "Vận hành Máy nghiền", "children": [{"name": "Số lượng tối thiểu: 2 máy"}, {"name": "Nhiệt độ đầu ra: 65°C"}, {"name": "Lưu lượng than tối thiểu: 25t/h mỗi máy"}]}, {"name": "Vòi đốt dầu", "children": [{"name": "Công suất: Tương đương 30%NDC"}, {"name": "Sử dụng: Khởi động, Dừng lò, Hỗ trợ máy nghiền"}, {"name": "Thông số: Áp suất dầu 1.4MPa(g), Có trình tự thổi sạch"}]}, {"name": "Đốt hỗn hợp: Cho phép khi khởi động/dừng hoặc chuyển đổi máy nghiền"}]}, {"name": "Hệ thống Phụ trợ & Bảo vệ", "children": [{"name": "Hơi phụ trợ", "children": [{"name": "Nguồn: Lò hơi phụ, Vách HRA hoặc Hơi tái nhiệt lạnh"}, {"name": "Mục đích: Thổi bụi, Sấy máy nghiền, Phun sương dầu"}]}, {"name": "Vận hành Runback", "children": [{"name": "Nguyên nhân: Nhảy máy nghiền, Quạt (FDF/PAF/IDF), Bơm cấp (T-BFP)"}, {"name": "Hành động: Giảm tải về mức an toàn (40% load)"}]}, {"name": "Tải tự dùng (House Load): Duy trì 40% tải khi tách lưới"}, {"name": "Vận hành Độc lập (Boiler Island): Duy trì 30% tải khi nhảy tuabin"}, {"name": "MFT (Ngắt nhiên liệu khẩn cấp)", "children": [{"name": "Lỗi lò: Mất quạt, Mất lửa, Áp suất buồng lửa cao/thấp, Lưu lượng gió thấp"}, {"name": "Lỗi tuabin: Nhảy tuabin, Bảo vệ bình ngưng"}]}]}]};
-const TITLE="【NOT TO DHI】VP1-C-L1-M-GEN-00500 rev.0 Basic Operation Philosophy for Boiler.pdf";
+const RAW={"name": "VP1-0-EPC-E-GEN-00012 ELECTRICAL OPERATION PHILOSOPHY", "children": [{"name": "System Voltage Configuration", "children": [{"name": "23.5kV Generator Circuit", "description": "Rated at 50Hz with a tolerance of +5/-5% (24.675kV to 22.325kV) for the generator terminal voltage and IPB.", "page": 98, "children": []}, {"name": "10.5kV Distribution System", "description": "Applied for motors above 200kW and plant power distribution with a +5/-5% tolerance (11.025kV to 9.975kV).", "page": 98, "children": []}, {"name": "6.6kV Fire Fighting System", "description": "Dedicated for fire fighting motors above 200kW within the plant with a +5/-5% voltage tolerance.", "page": 98, "children": []}, {"name": "Low Voltage AC Supplies", "description": "Includes 500V for ship unloaders, 400V standard for motors up to 200kW, and 230V for domestic power and lighting.", "page": 98, "children": []}, {"name": "UPS and DC Systems", "description": "230V UPS (+/-2%), 220V DC (+10/-15%), and 48V/24V DC systems (+/-10%) for communication and DCS auxiliaries.", "page": 98, "children": []}]}, {"name": "Voltage Drop and Grounding", "children": [{"name": "Maximum Voltage Drop Limits", "description": "Total voltage drop from transformer secondary to final terminal shall not exceed 5%, with motor starting drop limited to 20%.", "page": 98, "children": []}, {"name": "Grounding Methods by Voltage", "description": "23.5kV uses high resistance grounding; 10.5kV uses low resistance (IT); 400V/230V systems are directly grounded (TN-S).", "page": 100, "children": []}, {"name": "DC System Earthing", "description": "220V DC and 24V DC systems are ungrounded (IT), while 48V DC for AIS uses direct grounding (TT).", "page": 100, "children": []}]}, {"name": "Equipment Basic Specifications", "children": [{"name": "850MVA Generator (*0MKA10)", "description": "3-phase synchronous generator rated at 23.5kV, 50Hz, with a 0.85 lagging power factor and IEC 60034-1 standard compliance.", "page": 147, "children": []}, {"name": "Generator Transformer (*0BAT10)", "description": "Rated at 425/680/850 MVA with 525/23.5 kV windings and equipped with an OLTC for high-voltage side regulation.", "page": 148, "children": []}, {"name": "Station Service Transformer (00BCT01)", "description": "80/40/40 MVA transformer supplied from 110kV switchyard to provide commissioning power to unit auxiliary buses.", "page": 150, "children": []}, {"name": "Emergency Diesel Generator (EDG)", "description": "Rating of 2.4MW (Standby) / 2.2MW (Prime) at 400V, 50Hz, with a starting time to full load of <= 10 seconds.", "page": 160, "children": []}]}, {"name": "Unit Operation Procedures", "children": [{"name": "Commissioning Milestones", "description": "Power receiving starts at PM32.5M (110kV), followed by Unit 1 (PM42.5M) and Unit 2 (PM46.5M) from the 500kV grid.", "page": 168, "children": []}, {"name": "Start-up Energizing Sequence", "children": [{"name": "Step 1: Essential Controls", "description": "Ensure DC power, UPS systems, and DCS monitoring are available before proceeding.", "page": 170, "children": []}, {"name": "Step 2: Building Auxiliaries", "description": "Energize plant lighting, HVAC, fire fighting, and miscellaneous building facilities.", "page": 170, "children": []}, {"name": "Step 3: Process Systems", "description": "Start Sea Water, CWP, CCWP, Water Treatment, Waste Water Treatment, and Instrument Air systems.", "page": 170, "children": []}, {"name": "Step 4: Fuel and Handling", "description": "Activate Coal Handling system, Fuel Oil system, and H2/CO2/N2 gas supply systems.", "page": 170, "children": []}, {"name": "Step 5: Power Block Aux", "description": "Initialize Condensate, ESP, Boiler auxiliaries, and Feed Water systems for turbine readiness.", "page": 171, "children": []}]}, {"name": "House Load Operation (HLO)", "description": "Triggered by grid disturbances; the turbine-generator remains in service for a maximum recommended duration of one hour.", "page": 190, "children": []}]}, {"name": "Emergency and Backup Operation", "children": [{"name": "EDG Safety Shutdown", "description": "In a blackout, EDG automatically starts via sync panel to supply essential loads like lube oil and seal oil pumps.", "page": 188, "children": []}, {"name": "EDG Periodic Maintenance", "description": "Execute periodic test for minimum 30 minutes with load monthly; periods of no-load solo run must not exceed 15 minutes.", "page": 189, "children": []}, {"name": "400V Bus Transfer System", "description": "Residual bus transfer scheme with a time delay to allow residual voltage to decay; UV setting is 70% with 1-3s delay.", "page": 186, "children": []}]}, {"name": "Protection System Timing", "children": [{"name": "10.5kV Short Circuit Protection", "description": "Feeder coordination: 150ms (feeder), 400ms (bus-tie), 650ms (incomer), and 1.4s (back up).", "page": 203, "children": []}, {"name": "10.5kV Ground Fault Protection", "description": "Timings: 0.4s (feeder), 0.8s (station outgoing), 1.0s (bus-tie), 1.2s (incomer), and 1.4s (transformer NGR).", "page": 210, "children": []}, {"name": "400V Short Circuit Protection", "description": "Feeder operating time is approximately 80ms, bus section is 300ms, and incoming is 550ms.", "page": 204, "children": []}, {"name": "400V Ground Fault Protection", "description": "Selectivity: 0.1s (feeder), 0.6s (bus section), 0.8s (incomer), and 1.0s (transformer neutral).", "page": 211, "children": []}]}, {"name": "Fast Transfer System (FTS)", "children": [{"name": "FTS Operating Modes", "description": "Supports Manual (operator requested sync check) and Automatic (protection trip input) modes for rapid source transfer.", "page": 215, "children": []}, {"name": "FTS Transfer Criteria", "description": "Includes Fast Transfer (angle/freq check), In-phase Coincidence, and Residual Voltage Transfer (backup below 0.3 Un).", "page": 218, "children": []}, {"name": "Max Operating Time", "description": "The maximum operating time shall not be longer than 100ms from lockout relay initiation until successful CB closure.", "page": 179, "children": []}]}, {"name": "Telecommunication and Control", "children": [{"name": "Telecommunication Scope", "description": "Network connects 31 plant areas including Central Control, Admin, switchyards, and workshops via 6-channel handsets.", "page": 161, "children": []}, {"name": "UHF Mobile Radio", "description": "System includes 20 radio handsets with chargers for two-channel general and direct direct communication.", "page": 164, "children": []}, {"name": "DCS Control Extent", "description": "Limited to relevant circuit breakers mentioned in specification; synchronizing CBs are operated via DCS auto or GCP manual sync.", "page": 226, "children": []}]}]};
+const TITLE="VP1-0-EPC-E-GEN-00012-I ELECTRICAL OPERATION PHILOSOPHY.pdf";
 
 // ── Topic palettes (one per level-1 branch) ─────────────
 const PAL=[
@@ -71,6 +73,7 @@ function initTree(n,parent,level,topic){
   n._collapsed=(level>=3);
   n._topic=topic;
   n._detail=n.description||n.detail||n.content||'';
+  n._page=n.page||0;
   n.children=(n.children||[]);
   if(level===0) n.children.forEach((c,i)=>initTree(c,n,1,i%PAL.length));
   else          n.children.forEach(c=>initTree(c,n,level+1,topic));
@@ -132,7 +135,7 @@ function render(){
   vis.forEach(n=>{
     if(!n._parent) return;
     const p=n._parent;
-    const ECOLS=['#4a80c8','#4caf70','#d07030','#8060c0','#c04060','#30a898'];
+    const ECOLS=['#3b82f6','#10b981','#f59e0b','#a855f7','#f43f5e','#14b8a6'];
     const ec=ECOLS[Math.min(n._lv-1,ECOLS.length-1)];
     const pw=nw(p.name,p._lv);
     const x1=p._x+pw, y1=p._y+NH/2;
@@ -153,19 +156,19 @@ function render(){
 
     // Fill / stroke — color by level
     const LCOLS=[
-      {fill:'#1e2a4a',text:'#89b4fa',stroke:'#4a80c8'},  // lv0 blue
-      {fill:'#1a3d22',text:'#a6e3a1',stroke:'#4caf70'},  // lv1 green
-      {fill:'#3d2800',text:'#fab387',stroke:'#d07030'},  // lv2 orange
-      {fill:'#301a50',text:'#cba6f7',stroke:'#8060c0'},  // lv3 purple
-      {fill:'#3d1020',text:'#f38ba8',stroke:'#c04060'},  // lv4 red
-      {fill:'#0d3530',text:'#94e2d5',stroke:'#30a898'},  // lv5 teal
+      {fill:'#0f1b2d',text:'#60a5fa',stroke:'#3b82f6'},  // lv0 — sapphire
+      {fill:'#0d2b1e',text:'#34d399',stroke:'#10b981'},  // lv1 — emerald
+      {fill:'#2d1b00',text:'#fbbf24',stroke:'#f59e0b'},  // lv2 — amber
+      {fill:'#1e0d35',text:'#c084fc',stroke:'#a855f7'},  // lv3 — violet
+      {fill:'#2d0a14',text:'#fb7185',stroke:'#f43f5e'},  // lv4 — rose
+      {fill:'#012a2a',text:'#2dd4bf',stroke:'#14b8a6'},  // lv5 — cyan
     ];
     const lc=LCOLS[Math.min(n._lv,LCOLS.length-1)];
     let fill=lc.fill,textC=lc.text,strokeC=lc.stroke;
     let strokeW=n._lv===0?2.5:n._lv===1?2:1.2;
     let rx=n._lv===0?16:12;
-    if(stats){fill='#332600';textC='#ffd870';strokeC='#c09030';strokeW=2;rx=8;}
-    if(matched){fill='#2a1e00';strokeC='#ffd700';strokeW=2.5;textC='#ffd700';}
+    if(stats){fill='#422006';textC='#fde68a';strokeC='#d97706';strokeW=2;rx=8;}
+    if(matched){fill='#2a1e00';strokeC='#fbbf24';strokeW=2.5;textC='#fde68a';}
 
     const fs=n._lv===0?14:n._lv===1?12:11;
     const fw=n._lv<=1?'bold':'normal';
@@ -236,6 +239,19 @@ function showDetail(n,evt){
   } else {
     chEl.innerHTML=''; chEl.style.display='none';
   }
+  // Quote + page
+  let quoteEl=document.getElementById('det-quote');
+  if(!quoteEl){quoteEl=document.createElement('div');quoteEl.id='det-quote';dlg.appendChild(quoteEl);}
+  let pageEl=document.getElementById('det-page');
+  if(!pageEl){pageEl=document.createElement('div');pageEl.id='det-page';dlg.appendChild(pageEl);}
+  if(n._detail){
+    quoteEl.className='dquote'; quoteEl.textContent='"'+n._detail+'"'; quoteEl.style.display='block';
+  } else { quoteEl.style.display='none'; }
+  if(n._page){
+    pageEl.className='dpage';
+    pageEl.innerHTML='<a href="#" onclick="goToPage('+n._page+');return false;" style="color:#60a5fa;text-decoration:underline;cursor:pointer;">📄 Page '+n._page+'</a>';
+    pageEl.style.display='block';
+  } else { pageEl.style.display='none'; }
   // position near click, avoid overflow
   dlg.style.display='block';
   const sw=window.innerWidth, sh=window.innerHeight;
@@ -247,6 +263,7 @@ function showDetail(n,evt){
   dlg.style.left=px+'px'; dlg.style.top=py+'px';
 }
 function closeDetail(){document.getElementById('detail').style.display='none';}
+function goToPage(pg){console.log('mm:page:'+pg);}
 
 // ── Search ───────────────────────────────────────────────
 function doSearch(val){

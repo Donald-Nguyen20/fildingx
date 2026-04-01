@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QTabWidget, QComboBox, QFileDialog, QToolButton,
     QDialog, QFormLayout, QLineEdit, QMessageBox, QSplitter,
+    QScrollArea,
 )
 from PySide6.QtCore import Qt, QThread, Signal, QUrl
 from PySide6.QtGui import QPixmap, QImage, QTextCharFormat, QFont, QDesktopServices
@@ -211,6 +212,7 @@ class PdfPreviewWidget(QWidget):
         self._online_mindmap_nb_id  = None   # notebook_id khi dùng mind map online
         self._online_mindmap_html   = None   # HTML cache cho fullscreen
         self._online_mindmap_title  = ""
+        self._zoom_factor           = 1.0
         self.setMinimumWidth(300)
         self.setFocusPolicy(Qt.WheelFocus)
         self._setup_ui()
@@ -255,11 +257,18 @@ class PdfPreviewWidget(QWidget):
         vlay.setContentsMargins(0, 4, 0, 0)
         vlay.setSpacing(4)
 
+        self._scroll_area = QScrollArea()
+        self._scroll_area.setAlignment(Qt.AlignCenter)
+        self._scroll_area.setWidgetResizable(False)
+        self._scroll_area.setFrameShape(QScrollArea.NoFrame)
+        self._scroll_area.setStyleSheet("background: transparent;")
         self.lbl_page = QLabel()
         self.lbl_page.setAlignment(Qt.AlignCenter)
-        vlay.addWidget(self.lbl_page, 1)
+        self._scroll_area.setWidget(self.lbl_page)
+        vlay.addWidget(self._scroll_area, 1)
 
         nav = QHBoxLayout()
+
         self.btn_prev = QPushButton("◀")
         self.btn_prev.setFixedSize(36, 30)
         self.btn_prev.setEnabled(False)
@@ -274,9 +283,32 @@ class PdfPreviewWidget(QWidget):
         self.btn_next.setEnabled(False)
         self.btn_next.clicked.connect(self._next_page)
 
+        _zoom_ss = "padding:0; font-size:15px; font-weight:bold;"
+        btn_zoom_out = QPushButton("−")
+        btn_zoom_out.setFixedSize(28, 28)
+        btn_zoom_out.setToolTip("Zoom out (Ctrl+scroll)")
+        btn_zoom_out.setStyleSheet(_zoom_ss)
+        btn_zoom_out.clicked.connect(self._zoom_out)
+
+        btn_zoom_reset = QPushButton("⊡")
+        btn_zoom_reset.setFixedSize(28, 28)
+        btn_zoom_reset.setToolTip("Fit to window")
+        btn_zoom_reset.setStyleSheet(_zoom_ss)
+        btn_zoom_reset.clicked.connect(self._zoom_reset)
+
+        btn_zoom_in = QPushButton("+")
+        btn_zoom_in.setFixedSize(28, 28)
+        btn_zoom_in.setToolTip("Zoom in (Ctrl+scroll)")
+        btn_zoom_in.setStyleSheet(_zoom_ss)
+        btn_zoom_in.clicked.connect(self._zoom_in)
+
         nav.addWidget(self.btn_prev)
         nav.addWidget(self.lbl_counter, 1)
         nav.addWidget(self.btn_next)
+        nav.addSpacing(8)
+        nav.addWidget(btn_zoom_out)
+        nav.addWidget(btn_zoom_reset)
+        nav.addWidget(btn_zoom_in)
         vlay.addLayout(nav)
 
         self.tabs.addTab(viewer_widget, "📄 Page")
@@ -432,6 +464,7 @@ class PdfPreviewWidget(QWidget):
             self._doc      = fitz.open(path)
             self._path     = path
             self._page_idx = 0
+            self._zoom_factor = 1.0
             self.lbl_name.setText(os.path.basename(path))
             self._render()
             self._load_existing_summary(path)
@@ -462,23 +495,25 @@ class PdfPreviewWidget(QWidget):
             return
         page = self._doc[self._page_idx]
 
-        vw = self.lbl_page.width()  - 8
-        vh = self.lbl_page.height() - 8
+        vw = self._scroll_area.viewport().width()  - 4
+        vh = self._scroll_area.viewport().height() - 4
         if vw < 100: vw = 400
         if vh < 100: vh = 500
 
         rect   = page.rect
         zoom_w = vw / rect.width  if rect.width  > 0 else 1.0
         zoom_h = vh / rect.height if rect.height > 0 else 1.0
-        zoom   = min(zoom_w, zoom_h, 3.0)
-        zoom   = max(zoom, 0.3)
+        base_zoom = min(zoom_w, zoom_h)
+        zoom = max(base_zoom * self._zoom_factor, 0.1)
 
         pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
         img = QImage(pix.samples, pix.width, pix.height, pix.stride, QImage.Format_RGB888)
-        self.lbl_page.setPixmap(QPixmap.fromImage(img))
+        pixmap = QPixmap.fromImage(img)
+        self.lbl_page.setPixmap(pixmap)
+        self.lbl_page.resize(pixmap.size())
 
         total = len(self._doc)
-        self.lbl_counter.setText(f"{self._page_idx + 1} / {total}")
+        self.lbl_counter.setText(f"{self._page_idx + 1} / {total}  {int(self._zoom_factor * 100)}%")
         self.btn_prev.setEnabled(self._page_idx > 0)
         self.btn_next.setEnabled(self._page_idx < total - 1)
 
@@ -498,13 +533,31 @@ class PdfPreviewWidget(QWidget):
             self._page_idx += 1
             self._render()
 
+    def _zoom_in(self):
+        self._zoom_factor = min(self._zoom_factor * 1.25, 8.0)
+        self._render()
+
+    def _zoom_out(self):
+        self._zoom_factor = max(self._zoom_factor / 1.25, 0.1)
+        self._render()
+
+    def _zoom_reset(self):
+        self._zoom_factor = 1.0
+        self._render()
+
     def wheelEvent(self, event):
         if not self._doc:
             return
-        if event.angleDelta().y() < 0:
-            self._next_page()
+        if event.modifiers() & Qt.ControlModifier:
+            if event.angleDelta().y() > 0:
+                self._zoom_in()
+            else:
+                self._zoom_out()
         else:
-            self._prev_page()
+            if event.angleDelta().y() < 0:
+                self._next_page()
+            else:
+                self._prev_page()
         event.accept()
 
     def resizeEvent(self, event):
@@ -721,6 +774,29 @@ class PdfPreviewWidget(QWidget):
         elif action.startswith("mm:ask:"):
             node_name = action[len("mm:ask:"):]
             self._ask_nlm_about_node(node_name)
+        elif action.startswith("mm:page:"):
+            try:
+                page_num = int(action[len("mm:page:"):])
+            except ValueError:
+                return
+            self._open_source_at_page(page_num)
+
+    def _open_source_at_page(self, page_num: int):
+        """Open the mindmap source file at the given 1-based page number."""
+        from ui.notebooklm_window import _lookup_source_path
+        # Try online mindmap source first
+        title = getattr(self, "_online_mindmap_title", None)
+        file_path = None
+        if title:
+            file_path = _lookup_source_path(title)
+        # Fall back to currently loaded file (local mindmap)
+        if not file_path:
+            file_path = self._path
+        if not file_path or not os.path.isfile(file_path):
+            return
+        if file_path != self._path:
+            self.load(file_path)
+        self.goto_page(page_num - 1)
 
     def _ask_nlm_about_node(self, node_name: str):
         """Switch to NbLM tab, auto-select notebook, and ask about the node."""

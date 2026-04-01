@@ -327,6 +327,48 @@ class AddSourceWorker(QThread):
                     pass
 
 
+_MINDMAP_PROMPT = """You are a technical document analyst. Read the ENTIRE document thoroughly and produce a COMPREHENSIVE mind map in strict JSON format.
+
+RULES:
+1. Return ONLY a single JSON object — no explanation, no markdown, no code fences.
+2. Every node has: "name" (string), "children" (array, can be empty).
+3. Leaf nodes (no children) MUST also have:
+   - "description": exact quote or close paraphrase from the document (max 2 sentences)
+   - "page": page number as integer (0 if unknown)
+4. Group nodes (have children) should NOT have "description".
+5. Max depth: 4 levels. Root = document title.
+6. Keep "name" short (≤ 10 words). Put details in "description".
+
+COMPLETENESS RULES (CRITICAL):
+- Extract EVERY distinct topic, system, subsystem, and component mentioned.
+- Extract ALL numerical values: temperatures, pressures, flows, speeds, voltages, timings, tolerances, clearances.
+- Extract ALL alarm/trip setpoints, normal/allowable/emergency limits.
+- Extract ALL procedures and their steps (each step = one leaf node).
+- Extract ALL warnings, cautions, and notes.
+- Extract ALL maintenance intervals, inspection criteria, acceptance criteria.
+- Do NOT skip any section. Do NOT merge different items into one node.
+- If a section has 10 items, create 10 leaf nodes — not a summary.
+
+Example format:
+{
+  "name": "Document Title",
+  "children": [
+    {
+      "name": "System A",
+      "children": [
+        {
+          "name": "Operating Temp: 27-35°C",
+          "description": "Feed oil temperature shall be maintained between 27°C and 35°C during normal start-up.",
+          "page": 12,
+          "children": []
+        }
+      ]
+    }
+  ]
+}
+
+Now produce the COMPLETE mind map JSON for this document:"""
+
 _SUMMARIZE_PROMPT = (
     "Please provide a comprehensive summary of this document following its original structure and headings. "
     "Include: main topics, key findings or procedures, important technical data, "
@@ -385,7 +427,7 @@ _MINDMAP_TEMPLATE = r"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>__TITLE__</title>
 <style>
   *{box-sizing:border-box;}
-  html,body{margin:0;padding:0;background:#0d0f1a;width:100%;height:100%;overflow:hidden;font-family:sans-serif;}
+  html,body{margin:0;padding:0;background:#080c14;width:100%;height:100%;overflow:hidden;font-family:sans-serif;}
   #app{width:100%;height:100%;}
   svg{width:100%;height:100%;display:block;cursor:grab;}
   svg.dragging{cursor:grabbing;}
@@ -394,7 +436,7 @@ _MINDMAP_TEMPLATE = r"""<!DOCTYPE html>
   .lk{fill:none;}
   text{pointer-events:none;dominant-baseline:middle;}
   #toolbar{position:fixed;top:8px;left:50%;transform:translateX(-50%);display:flex;gap:5px;z-index:20;
-    background:rgba(13,15,26,0.92);padding:6px 10px;border-radius:10px;
+    background:rgba(8,12,20,0.92);padding:6px 10px;border-radius:10px;
     border:1px solid rgba(255,255,255,0.1);backdrop-filter:blur(8px);}
   #toolbar button{background:rgba(255,255,255,0.07);color:#c8d4f0;border:1px solid rgba(255,255,255,0.13);
     border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;transition:background .15s;}
@@ -403,14 +445,16 @@ _MINDMAP_TEMPLATE = r"""<!DOCTYPE html>
     border-radius:6px;padding:4px 8px;font-size:12px;width:140px;outline:none;}
   #search::placeholder{color:rgba(200,212,240,0.35);}
   #detail{position:fixed;max-width:260px;min-width:180px;
-    background:rgba(13,15,26,0.97);border:1px solid rgba(255,255,255,0.18);border-radius:12px;
+    background:rgba(8,12,20,0.97);border:1px solid rgba(255,255,255,0.14);border-radius:12px;
     padding:12px 14px;color:#c8d4f0;font-size:12px;display:none;z-index:30;line-height:1.6;
     box-shadow:0 4px 24px rgba(0,0,0,0.6);}
-  #detail .dtitle{font-weight:bold;font-size:13px;margin-bottom:6px;color:#89b4fa;word-break:break-word;}
-  #detail .dbread{font-size:10px;color:rgba(200,212,240,0.45);margin-bottom:6px;}
+  #detail .dtitle{font-weight:bold;font-size:13px;margin-bottom:6px;color:#60a5fa;word-break:break-word;}
+  #detail .dbread{font-size:10px;color:rgba(200,212,240,0.4);margin-bottom:6px;}
   #detail .dchildren{margin-top:6px;font-size:11px;color:#a0b0d0;}
   #detail .dchildren div{padding:2px 0;border-top:1px solid rgba(255,255,255,0.06);}
-  #detail .dclose{float:right;cursor:pointer;opacity:0.45;font-size:15px;line-height:1;margin-left:6px;}
+  #detail .dquote{margin-top:6px;font-size:11px;color:#c8d4f0;font-style:italic;border-left:2px solid #3b82f6;padding-left:8px;}
+  #detail .dpage{margin-top:4px;font-size:10px;color:rgba(200,212,240,0.4);}
+  #detail .dclose{float:right;cursor:pointer;opacity:0.4;font-size:15px;line-height:1;margin-left:6px;color:#c8d4f0;}
   #detail .dclose:hover{opacity:1;}
 </style></head><body>
 <div id="toolbar">
@@ -454,6 +498,7 @@ function initTree(n,parent,level,topic){
   n._collapsed=(level>=3);
   n._topic=topic;
   n._detail=n.description||n.detail||n.content||'';
+  n._page=n.page||0;
   n.children=(n.children||[]);
   if(level===0) n.children.forEach((c,i)=>initTree(c,n,1,i%PAL.length));
   else          n.children.forEach(c=>initTree(c,n,level+1,topic));
@@ -515,7 +560,7 @@ function render(){
   vis.forEach(n=>{
     if(!n._parent) return;
     const p=n._parent;
-    const ECOLS=['#4a80c8','#4caf70','#d07030','#8060c0','#c04060','#30a898'];
+    const ECOLS=['#3b82f6','#10b981','#f59e0b','#a855f7','#f43f5e','#14b8a6'];
     const ec=ECOLS[Math.min(n._lv-1,ECOLS.length-1)];
     const pw=nw(p.name,p._lv);
     const x1=p._x+pw, y1=p._y+NH/2;
@@ -536,19 +581,19 @@ function render(){
 
     // Fill / stroke — color by level
     const LCOLS=[
-      {fill:'#1e2a4a',text:'#89b4fa',stroke:'#4a80c8'},  // lv0 blue
-      {fill:'#1a3d22',text:'#a6e3a1',stroke:'#4caf70'},  // lv1 green
-      {fill:'#3d2800',text:'#fab387',stroke:'#d07030'},  // lv2 orange
-      {fill:'#301a50',text:'#cba6f7',stroke:'#8060c0'},  // lv3 purple
-      {fill:'#3d1020',text:'#f38ba8',stroke:'#c04060'},  // lv4 red
-      {fill:'#0d3530',text:'#94e2d5',stroke:'#30a898'},  // lv5 teal
+      {fill:'#0f1b2d',text:'#60a5fa',stroke:'#3b82f6'},  // lv0 — sapphire
+      {fill:'#0d2b1e',text:'#34d399',stroke:'#10b981'},  // lv1 — emerald
+      {fill:'#2d1b00',text:'#fbbf24',stroke:'#f59e0b'},  // lv2 — amber
+      {fill:'#1e0d35',text:'#c084fc',stroke:'#a855f7'},  // lv3 — violet
+      {fill:'#2d0a14',text:'#fb7185',stroke:'#f43f5e'},  // lv4 — rose
+      {fill:'#012a2a',text:'#2dd4bf',stroke:'#14b8a6'},  // lv5 — cyan
     ];
     const lc=LCOLS[Math.min(n._lv,LCOLS.length-1)];
     let fill=lc.fill,textC=lc.text,strokeC=lc.stroke;
     let strokeW=n._lv===0?2.5:n._lv===1?2:1.2;
     let rx=n._lv===0?16:12;
-    if(stats){fill='#332600';textC='#ffd870';strokeC='#c09030';strokeW=2;rx=8;}
-    if(matched){fill='#2a1e00';strokeC='#ffd700';strokeW=2.5;textC='#ffd700';}
+    if(stats){fill='#422006';textC='#fde68a';strokeC='#d97706';strokeW=2;rx=8;}
+    if(matched){fill='#2a1e00';strokeC='#fbbf24';strokeW=2.5;textC='#fde68a';}
 
     const fs=n._lv===0?14:n._lv===1?12:11;
     const fw=n._lv<=1?'bold':'normal';
@@ -619,6 +664,19 @@ function showDetail(n,evt){
   } else {
     chEl.innerHTML=''; chEl.style.display='none';
   }
+  // Quote + page
+  let quoteEl=document.getElementById('det-quote');
+  if(!quoteEl){quoteEl=document.createElement('div');quoteEl.id='det-quote';dlg.appendChild(quoteEl);}
+  let pageEl=document.getElementById('det-page');
+  if(!pageEl){pageEl=document.createElement('div');pageEl.id='det-page';dlg.appendChild(pageEl);}
+  if(n._detail){
+    quoteEl.className='dquote'; quoteEl.textContent='"'+n._detail+'"'; quoteEl.style.display='block';
+  } else { quoteEl.style.display='none'; }
+  if(n._page){
+    pageEl.className='dpage';
+    pageEl.innerHTML='<a href="#" onclick="goToPage('+n._page+');return false;" style="color:#60a5fa;text-decoration:underline;cursor:pointer;">📄 Page '+n._page+'</a>';
+    pageEl.style.display='block';
+  } else { pageEl.style.display='none'; }
   // position near click, avoid overflow
   dlg.style.display='block';
   const sw=window.innerWidth, sh=window.innerHeight;
@@ -630,6 +688,7 @@ function showDetail(n,evt){
   dlg.style.left=px+'px'; dlg.style.top=py+'px';
 }
 function closeDetail(){document.getElementById('detail').style.display='none';}
+function goToPage(pg){console.log('mm:page:'+pg);}
 
 // ── Search ───────────────────────────────────────────────
 function doSearch(val){
@@ -748,13 +807,13 @@ class MindMapWorker(QThread):
                     nb_id = getattr(nb, "id", None) or getattr(nb, "notebook_id", "")
                     try:
                         source = await client.sources.add_file(nb_id, Path(self.file_path), wait=True)
-                        result = await client.artifacts.generate_mind_map(nb_id)
-                        # result contains the mind_map tree directly
-                        if isinstance(result, dict):
-                            tree = result.get("mind_map") or result
-                        else:
-                            raw = getattr(result, "mind_map", None)
-                            tree = raw if isinstance(raw, dict) else vars(result) if hasattr(result, "__dict__") else {"name": str(result)}
+                        sid = getattr(source, "source_id", None) or getattr(source, "id", None)
+                        result = await client.chat.ask(nb_id, _MINDMAP_PROMPT, source_ids=[sid] if sid else None)
+                        raw_text = (getattr(result, "answer", None) or str(result)).strip()
+                        # Parse JSON — strip any accidental markdown fences
+                        import json, re
+                        m = re.search(r'\{.*\}', raw_text, re.DOTALL)
+                        tree = json.loads(m.group(0)) if m else {"name": title, "children": []}
                         return _mindmap_to_html(tree, title)
                     finally:
                         # Always clean up the temp notebook
@@ -784,15 +843,13 @@ class MindMapWorkerOnline(QThread):
             from notebooklm import NotebookLMClient
             async def _work():
                 async with await NotebookLMClient.from_storage() as client:
-                    kwargs = {}
-                    if self.source_id:
-                        kwargs["source_ids"] = [self.source_id]
-                    result = await client.artifacts.generate_mind_map(self.notebook_id, **kwargs)
-                    if isinstance(result, dict):
-                        tree = result.get("mind_map") or result
-                    else:
-                        raw = getattr(result, "mind_map", None)
-                        tree = raw if isinstance(raw, dict) else vars(result) if hasattr(result, "__dict__") else {"name": str(result)}
+                    sid = self.source_id or None
+                    result = await client.chat.ask(self.notebook_id, _MINDMAP_PROMPT,
+                                                   source_ids=[sid] if sid else None)
+                    raw_text = (getattr(result, "answer", None) or str(result)).strip()
+                    import json, re
+                    m = re.search(r'\{.*\}', raw_text, re.DOTALL)
+                    tree = json.loads(m.group(0)) if m else {"name": self.title, "children": []}
                     return _mindmap_to_html(tree, self.title)
             html = _run_async(_work())
             self.done.emit(html)
