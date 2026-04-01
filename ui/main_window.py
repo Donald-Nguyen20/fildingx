@@ -289,6 +289,8 @@ class FileSearchApp(QMainWindow):
         self._search_tabs.addTab(self.notebooklm_widget, "📓 NotebookLM")
         self.notebooklm_widget.open_preview.connect(self._open_preview_from_nlm)
         self.notebooklm_widget.goto_page_signal.connect(self.pdf_preview.goto_page)
+        self.notebooklm_widget.request_mindmap.connect(self._mindmap_from_nlm_source)
+        self.notebooklm_widget.request_mindmap_online.connect(self._mindmap_online_in_preview)
 
         # Splitter: tabs (trái) | pdf preview (phải)
         self._splitter = QSplitter(Qt.Horizontal)
@@ -719,6 +721,21 @@ class FileSearchApp(QMainWindow):
         if page_num is not None and page_num > 0:
             self.pdf_preview.goto_page(page_num)
 
+    def _mindmap_from_nlm_source(self, file_path: str):
+        """Mở PDF preview và tạo mind map từ source được chọn trong NbLM."""
+        if not self.pdf_preview.isVisible():
+            self.pdf_preview.show()
+            self._splitter.setSizes([6000, 4000])
+        self.pdf_preview.load(file_path)
+        self.pdf_preview._nlm_mind_map()
+
+    def _mindmap_online_in_preview(self, notebook_id: str, source_id: str, title: str):
+        """Tạo mind map online, hiển thị trong panel Notes của pdf_preview."""
+        if not self.pdf_preview.isVisible():
+            self.pdf_preview.show()
+            self._splitter.setSizes([6000, 4000])
+        self.pdf_preview.show_mindmap_online(notebook_id, source_id, title)
+
     def _open_folder_path(self, folder: str):
         if os.path.exists(folder):
             webbrowser.open(f"file:///{folder}")
@@ -862,7 +879,51 @@ class FileSearchApp(QMainWindow):
             menu.addAction("Open Folder").triggered.connect(
                 lambda: self._open_folder_for_container_item(item)
             )
+            menu.addSeparator()
+            menu.addAction("📓 Add this file to NotebookLM").triggered.connect(
+                lambda: self._add_container_file_to_nlm(item, all_files=False)
+            )
+            menu.addAction("📓 Add all files in container to NotebookLM").triggered.connect(
+                lambda: self._add_container_file_to_nlm(item, all_files=True)
+            )
             menu.exec(QCursor.pos())
+
+    def _add_container_file_to_nlm(self, item, all_files: bool):
+        from ui.notebooklm_window import is_nlm_logged_in, NLMNotebookPickerDialog, ListSourcesWorker
+        if not is_nlm_logged_in():
+            QMessageBox.warning(self, "Not Logged In",
+                "Please log in to NotebookLM first.\n\nGo to the 📓 NotebookLM tab and click 🔑 Switch Account.")
+            return
+        c_item = self.containers_list.currentItem()
+        if not c_item:
+            return
+        NLM_SUPPORTED = {".pdf", ".txt", ".doc", ".docx", ".pptx", ".md"}
+        if all_files:
+            all_paths = [fp for fp, _ in self.containers[c_item.text()]
+                         if os.path.isfile(fp) and os.path.splitext(fp)[1].lower() in NLM_SUPPORTED]
+        else:
+            # find path for clicked item
+            all_paths = []
+            for fp, _ in self.containers[c_item.text()]:
+                if os.path.basename(fp) == item.text() and os.path.isfile(fp):
+                    if os.path.splitext(fp)[1].lower() in NLM_SUPPORTED:
+                        all_paths = [fp]
+                    else:
+                        QMessageBox.warning(self, "Unsupported Format",
+                            f"NotebookLM only accepts: .pdf .txt .doc .docx .pptx .md")
+                    break
+        if not all_paths:
+            return
+        nb_id = NLMNotebookPickerDialog.pick(self)
+        if not nb_id:
+            return
+        lw = ListSourcesWorker(nb_id)
+        lw.done.connect(lambda sources, nb=nb_id, paths=all_paths:
+            self._do_add_after_check(nb, paths, sources))
+        lw.error.connect(lambda _, nb=nb_id, paths=all_paths:
+            self._do_add_after_check(nb, paths, []))
+        self._nlm_list_worker = lw
+        lw.start()
 
     def _open_folder_for_container_item(self, item):
         c_item = self.containers_list.currentItem()

@@ -208,6 +208,9 @@ class PdfPreviewWidget(QWidget):
         self._original_text    = None
         self._translated_text  = None
         self._is_translated    = False
+        self._online_mindmap_nb_id  = None   # notebook_id khi dùng mind map online
+        self._online_mindmap_html   = None   # HTML cache cho fullscreen
+        self._online_mindmap_title  = ""
         self.setMinimumWidth(300)
         self.setFocusPolicy(Qt.WheelFocus)
         self._setup_ui()
@@ -400,6 +403,7 @@ class PdfPreviewWidget(QWidget):
             self._mm_page = MindMapPage(self._web_view)
             self._mm_page.action.connect(self._on_mindmap_action)
             self._web_view.setPage(self._mm_page)
+            self._web_view.setContextMenuPolicy(Qt.NoContextMenu)
             self._web_view.setVisible(False)
             notes_splitter.addWidget(self._web_view)
         except Exception:
@@ -667,6 +671,35 @@ class PdfPreviewWidget(QWidget):
         self._mindmap_worker.error.connect(self._on_mindmap_error)
         self._mindmap_worker.start()
 
+    def show_mindmap_online(self, notebook_id: str, source_id: str, title: str):
+        """Tạo mind map từ source trên NbLM, hiển thị trong Notes panel (không cần file local)."""
+        if self._web_view is None:
+            QMessageBox.warning(self, "Not Available",
+                "QWebEngineView is not installed.\nInstall PySide6-WebEngine to use Mind Map.")
+            return
+        from ui.notebooklm_window import is_nlm_logged_in, MindMapWorkerOnline
+        if not is_nlm_logged_in():
+            QMessageBox.warning(self, "Not Logged In",
+                "Please log in to NotebookLM first.")
+            return
+        self._online_mindmap_nb_id = notebook_id
+        self._online_mindmap_title = title
+        self._online_mindmap_html  = None
+        self.btn_mind_map.setEnabled(False)
+        self.btn_mind_map.setText("⏳")
+        self._web_view.setHtml("<p style='font-family:sans-serif;color:#cdd6f4;padding:16px'>Generating mind map…</p>")
+        self._show_mindmap_panel()
+        self._mindmap_worker = MindMapWorkerOnline(notebook_id, title, source_id)
+        self._mindmap_worker.done.connect(self._on_mindmap_online_done)
+        self._mindmap_worker.error.connect(self._on_mindmap_error)
+        self._mindmap_worker.start()
+
+    def _on_mindmap_online_done(self, html: str):
+        self._online_mindmap_html = html
+        self._web_view.setHtml(html)
+        self.btn_mind_map.setEnabled(True)
+        self.btn_mind_map.setText("🗺 Mind Map")
+
     def _show_mindmap_panel(self):
         self._web_view.setVisible(True)
         self.btn_regen_map.setVisible(True)
@@ -685,21 +718,65 @@ class PdfPreviewWidget(QWidget):
     def _on_mindmap_action(self, action: str):
         if action == "mm:fullscreen":
             self._open_mindmap_fullscreen()
+        elif action.startswith("mm:ask:"):
+            node_name = action[len("mm:ask:"):]
+            self._ask_nlm_about_node(node_name)
+
+    def _ask_nlm_about_node(self, node_name: str):
+        """Switch to NbLM tab, auto-select notebook, and ask about the node."""
+        from ui.notebooklm_window import NotebookLMWidget
+        from PySide6.QtCore import QTimer
+        main = self.window()
+        nlm = getattr(main, "notebooklm_widget", None)
+        if nlm is None:
+            return
+        # Switch to NbLM tab first
+        tabs = getattr(main, "_search_tabs", None)
+        if tabs:
+            for i in range(tabs.count()):
+                if isinstance(tabs.widget(i), NotebookLMWidget):
+                    tabs.setCurrentIndex(i)
+                    break
+        # Try auto-select notebook from source map
+        if self._path:
+            nlm.select_notebook_for_file(self._path)
+        elif self._online_mindmap_nb_id:
+            # Mind map was generated online — select that notebook directly
+            for i in range(nlm.lst_notebooks.count()):
+                item = nlm.lst_notebooks.item(i)
+                from PySide6.QtCore import Qt as _Qt
+                if item.data(_Qt.UserRole) == self._online_mindmap_nb_id:
+                    nlm.lst_notebooks.setCurrentItem(item)
+                    break
+        # Check notebook is selected (auto or manual)
+        if not nlm._current_notebook_id:
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.warning(self, "No Notebook",
+                "Could not find a matching notebook.\nPlease select one in the NbLM tab first.")
+            return
+        QTimer.singleShot(150, lambda: nlm.ask_from_mindmap(node_name))
 
     def _open_mindmap_fullscreen(self):
         """Open mind map in a maximized dialog."""
-        cached = self._mindmap_path()
-        if not cached or not os.path.isfile(cached):
-            return
         from PySide6.QtWidgets import QDialog, QVBoxLayout
+        cached = self._mindmap_path()
+        has_cache = cached and os.path.isfile(cached)
+        has_online = bool(self._online_mindmap_html)
+        if not has_cache and not has_online:
+            return
+        title = os.path.basename(self._path) if self._path else self._online_mindmap_title
         dlg = QDialog(self)
-        dlg.setWindowTitle("Mind Map — " + os.path.basename(self._path or ""))
+        dlg.setWindowTitle("Mind Map — " + title)
         dlg.setLayout(QVBoxLayout())
         dlg.layout().setContentsMargins(0, 0, 0, 0)
         view = QWebEngineView()
         page = MindMapPage(view)
         view.setPage(page)
-        view.load(QUrl.fromLocalFile(cached))
+        view.setContextMenuPolicy(Qt.NoContextMenu)
+        if has_cache:
+            view.load(QUrl.fromLocalFile(cached))
+        else:
+            view.setHtml(self._online_mindmap_html)
         dlg.layout().addWidget(view)
         dlg.showMaximized()
         dlg.exec()

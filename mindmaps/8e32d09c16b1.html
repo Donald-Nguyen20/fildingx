@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>EKS101341_Turbine Operating Limits.pdf</title>
+<html><head><meta charset="utf-8"><title>【NOT TO DHI】VP1-C-L1-P-HCC-30070 rev.D System Description and Operation Philosophy for Water Sootblower.pdf</title>
 <style>
   *{box-sizing:border-box;}
   html,body{margin:0;padding:0;background:#0d0f1a;width:100%;height:100%;overflow:hidden;font-family:sans-serif;}
@@ -46,8 +46,8 @@
 </div>
 <div id="app"><svg id="svg"><g id="canvas"></g></svg></div>
 <script>
-const RAW={"name": "Turbine Operating Limits", "children": [{"name": "Safety and General", "children": [{"name": "Signal Words (DANGER, WARNING, CAUTION)"}, {"name": "Qualified Operators Only"}, {"name": "Warranty and Liability Limits"}]}, {"name": "Mechanical Monitoring", "children": [{"name": "Shaft Eccentricity", "children": [{"name": "Limit: 110% of normal"}, {"name": "Turning gear service requirements"}]}, {"name": "Shaft Vibration", "children": [{"name": "Low-speed zone (0-900 rpm)"}, {"name": "Critical-speed zone (900-2700 rpm)"}, {"name": "High-speed zone (2700-3000+ rpm)"}, {"name": "Trip value: 175 micrometers"}]}, {"name": "Expansion and Clearances", "children": [{"name": "Shell Expansion"}, {"name": "Differential Expansion (Rotor vs Shell)"}, {"name": "Thrust Position Detector"}]}]}, {"name": "Systems and Fluids", "children": [{"name": "Lubricating System", "children": [{"name": "Reservoir Oil Level and Temp"}, {"name": "Feed Pressure (Trip at 69 kPa)"}, {"name": "Oil Feed Temp (27-35C Start-up)"}, {"name": "Bearing Metal Temp Limits"}]}, {"name": "Low-Pressure Exhaust Hood", "children": [{"name": "Vacuum Limits (17/12/25 kPa)"}, {"name": "Temp Limits (80C Alarm / 107C Trip)"}, {"name": "Exhaust Hood Spray System"}, {"name": "Steam Wetness (12% Limit)"}]}, {"name": "Steam Seal System", "children": [{"name": "Seal Header Pressure"}, {"name": "Gland Condenser Vacuum"}, {"name": "Exhaust Fan Operation"}]}]}, {"name": "Operating Parameters", "children": [{"name": "Allowable Variations", "children": [{"name": "Initial Pressure (110% Max)"}, {"name": "Inlet Temperature Swings"}, {"name": "Upper/Lower Casing Temp Diff"}]}, {"name": "Off-Frequency Operation (47.5-52.0 Hz)"}, {"name": "Prewarming Pressure (0.588 MPa Max)"}, {"name": "HP Turbine Exhaust Temp (480C/500C Alarm)"}, {"name": "Last Stage Blade Tip Temp (220C/280C)"}]}]};
-const TITLE="EKS101341_Turbine Operating Limits.pdf";
+const RAW={"name": "Hệ thống vòi thổi muội bằng nước (Hydrojet)", "children": [{"name": "Thiết bị chính", "children": [{"name": "Vòi thổi Hydrojet", "children": [{"name": "Số lượng: 4 bộ"}, {"name": "Lưu lượng: 11.4 lít/giây"}, {"name": "Kích thước vòi phun: 13.7mm"}]}, {"name": "Trạm bơm", "children": [{"name": "Số lượng: 2 bơm (1 chạy + 1 dự phòng)"}, {"name": "Áp suất thiết kế: 6.3 Mpa(g)"}, {"name": "Điều khiển biến tần (VFD)"}]}, {"name": "Cảm biến truyền nhiệt (HTS)", "children": [{"name": "Số lượng: 24 bộ"}, {"name": "Dải đo: 0-378 kW/m2"}, {"name": "Theo dõi tác động nhiệt"}]}]}, {"name": "Nguyên lý vận hành (ISB)", "children": [{"name": "Chế độ Auto", "children": [{"name": "Tự động hoàn toàn dựa trên phần mềm"}, {"name": "Dựa trên mục tiêu Mật độ dòng nhiệt trung bình"}]}, {"name": "Chế độ Advisory", "children": [{"name": "Hệ thống tính toán và đề xuất"}, {"name": "Người vận hành thực hiện lệnh chạy"}]}, {"name": "Chế độ Off/Manual", "children": [{"name": "Vận hành thủ công từ HMI"}, {"name": "Sử dụng cho bảo trì và chạy thử"}]}]}, {"name": "Hệ thống phụ trợ & Đường ống", "children": [{"name": "Đường hồi (Recirculation): Kiểm soát áp suất qua lỗ tiết lưu"}, {"name": "Van an toàn: Xả nước khi áp suất vượt 63 bar(g)"}, {"name": "Khí chèn (Seal air): Làm mát vòi phun và bộ mã hóa"}, {"name": "Trạm dừng (Stop Station): Nút dừng khẩn cấp tại hiện trường"}]}, {"name": "Cảnh báo và Giám sát", "children": [{"name": "Cảnh báo lỗi bơm: Không khởi động, lỗi dừng, quá nhiệt"}, {"name": "Cảnh báo dòng chảy: Lưu lượng thấp/cao"}, {"name": "Hệ thống Historian: Lưu trữ dữ liệu trong 3 năm"}, {"name": "Chỉ số Slagging Rate: Tối ưu hóa tần suất thổi"}]}]};
+const TITLE="【NOT TO DHI】VP1-C-L1-P-HCC-30070 rev.D System Description and Operation Philosophy for Water Sootblower.pdf";
 
 // ── Topic palettes (one per level-1 branch) ─────────────
 const PAL=[
@@ -171,7 +171,7 @@ function render(){
     const fw=n._lv<=1?'bold':'normal';
     const label=esc(n.name||'')+(n._collapsed&&hasKids?' ▸':'');
 
-    s+=`<g class="nd" onclick="nodeClick(${n._id},event)">`;
+    s+=`<g class="nd" onclick="nodeClick(${n._id},event)" ondblclick="askNbLM(${JSON.stringify(n.name||'')},event)">`;
     s+=`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${rx}" fill="${fill}" stroke="${strokeC}" stroke-width="${strokeW}"/>`;
     // Stats badge
     if(stats) s+=`<circle cx="${x+w-7}" cy="${y+7}" r="4" fill="#c09030" opacity="0.9"/>`;
@@ -193,6 +193,11 @@ function nodeClick(id,evt){
   if(!n) return;
   showDetail(n,evt);
   if(n.children.length){n._collapsed=!n._collapsed;render();}
+}
+
+function askNbLM(name,evt){
+  evt.stopPropagation();
+  if(name) console.log('mm:ask:'+name);
 }
 
 function breadcrumb(n){

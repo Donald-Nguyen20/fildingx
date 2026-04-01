@@ -30,8 +30,8 @@ import sys
 
 # ── Playwright browser path khi chạy từ exe đã đóng gói ──────────
 if getattr(sys, "frozen", False):
-    _exe_dir = os.path.dirname(sys.executable)
-    _browsers = os.path.join(_exe_dir, "ms-playwright")
+    _internal = getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
+    _browsers = os.path.join(_internal, "ms-playwright")
     if os.path.isdir(_browsers):
         os.environ["PLAYWRIGHT_BROWSERS_PATH"] = _browsers
 

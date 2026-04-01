@@ -146,6 +146,7 @@ containers_data.json
 file_stats.json
 synonyms.json
 promp.json
+summaries.json
 
 # ###########################################################################
 #  12) LARGE GENERATED ASSETS

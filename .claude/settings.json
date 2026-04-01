@@ -33,7 +33,17 @@
       "Bash(python -c \"from ui.notebooklm_window import MindMapWorker; print\\(''ok''\\)\")",
       "Bash(python -c \"from ui.pdf_preview import PdfPreviewWidget; from ui.notebooklm_window import _mindmap_to_html; print\\(''ok''\\)\")",
       "Bash(python -c \"from ui.notebooklm_window import _mindmap_to_html; print\\(''ok''\\)\")",
-      "Bash(python -c \"from ui.pdf_preview import PdfPreviewWidget, MindMapPage; print\\(''ok''\\)\")"
+      "Bash(python -c \"from ui.pdf_preview import PdfPreviewWidget, MindMapPage; print\\(''ok''\\)\")",
+      "Bash(grep -rn \"from notebooklm import\\\\|import notebooklm\" 'e:/book/Vanphong/tim file/7' --include=*.py)",
+      "Bash(pip list:*)",
+      "Bash(du -sh e:/book/Vanphong/tim file/7/dist/Finding8/_internal/*)",
+      "Bash(powershell -Command \"$base = ''e:\\\\book\\\\Vanphong\\\\tim file\\\\7\\\\dist\\\\Finding8\\\\_internal''; Get-ChildItem $base -Directory | ForEach-Object { $s = \\(Get-ChildItem $_FullName -Recurse -File -ErrorAction SilentlyContinue | Measure-Object Length -Sum\\).Sum; [PSCustomObject]@{Name=$_Name; MB=[math]::Round\\($s/1MB,1\\)} } | Sort-Object MB -Descending | Select-Object -First 25 | Format-Table -AutoSize\")",
+      "Bash(powershell -File:*)",
+      "Bash(python -c \"from ui.main_window import FileSearchApp; print\\(''ok''\\)\")",
+      "Bash(python -c \"from ui.pdf_preview import PdfPreviewWidget; from ui.notebooklm_window import NotebookLMWidget; print\\(''ok''\\)\")"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\Admin\\AppData\\Roaming\\Code\\User"
     ]
   }
 }

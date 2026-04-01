@@ -554,7 +554,7 @@ function render(){
     const fw=n._lv<=1?'bold':'normal';
     const label=esc(n.name||'')+(n._collapsed&&hasKids?' ▸':'');
 
-    s+=`<g class="nd" onclick="nodeClick(${n._id},event)">`;
+    s+=`<g class="nd" data-name="${esc(n.name||'')}" onclick="nodeClick(${n._id},event)">`;
     s+=`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${rx}" fill="${fill}" stroke="${strokeC}" stroke-width="${strokeW}"/>`;
     // Stats badge
     if(stats) s+=`<circle cx="${x+w-7}" cy="${y+7}" r="4" fill="#c09030" opacity="0.9"/>`;
@@ -576,6 +576,27 @@ function nodeClick(id,evt){
   if(!n) return;
   showDetail(n,evt);
   if(n.children.length){n._collapsed=!n._collapsed;render();}
+}
+
+function nodeRightClick(name,evt){
+  evt.preventDefault();
+  evt.stopPropagation();
+  document.getElementById('ctx-menu')?.remove();
+  const m=document.createElement('div');
+  m.id='ctx-menu';
+  m.style.cssText=`position:fixed;left:${evt.clientX}px;top:${evt.clientY}px;
+    background:#313244;border:1px solid #45475a;border-radius:6px;
+    padding:4px 0;z-index:999;box-shadow:0 4px 12px #0006;min-width:160px;`;
+  const item=document.createElement('div');
+  item.textContent='📓 Send to NbLM';
+  item.style.cssText='padding:8px 14px;cursor:pointer;font-size:13px;color:#cdd6f4;';
+  item.onmouseenter=()=>item.style.background='#45475a';
+  item.onmouseleave=()=>item.style.background='';
+  item.onclick=()=>{m.remove();if(name)console.log('mm:ask:'+name);};
+  m.appendChild(item);
+  document.body.appendChild(m);
+  const close=()=>m.remove();
+  setTimeout(()=>document.addEventListener('click',close,{once:true}),0);
 }
 
 function breadcrumb(n){
@@ -668,6 +689,30 @@ document.addEventListener('keydown',e=>{
   if(e.key==='f'&&!e.ctrlKey&&!e.metaKey) fitScreen();
 });
 
+// ── Context menu (right-click node → Send to NbLM) ───────
+document.addEventListener('contextmenu', e=>{
+  e.preventDefault();
+  document.getElementById('ctx-menu')?.remove();
+  const g = e.target.closest('g.nd');
+  if(!g) return;
+  const name = g.getAttribute('data-name');
+  if(!name) return;
+  const m = document.createElement('div');
+  m.id = 'ctx-menu';
+  m.style.cssText = `position:fixed;left:${e.clientX}px;top:${e.clientY}px;
+    background:#313244;border:1px solid #45475a;border-radius:6px;
+    padding:4px 0;z-index:9999;box-shadow:0 4px 12px #0008;min-width:170px;`;
+  const item = document.createElement('div');
+  item.textContent = '📓 Send to NbLM';
+  item.style.cssText = 'padding:8px 14px;cursor:pointer;font-size:13px;color:#cdd6f4;white-space:nowrap;';
+  item.onmouseenter = ()=>item.style.background='#45475a';
+  item.onmouseleave = ()=>item.style.background='';
+  item.onclick = ()=>{ m.remove(); console.log('mm:ask:'+name); };
+  m.appendChild(item);
+  document.body.appendChild(m);
+  setTimeout(()=>document.addEventListener('click', ()=>m.remove(), {once:true}), 0);
+});
+
 // ── Init ─────────────────────────────────────────────────
 render();
 setTimeout(fitScreen,80);
@@ -717,6 +762,38 @@ class MindMapWorker(QThread):
                             await client.notebooks.delete(nb_id)
                         except Exception:
                             pass
+            html = _run_async(_work())
+            self.done.emit(html)
+        except Exception as e:
+            self.error.emit(str(e))
+
+
+class MindMapWorkerOnline(QThread):
+    """Tạo mind map từ source đã có sẵn trên NbLM (không cần file local)."""
+    done  = Signal(str)   # HTML content
+    error = Signal(str)
+
+    def __init__(self, notebook_id: str, title: str, source_id: str = ""):
+        super().__init__()
+        self.notebook_id = notebook_id
+        self.title       = title
+        self.source_id   = source_id
+
+    def run(self):
+        try:
+            from notebooklm import NotebookLMClient
+            async def _work():
+                async with await NotebookLMClient.from_storage() as client:
+                    kwargs = {}
+                    if self.source_id:
+                        kwargs["source_ids"] = [self.source_id]
+                    result = await client.artifacts.generate_mind_map(self.notebook_id, **kwargs)
+                    if isinstance(result, dict):
+                        tree = result.get("mind_map") or result
+                    else:
+                        raw = getattr(result, "mind_map", None)
+                        tree = raw if isinstance(raw, dict) else vars(result) if hasattr(result, "__dict__") else {"name": str(result)}
+                    return _mindmap_to_html(tree, self.title)
             html = _run_async(_work())
             self.done.emit(html)
         except Exception as e:
@@ -795,6 +872,47 @@ class ChatWorker(QThread):
                     citations.append({"text": quote, "source": src_map.get(src_id, "")})
 
             self.done.emit(text, citations)
+        except Exception as e:
+            self.error.emit(str(e))
+
+
+_SUGGEST_PROMPT = (
+    "Based on the previous answer, generate exactly 8 concise follow-up questions "
+    "that the user might want to ask next to deepen their understanding. "
+    "Return ONLY a numbered list (1. ... 2. ... etc.), no introduction, no other text. "
+    "Write questions in the same language as the previous answer."
+)
+
+
+class SuggestQuestionsWorker(QThread):
+    """Ask NbLM to suggest follow-up questions based on the last answer."""
+    done  = Signal(list)   # list[str] of question strings
+    error = Signal(str)
+
+    def __init__(self, notebook_id: str, last_answer: str):
+        super().__init__()
+        self.notebook_id = notebook_id
+        self.last_answer = last_answer
+
+    def run(self):
+        try:
+            import re
+            from notebooklm import NotebookLMClient
+            prompt = f"Previous answer:\n{self.last_answer[:2000]}\n\n{_SUGGEST_PROMPT}"
+            async def _ask():
+                async with await NotebookLMClient.from_storage() as client:
+                    result = await client.chat.ask(self.notebook_id, prompt)
+                    return getattr(result, "answer", None) or getattr(result, "message", None) or str(result)
+            raw = _run_async(_ask())
+            questions = []
+            for line in raw.splitlines():
+                line = line.strip()
+                m = re.match(r"^\d+[\.\)]\s+(.+)$", line)
+                if m:
+                    q = m.group(1).strip()
+                    if q and q not in questions:
+                        questions.append(q)
+            self.done.emit(questions[:10])
         except Exception as e:
             self.error.emit(str(e))
 
@@ -915,16 +1033,28 @@ class NLMNotebookPickerDialog(QDialog):
 # ── Chat display with clickable source links ─────────────────────
 
 class ChatDisplay(QTextEdit):
-    link_clicked = Signal(str)
+    link_clicked     = Signal(str)
+    question_clicked = Signal(str)   # suggested question text
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setReadOnly(True)
+        self._suggest_questions: list[str] = []
+
+    def set_suggestions(self, questions: list[str]):
+        self._suggest_questions = questions
 
     def mousePressEvent(self, e):
         anchor = self.anchorAt(e.pos())
         if anchor and anchor.startswith("nlm://"):
             self.link_clicked.emit(anchor)
+        elif anchor and anchor.startswith("q://"):
+            try:
+                idx = int(anchor[4:])
+                q = self._suggest_questions[idx]
+                self.question_clicked.emit(q)
+            except Exception:
+                pass
         else:
             super().mousePressEvent(e)
 
@@ -933,8 +1063,10 @@ class ChatDisplay(QTextEdit):
 
 class NotebookLMWidget(QWidget):
     """Embedded widget — dùng trong tab hoặc dialog."""
-    open_preview    = Signal(str, object)  # file_path, page_num (int or None)
-    goto_page_signal = Signal(int)          # jump to page after background search
+    open_preview         = Signal(str, object)  # file_path, page_num (int or None)
+    goto_page_signal     = Signal(int)          # jump to page after background search
+    request_mindmap        = Signal(str)          # file_path → tạo mind map từ file local
+    request_mindmap_online = Signal(str, str, str)  # notebook_id, source_id, title → tạo mind map online
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1021,6 +1153,7 @@ class NotebookLMWidget(QWidget):
 
         # Right: tabs
         right = QTabWidget()
+        self._right_tabs = right
 
         # Tab 1: Chat
         chat_widget = QWidget()
@@ -1035,6 +1168,7 @@ class NotebookLMWidget(QWidget):
         self.chat_display.setPlaceholderText("Chat history will appear here…")
         self.chat_display.setStyleSheet("font-size: 18px;")
         self.chat_display.link_clicked.connect(self._on_source_link_clicked)
+        self.chat_display.question_clicked.connect(self._on_suggestion_clicked)
         chat_lay.addWidget(self.chat_display, 1)
 
         self.lbl_thinking = QLabel("")
@@ -1253,10 +1387,37 @@ class NotebookLMWidget(QWidget):
             return
         from PySide6.QtWidgets import QMenu
         menu = QMenu(self)
+        menu.addAction("🗺 Create Mind Map").triggered.connect(
+            lambda: self._mindmap_from_source(item)
+        )
+        menu.addSeparator()
         menu.addAction("🗑 Delete Source").triggered.connect(
             lambda: self._delete_source(item)
         )
         menu.exec(self.lst_sources.mapToGlobal(pos))
+
+    def _mindmap_from_source(self, item):
+        title     = item.text().lstrip("📄 ").strip()
+        source_id = item.data(Qt.UserRole) or ""
+        local_path = _lookup_source_path(title)
+        if not local_path:
+            from PySide6.QtWidgets import QMessageBox
+            reply = QMessageBox.question(self, "File Not Found",
+                f'Không tìm thấy file local cho "{title}".\n\n'
+                "Tạo mind map online từ source này không?",
+                QMessageBox.Yes | QMessageBox.No)
+            if reply == QMessageBox.Yes:
+                self._mindmap_online(title, source_id)
+            return
+        self.request_mindmap.emit(local_path)
+
+    def _mindmap_online(self, source_title: str, source_id: str = ""):
+        """Tạo mind map từ source đang chọn, hiển thị trong panel preview."""
+        if not self._current_notebook_id:
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.warning(self, "No Notebook", "Vui lòng chọn một notebook trước.")
+            return
+        self.request_mindmap_online.emit(self._current_notebook_id, source_id, source_title)
 
     def _delete_source(self, item):
         from PySide6.QtWidgets import QMessageBox
@@ -1291,6 +1452,43 @@ class NotebookLMWidget(QWidget):
         frames = ["🤔 Thinking", "🤔 Thinking·", "🤔 Thinking··", "🤔 Thinking···"]
         self.lbl_thinking.setText(frames[self._thinking_step % len(frames)])
         self._thinking_step += 1
+
+    def select_notebook_for_file(self, file_path: str) -> bool:
+        """Try to auto-select the notebook that contains file_path. Returns True if found."""
+        src_map = _load_source_map()
+        fname = os.path.basename(file_path)
+        # Find entry by path or filename
+        nb_id = None
+        for entry in src_map.values():
+            if not isinstance(entry, dict):
+                continue
+            if entry.get("path", "") == file_path or os.path.basename(entry.get("path", "")) == fname:
+                nbs = entry.get("notebooks", [])
+                if nbs:
+                    nb_id = nbs[0]
+                    break
+        if not nb_id:
+            return False
+        # Find matching item in lst_notebooks and select it
+        for i in range(self.lst_notebooks.count()):
+            item = self.lst_notebooks.item(i)
+            if item.data(Qt.UserRole) == nb_id:
+                self.lst_notebooks.setCurrentItem(item)
+                return True
+        return False
+
+    def ask_from_mindmap(self, node_name: str):
+        """Called externally (e.g. from mind map node) to ask NbLM about a node."""
+        if not self._current_notebook_id:
+            return
+        question = f'Explain "{node_name}" in detail based on the document.'
+        self.chat_input.setText(question)
+        self._send_chat()
+        # Switch to Chat tab
+        for i in range(self._right_tabs.count()):
+            if self._right_tabs.tabText(i).startswith("💬"):
+                self._right_tabs.setCurrentIndex(i)
+                break
 
     def _send_chat(self):
         if not self._current_notebook_id:
@@ -1334,6 +1532,38 @@ class NotebookLMWidget(QWidget):
             )
         self.chat_display.append("<br>")
         self.btn_send.setEnabled(True)
+        # Generate suggested follow-up questions in background
+        self.chat_display.set_suggestions([])
+        self.chat_display.append(
+            "<span style='color:#6c7086;font-size:14px'>⏳ Suggested questions…</span>"
+        )
+        sw = SuggestQuestionsWorker(self._current_notebook_id, text)
+        sw.done.connect(self._on_suggestions_done)
+        sw.error.connect(lambda _: None)   # fail silently
+        sw.finished.connect(sw.deleteLater)
+        self._workers.append(sw)
+        sw.start()
+
+    def _on_suggestions_done(self, questions: list[str]):
+        if not questions:
+            return
+        self.chat_display.set_suggestions(questions)
+        # Remove the "⏳ Suggested questions…" placeholder
+        doc = self.chat_display.document()
+        found = doc.find("⏳ Suggested questions…")
+        if not found.isNull():
+            found.select(found.SelectionType.LineUnderCursor)
+            found.removeSelectedText()
+        # Append header + each question as a separate paragraph
+        self.chat_display.append(
+            "<span style='color:#6c7086;font-size:13px'>💡 Suggested questions:</span>"
+        )
+        for i, q in enumerate(questions):
+            self.chat_display.append(
+                f"<a href='q://{i}' style='color:#0000FF;text-decoration:none;font-size:16px'>"
+                f"▸ {q}</a>"
+            )
+        self.chat_display.append("<br>")
 
     def _on_source_link_clicked(self, href: str):
         try:
@@ -1428,6 +1658,11 @@ class NotebookLMWidget(QWidget):
         # Italic *text*
         result = re.sub(r"\*(.+?)\*", r"<i>\1</i>", result)
         return result
+
+    def _on_suggestion_clicked(self, question: str):
+        """User clicked a suggested follow-up question — send it immediately."""
+        self.chat_input.setText(question)
+        self._send_chat()
 
     def _on_chat_error(self, msg: str):
         self._stop_thinking()
