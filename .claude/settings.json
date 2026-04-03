@@ -40,7 +40,9 @@
       "Bash(powershell -Command \"$base = ''e:\\\\book\\\\Vanphong\\\\tim file\\\\7\\\\dist\\\\Finding8\\\\_internal''; Get-ChildItem $base -Directory | ForEach-Object { $s = \\(Get-ChildItem $_FullName -Recurse -File -ErrorAction SilentlyContinue | Measure-Object Length -Sum\\).Sum; [PSCustomObject]@{Name=$_Name; MB=[math]::Round\\($s/1MB,1\\)} } | Sort-Object MB -Descending | Select-Object -First 25 | Format-Table -AutoSize\")",
       "Bash(powershell -File:*)",
       "Bash(python -c \"from ui.main_window import FileSearchApp; print\\(''ok''\\)\")",
-      "Bash(python -c \"from ui.pdf_preview import PdfPreviewWidget; from ui.notebooklm_window import NotebookLMWidget; print\\(''ok''\\)\")"
+      "Bash(python -c \"from ui.pdf_preview import PdfPreviewWidget; from ui.notebooklm_window import NotebookLMWidget; print\\(''ok''\\)\")",
+      "Bash(python -c \"import fitz; import rapidfuzz; import bs4; import docx; import pptx; import win32com.client; import win32api; print\\('all ok'\\)\")",
+      "Bash(python -c ':*)"
     ],
     "additionalDirectories": [
       "C:\\Users\\Admin\\AppData\\Roaming\\Code\\User"

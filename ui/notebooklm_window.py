@@ -58,9 +58,33 @@ def _upsert_source_map(source_title: str, file_path: str, notebook_id: str = "")
 def _lookup_source_path(source_title: str) -> str | None:
     """Tìm đường dẫn local từ tên source. Trả None nếu không có."""
     src_map = _load_source_map()
-    entry = src_map.get(source_title) or next(
-        (v for k, v in src_map.items() if k.lower() == source_title.lower()), None
-    )
+    t = source_title.lower().strip()
+
+    def _try(key: str) -> dict | None:
+        return src_map.get(key)
+
+    # 1. Exact match
+    entry = _try(source_title)
+    # 2. Case-insensitive
+    if not entry:
+        entry = next((v for k, v in src_map.items() if k.lower() == t), None)
+    # 3. NbLM bỏ extension → thêm lại .pdf rồi thử
+    if not entry:
+        entry = _try(source_title + ".pdf") or next(
+            (v for k, v in src_map.items() if k.lower() == t + ".pdf"), None
+        )
+    # 4. Key có extension nhưng title không có → bỏ extension của key
+    if not entry:
+        entry = next(
+            (v for k, v in src_map.items()
+             if os.path.splitext(k)[0].lower() == t), None
+        )
+    # 5. Partial match — title là phần đầu của key (NbLM cắt ngắn)
+    if not entry:
+        entry = next(
+            (v for k, v in src_map.items()
+             if k.lower().startswith(t) or t.startswith(k.lower().rstrip(".pdf").rstrip())), None
+        )
     if not entry:
         return None
     path = entry.get("path", "")
@@ -369,6 +393,15 @@ Example format:
 
 Now produce the COMPLETE mind map JSON for this document:"""
 
+_MINDMAP_LANG_SUFFIX = {
+    "vi": '\n7. Write ALL "name" and "description" text in Vietnamese.',
+    "ko": '\n7. Write ALL "name" and "description" text in Korean.',
+    "ja": '\n7. Write ALL "name" and "description" text in Japanese.',
+}
+
+def _build_mindmap_prompt(lang: str = "en") -> str:
+    return _MINDMAP_PROMPT + _MINDMAP_LANG_SUFFIX.get(lang, "")
+
 _SUMMARIZE_PROMPT = (
     "Please provide a comprehensive summary of this document following its original structure and headings. "
     "Include: main topics, key findings or procedures, important technical data, "
@@ -385,6 +418,32 @@ _TRANSLATE_VI_PROMPT = (
     "Do NOT use ASCII transliteration (write 'không' not 'khong', 'được' not 'duoc', etc.). "
     "Use plain text only — no markdown, no ### or ** symbols, no bullet asterisks."
 )
+
+
+class TempChatWorker(QThread):
+    """Tạo notebook tạm, upload file → emit (notebook_id, title) để mở chat."""
+    done  = Signal(str, str)  # notebook_id, notebook_title
+    error = Signal(str)
+
+    def __init__(self, file_path: str):
+        super().__init__()
+        self.file_path = file_path
+
+    def run(self):
+        try:
+            from notebooklm import NotebookLMClient
+            fname = os.path.basename(self.file_path)
+            title = f"[Chat] {fname}"
+            async def _work():
+                async with await NotebookLMClient.from_storage() as client:
+                    nb = await client.notebooks.create(title=title)
+                    nb_id = getattr(nb, "id", None) or getattr(nb, "notebook_id", "")
+                    await client.sources.add_file(nb_id, Path(self.file_path), wait=True)
+                    return nb_id, title
+            nb_id, nb_title = _run_async(_work())
+            self.done.emit(nb_id, nb_title)
+        except Exception as e:
+            self.error.emit(str(e))
 
 
 class NLMAutoSummarizeWorker(QThread):
@@ -791,9 +850,10 @@ class MindMapWorker(QThread):
     done  = Signal(str)   # HTML content
     error = Signal(str)
 
-    def __init__(self, file_path: str):
+    def __init__(self, file_path: str, lang: str = "en"):
         super().__init__()
         self.file_path = file_path
+        self.lang = lang
 
     def run(self):
         try:
@@ -808,7 +868,7 @@ class MindMapWorker(QThread):
                     try:
                         source = await client.sources.add_file(nb_id, Path(self.file_path), wait=True)
                         sid = getattr(source, "source_id", None) or getattr(source, "id", None)
-                        result = await client.chat.ask(nb_id, _MINDMAP_PROMPT, source_ids=[sid] if sid else None)
+                        result = await client.chat.ask(nb_id, _build_mindmap_prompt(self.lang), source_ids=[sid] if sid else None)
                         raw_text = (getattr(result, "answer", None) or str(result)).strip()
                         # Parse JSON — strip any accidental markdown fences
                         import json, re
@@ -832,11 +892,12 @@ class MindMapWorkerOnline(QThread):
     done  = Signal(str)   # HTML content
     error = Signal(str)
 
-    def __init__(self, notebook_id: str, title: str, source_id: str = ""):
+    def __init__(self, notebook_id: str, title: str, source_id: str = "", lang: str = "en"):
         super().__init__()
         self.notebook_id = notebook_id
         self.title       = title
         self.source_id   = source_id
+        self.lang        = lang
 
     def run(self):
         try:
@@ -844,7 +905,7 @@ class MindMapWorkerOnline(QThread):
             async def _work():
                 async with await NotebookLMClient.from_storage() as client:
                     sid = self.source_id or None
-                    result = await client.chat.ask(self.notebook_id, _MINDMAP_PROMPT,
+                    result = await client.chat.ask(self.notebook_id, _build_mindmap_prompt(self.lang),
                                                    source_ids=[sid] if sid else None)
                     raw_text = (getattr(result, "answer", None) or str(result)).strip()
                     import json, re
@@ -970,6 +1031,42 @@ class SuggestQuestionsWorker(QThread):
                     if q and q not in questions:
                         questions.append(q)
             self.done.emit(questions[:10])
+        except Exception as e:
+            self.error.emit(str(e))
+
+
+class GetLanguageWorker(QThread):
+    done  = Signal(str)   # language code, e.g. "vi"
+    error = Signal(str)
+
+    def run(self):
+        try:
+            from notebooklm import NotebookLMClient
+            async def _get():
+                async with await NotebookLMClient.from_storage() as client:
+                    return await client.settings.get_output_language() or ""
+            self.done.emit(_run_async(_get()))
+        except Exception as e:
+            self.error.emit(str(e))
+
+
+class SetLanguageWorker(QThread):
+    done  = Signal(str)   # language code that was set
+    error = Signal(str)
+
+    def __init__(self, code: str):
+        super().__init__()
+        self.code = code
+
+    def run(self):
+        try:
+            from notebooklm import NotebookLMClient
+            from notebooklm.cli.language import set_language
+            async def _set():
+                async with await NotebookLMClient.from_storage() as client:
+                    return await client.settings.set_output_language(self.code) or self.code
+            result = _run_async(_set())
+            self.done.emit(result)
         except Exception as e:
             self.error.emit(str(e))
 
@@ -1128,6 +1225,7 @@ class NotebookLMWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._citation_refs: list = []
+        self._current_language: str = "en"
 
         self._current_notebook_id = None
         self._workers = []
@@ -1142,6 +1240,7 @@ class NotebookLMWidget(QWidget):
         if is_nlm_logged_in():
             self.lbl_status.setText("🟢 Logged in")
             self._load_notebooks()
+            self._fetch_current_language()
         else:
             self.lbl_status.setText("⚪ Not logged in")
 
@@ -1163,6 +1262,10 @@ class NotebookLMWidget(QWidget):
         self.btn_save_login.setEnabled(False)
         self.btn_save_login.setToolTip("Click after you have finished logging in on the browser")
         self.btn_save_login.clicked.connect(self._save_login)
+        self.btn_language = QPushButton("🌐 …")
+        self.btn_language.setFixedHeight(32)
+        self.btn_language.setToolTip("Set NbLM output language (global setting)")
+        self.btn_language.clicked.connect(self._pick_language)
         self.btn_refresh = QPushButton("🔄 Refresh")
         self.btn_refresh.setFixedHeight(32)
         self.btn_refresh.clicked.connect(self._load_notebooks)
@@ -1170,6 +1273,7 @@ class NotebookLMWidget(QWidget):
         header.addStretch()
         header.addWidget(self.btn_login)
         header.addWidget(self.btn_save_login)
+        header.addWidget(self.btn_language)
         header.addWidget(self.btn_refresh)
         lay.addLayout(header)
 
@@ -1297,6 +1401,63 @@ class NotebookLMWidget(QWidget):
         self.lbl_status.setText("🟢 Logged in")
         self.btn_login.setEnabled(True)
         self._load_notebooks()
+        self._fetch_current_language()
+
+    def _fetch_current_language(self):
+        w = GetLanguageWorker()
+        w.done.connect(self._on_language_fetched)
+        w.error.connect(lambda _: None)
+        w.finished.connect(w.deleteLater)
+        self._workers.append(w)
+        w.start()
+
+    def _on_language_fetched(self, code: str):
+        self._current_language = code or "en"
+        self.btn_language.setText(f"🌐 {self._current_language}")
+
+    def _pick_language(self):
+        from PySide6.QtWidgets import QDialog, QVBoxLayout, QComboBox, QLabel, QDialogButtonBox
+        LANGUAGES = {
+            "en": "English",
+            "vi": "Tiếng Việt",
+            "ko": "한국어",
+            "ja": "日本語",
+        }
+        dlg = QDialog(self)
+        dlg.setWindowTitle("🌐 Output Language")
+        dlg.setFixedWidth(280)
+        lay = QVBoxLayout(dlg)
+        lay.addWidget(QLabel("NbLM output language\n(global — affects all notebooks)"))
+        combo = QComboBox()
+        codes = list(LANGUAGES.keys())
+        for code, name in LANGUAGES.items():
+            combo.addItem(f"{name}  ({code})", code)
+        # Pre-select current language from button text
+        cur = self.btn_language.text().replace("🌐 ", "").strip()
+        if cur in codes:
+            combo.setCurrentIndex(codes.index(cur))
+        lay.addWidget(combo)
+        btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        btns.accepted.connect(dlg.accept)
+        btns.rejected.connect(dlg.reject)
+        lay.addWidget(btns)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        code = combo.currentData()
+        self.btn_language.setText(f"🌐 ⏳")
+        self.btn_language.setEnabled(False)
+        w = SetLanguageWorker(code)
+        w.done.connect(lambda c: (
+            self._on_language_fetched(c),
+            self.btn_language.setEnabled(True),
+        ))
+        w.error.connect(lambda e: (
+            QMessageBox.critical(self, "Error", e),
+            self.btn_language.setEnabled(True),
+        ))
+        w.finished.connect(w.deleteLater)
+        self._workers.append(w)
+        w.start()
 
     def _on_login_error(self, msg: str):
         self.lbl_status.setText("🔴 Login failed")
@@ -1533,6 +1694,33 @@ class NotebookLMWidget(QWidget):
                 self.lst_notebooks.setCurrentItem(item)
                 return True
         return False
+
+    def open_temp_chat_notebook(self, nb_id: str, nb_title: str):
+        """Select temp notebook in list (or add it if not present), focus chat input."""
+        # Try to find existing item
+        for i in range(self.lst_notebooks.count()):
+            item = self.lst_notebooks.item(i)
+            if item.data(Qt.UserRole) == nb_id:
+                self.lst_notebooks.setCurrentItem(item)
+                self._current_notebook_id = nb_id
+                self.lbl_nb_name.setText(f"📓 {nb_title}")
+                self.btn_send.setEnabled(True)
+                self._load_sources()
+                self.chat_input.setFocus()
+                return
+        # Not in list yet — add it and select
+        item = QListWidgetItem(f"📓 {nb_title}")
+        item.setData(Qt.UserRole, nb_id)
+        self.lst_notebooks.addItem(item)
+        self.lst_notebooks.setCurrentItem(item)
+        self._current_notebook_id = nb_id
+        self.lbl_nb_name.setText(f"📓 {nb_title}")
+        self.btn_del_nb.setEnabled(True)
+        self.btn_send.setEnabled(True)
+        self.btn_add_file.setEnabled(True)
+        self.chat_display.clear()
+        self._load_sources()
+        self.chat_input.setFocus()
 
     def ask_from_mindmap(self, node_name: str):
         """Called externally (e.g. from mind map node) to ask NbLM about a node."""

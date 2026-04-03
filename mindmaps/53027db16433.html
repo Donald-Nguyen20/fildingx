@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>VP1-0-EPC-E-GEN-00012-H ELECTRICAL OPERATION PHILOSOPHY.pdf</title>
+<style>
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;background:#080c14;width:100%;height:100%;overflow:hidden;font-family:sans-serif;}
+  #app{width:100%;height:100%;}
+  svg{width:100%;height:100%;display:block;cursor:grab;}
+  svg.dragging{cursor:grabbing;}
+  .nd{cursor:pointer;}
+  .nd:hover rect,.nd:hover ellipse{filter:brightness(1.25);}
+  .lk{fill:none;}
+  text{pointer-events:none;dominant-baseline:middle;}
+  #toolbar{position:fixed;top:8px;left:50%;transform:translateX(-50%);display:flex;gap:5px;z-index:20;
+    background:rgba(8,12,20,0.92);padding:6px 10px;border-radius:10px;
+    border:1px solid rgba(255,255,255,0.1);backdrop-filter:blur(8px);}
+  #toolbar button{background:rgba(255,255,255,0.07);color:#c8d4f0;border:1px solid rgba(255,255,255,0.13);
+    border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;transition:background .15s;}
+  #toolbar button:hover{background:rgba(255,255,255,0.18);}
+  #search{background:rgba(255,255,255,0.07);color:#c8d4f0;border:1px solid rgba(255,255,255,0.18);
+    border-radius:6px;padding:4px 8px;font-size:12px;width:140px;outline:none;}
+  #search::placeholder{color:rgba(200,212,240,0.35);}
+  #detail{position:fixed;max-width:260px;min-width:180px;
+    background:rgba(8,12,20,0.97);border:1px solid rgba(255,255,255,0.14);border-radius:12px;
+    padding:12px 14px;color:#c8d4f0;font-size:12px;display:none;z-index:30;line-height:1.6;
+    box-shadow:0 4px 24px rgba(0,0,0,0.6);}
+  #detail .dtitle{font-weight:bold;font-size:13px;margin-bottom:6px;color:#60a5fa;word-break:break-word;}
+  #detail .dbread{font-size:10px;color:rgba(200,212,240,0.4);margin-bottom:6px;}
+  #detail .dchildren{margin-top:6px;font-size:11px;color:#a0b0d0;}
+  #detail .dchildren div{padding:2px 0;border-top:1px solid rgba(255,255,255,0.06);}
+  #detail .dquote{margin-top:6px;font-size:11px;color:#c8d4f0;font-style:italic;border-left:2px solid #3b82f6;padding-left:8px;}
+  #detail .dpage{margin-top:4px;font-size:10px;color:rgba(200,212,240,0.4);}
+  #detail .dclose{float:right;cursor:pointer;opacity:0.4;font-size:15px;line-height:1;margin-left:6px;color:#c8d4f0;}
+  #detail .dclose:hover{opacity:1;}
+</style></head><body>
+<div id="toolbar">
+  <input id="search" type="text" placeholder="🔍 Search…" oninput="doSearch(this.value)">
+  <button onclick="fitScreen()">⊡ Fit</button>
+  <button onclick="expandAll()">+ All</button>
+  <button onclick="collapseDeep()">− Deep</button>
+  <button onclick="collapseAll()">− All</button>
+
+</div>
+<div id="detail">
+  <span class="dclose" onclick="closeDetail()">✕</span>
+  <div class="dbread" id="det-bread"></div>
+  <div class="dtitle" id="det-title"></div>
+  <div class="dchildren" id="det-children"></div>
+</div>
+<div id="app"><svg id="svg"><g id="canvas"></g></svg></div>
+<script>
+const RAW={"name": "VP1-0-EPC-E-GEN-00012-H ELECTRICAL OPERATION PHILOSOPHY", "children": [{"name": "System Configuration", "children": [{"name": "Voltage Levels", "children": [{"name": "23.5kV +5/-5%", "description": "Generator rated terminal voltage and voltage for IPB and generator main circuit breaker at 50Hz.", "page": 101, "children": []}, {"name": "10.5kV +5/-5%", "description": "Voltage for motors above 200kW and for power distribution within the plant.", "page": 101, "children": []}, {"name": "6.6kV +5/-5%", "description": "Voltage for fire fighting motors above 200kW within the plant.", "page": 101, "children": []}, {"name": "400V +5/-5%", "description": "3-phase 4-wire standard voltages for motors from 0.75kW up to including 200 kW.", "page": 101, "children": []}, {"name": "220V DC +10/-15%", "description": "Voltage level of emergency loads such as turbine emergency oil pump and circuit breaker control.", "page": 101, "children": []}, {"name": "48V DC +10/-10%", "description": "Applied for AIS communication system operation voltage.", "page": 101, "children": []}]}, {"name": "Grounding System", "children": [{"name": "23.5kV: High Resistance", "description": "Generator main circuit utilizes 3ph 3W high resistance grounding.", "page": 103, "children": []}, {"name": "10.5kV: Low Resistance", "description": "Medium voltage 3ph 3W system uses low resistance grounding (IT).", "page": 103, "children": []}, {"name": "400V/230V: Direct grounding", "description": "Low voltage systems use direct grounding (TN-S) with 3ph 4W+PE or 1ph 2W+PE.", "page": 103, "children": []}, {"name": "UPS and 220V DC: Ungrounded", "description": "These systems utilize ungrounded (IT) methods for circuit safety.", "page": 103, "children": []}]}, {"name": "Voltage Drop Limits", "children": [{"name": "Maximum Total Drop: 5%", "description": "Total voltage drop from transformer secondary terminal to final load terminal shall not exceed 5%.", "page": 101, "children": []}, {"name": "Motor Starting: 20%", "description": "When motor starting, the voltage drop on all motors shall be within 20%.", "page": 102, "children": []}, {"name": "Lighting and Sockets: 3%", "description": "Maximum drop of 3% at rated load, with a maximum of 5% on farthest fitting feeders.", "page": 102, "children": []}]}]}, {"name": "Equipment Basic Specifications", "children": [{"name": "Generator (*0MKA10)", "children": [{"name": "Rated Capacity: 850MVA", "description": "The 3 phase synchronous generator has a rated voltage of 23.5kV and current of 20.883kA.", "page": 150, "children": []}, {"name": "Power Factor: 0.85 Lagging", "description": "Continuous operation range is 0.85 lagging to 0.90 leading within temperature limits.", "page": 149, "children": []}, {"name": "Reactance Xd: 0.231p.u.", "description": "Saturated Sub-Transient Reactance Xd is specified as 0.231 per unit.", "page": 150, "children": []}]}, {"name": "Main Transformers", "children": [{"name": "GSUT: 850MVA", "description": "Generator Step-up Transformer ratings are 425/680/850 MVA with OLTC taps of ±8 x 1.25%.", "page": 151, "children": []}, {"name": "UAT: 110MVA", "description": "Unit Auxiliary Transformer rated at 55/55/110 MVA with impedance voltage of 12.5%.", "page": 152, "children": []}, {"name": "SST: 80MVA", "description": "Station Service Transformer provides 40/40/80 MVA capacity for commissioning power from 110kV.", "page": 153, "children": []}]}, {"name": "Emergency Diesel Generator", "children": [{"name": "Rating: 2.4MW Standby", "description": "The EDG provides 2.4MW standby and 2.2MW prime output at 400V/50Hz.", "page": 167, "children": []}, {"name": "Starting Time: ≤ 10 sec", "description": "Maximum starting time from initiation to full loading shall be less than or equal to 10 seconds.", "page": 167, "children": []}]}, {"name": "DC and UPS Systems", "children": [{"name": "Battery Backup: 4 Hours", "description": "DC systems are sized for a combined backup time of 4 hours using lead-acid cells.", "page": 165, "children": []}, {"name": "Charger Recharge: 10 Hours", "description": "Each charger will recharge a fully discharged battery to 80% capacity within 10 hours.", "page": 165, "children": []}, {"name": "UPS Voltage Variation: ±2%", "description": "UPS output voltage variation is maintained within ±2% for steady-state sinusoidal wave form.", "page": 166, "children": []}]}]}, {"name": "Operational Philosophy", "children": [{"name": "Commissioning Stages", "children": [{"name": "110kV Receiving: PM32.5M", "description": "Initial power receiving stage from 110kV via the Station Service Transformer.", "page": 175, "children": []}, {"name": "500kV Unit 1: PM42.5M", "description": "Power receiving via Generator Transformer 1 from the 500kV grid.", "page": 175, "children": []}, {"name": "500kV Unit 2: PM46.5M", "description": "Power receiving via Generator Transformer 2 from the 500kV grid.", "page": 175, "children": []}]}, {"name": "Normal Unit Start-up", "children": [{"name": "Step 1: Core Controls", "description": "Ensure DC power, UPS power, and DCS monitoring systems are available.", "page": 177, "children": []}, {"name": "Step 2: Base Facilities", "description": "Enable lighting, HVAC, and fire fighting systems before plant auxiliary operation.", "page": 177, "children": []}, {"name": "Step 5: Synchronization", "description": "TSC initiates generator synchronization to GSUT LV side through GCB adjusting voltage and frequency.", "page": 178, "children": []}]}, {"name": "Emergency and EDG", "children": [{"name": "Fast Transfer: < 100 ms", "description": "Maximum operating time for fast transfer shall not be longer than 100ms from relay initiation.", "page": 186, "children": []}, {"name": "EDG Monthly Test: 30 min", "description": "Each EDG set executes periodic tests for a minimum of 30 minutes with load monthly.", "page": 196, "children": []}, {"name": "EDG No-Load Limit: 15 min", "description": "Periods of solo run no-load operation should be held to no longer than 15 minutes.", "page": 196, "children": []}, {"name": "House Load Limit: 1 Hour", "description": "House load operation persistence is envisaged for a very short period, approximately one hour.", "page": 197, "children": []}]}]}, {"name": "Protection and Interlocks", "children": [{"name": "10.5kV Protection Times", "children": [{"name": "Feeder Fault: 150 ms", "description": "Feeder short-circuit protection coordination operating time is set to approx. 150ms.", "page": 210, "children": []}, {"name": "Breaker Failure (50BF): 50 ms", "description": "Back-up trip in case of outgoing VCB failure operates in approx. 50ms.", "page": 210, "children": []}, {"name": "Incomer Fault: 650 ms", "description": "Incoming short-circuit protection coordination operating time is set to approx. 650ms.", "page": 210, "children": []}]}, {"name": "Ground Fault Limits", "children": [{"name": "10.5kV Current: 800A", "description": "Low-impedance grounding limits 10.5kV ground fault current to 800A.", "page": 215, "children": []}, {"name": "DC Ground Alarm", "description": "Ground fault detection at battery charger output sets off an alarm for ungrounded DC circuits.", "page": 221, "children": []}]}, {"name": "Automatic Transfer System", "children": [{"name": "Undervoltage Trip: 70%", "description": "ATS logic trips incoming breakers if incoming voltage is less than 70% for 3 seconds.", "page": 232, "children": []}, {"name": "Bus Residual Voltage Delay", "description": "Time delay is set to allow bus residual voltage to decay to a safe value before transfer.", "page": 193, "children": []}]}]}]};
+const TITLE="VP1-0-EPC-E-GEN-00012-H ELECTRICAL OPERATION PHILOSOPHY.pdf";
+
+// ── Topic palettes (one per level-1 branch) ─────────────
+const PAL=[
+  {node:'#1a3560',text:'#89b4fa',edge:'#4a80c8',accent:'#89b4fa'},
+  {node:'#1a3d22',text:'#a6e3a1',edge:'#4caf70',accent:'#a6e3a1'},
+  {node:'#3d2800',text:'#fab387',edge:'#d07030',accent:'#fab387'},
+  {node:'#301a50',text:'#cba6f7',edge:'#8060c0',accent:'#cba6f7'},
+  {node:'#3d1020',text:'#f38ba8',edge:'#c04060',accent:'#f38ba8'},
+  {node:'#0d3530',text:'#94e2d5',edge:'#30a898',accent:'#94e2d5'},
+  {node:'#3d3000',text:'#f9e2af',edge:'#c09030',accent:'#f9e2af'},
+];
+
+// ── Stats pattern: numbers with technical units ──────────
+const STATS_RE=/\b\d[\d,.]* *(°[CF]|bar|rpm|%|kg|kw|mw|kv|hz|m\/s|cycles?|h\b|hr\b|min\b|ms\b|psi|mpa|kpa|kj|mj|kwh|mwh|°)\b/i;
+function isStats(s){return STATS_RE.test(s||'');}
+
+// ── Tree init ────────────────────────────────────────────
+let uid=0;
+function initTree(n,parent,level,topic){
+  n._id=uid++;n._parent=parent;n._level=level;
+  n._collapsed=(level>=3);
+  n._topic=topic;
+  n._detail=n.description||n.detail||n.content||'';
+  n._page=n.page||0;
+  n.children=(n.children||[]);
+  if(level===0) n.children.forEach((c,i)=>initTree(c,n,1,i%PAL.length));
+  else          n.children.forEach(c=>initTree(c,n,level+1,topic));
+}
+initTree(RAW,null,0,0);
+
+// ── Leaf count (for arc allocation) ─────────────────────
+function leaves(n){
+  if(n._collapsed||!n.children.length) return 1;
+  return n.children.reduce((s,c)=>s+leaves(c),0);
+}
+
+// ── Horizontal tree layout ───────────────────────────────
+const NH=30,VGAP=8,HGAP=44;
+let _bx0=0,_bx1=0,_by0=0,_by1=0;
+
+function subtreeH(n){
+  if(n._collapsed||!n.children.length) return NH+VGAP;
+  return n.children.reduce((s,c)=>s+subtreeH(c),0);
+}
+
+function layout(n,x,y0,lv){
+  n._lv=lv; n._x=x;
+  if(n._collapsed||!n.children.length){n._y=y0;return NH+VGAP;}
+  const tot=n.children.reduce((s,c)=>s+subtreeH(c),0);
+  let cy=y0;
+  n.children.forEach(c=>{layout(c,x+nw(n.name,lv)+HGAP,cy,lv+1);cy+=subtreeH(c);});
+  n._y=y0+(tot-NH)/2;
+  return tot;
+}
+
+function doLayout(){
+  layout(RAW,24,24,0);
+  const vis=allVis(RAW);
+  _bx0=0; _bx1=Math.max(...vis.map(n=>n._x+nw(n.name,n._lv)))+24;
+  _by0=0; _by1=Math.max(...vis.map(n=>n._y+NH))+24;
+}
+
+function allVis(n){
+  let r=[n];
+  if(!n._collapsed) n.children.forEach(c=>r=r.concat(allVis(c)));
+  return r;
+}
+
+// ── Helpers ──────────────────────────────────────────────
+function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function nw(name,lv){return Math.min(200,Math.max(64,(name||'').length*7+(lv===0?28:18)));}
+function nh(lv){return lv===0?38:lv===1?32:28;}
+
+let _q='';
+
+// ── Render ───────────────────────────────────────────────
+function render(){
+  doLayout();
+  const vis=allVis(RAW);
+  let s='';
+
+  // ── Edges ──
+  vis.forEach(n=>{
+    if(!n._parent) return;
+    const p=n._parent;
+    const ECOLS=['#3b82f6','#10b981','#f59e0b','#a855f7','#f43f5e','#14b8a6'];
+    const ec=ECOLS[Math.min(n._lv-1,ECOLS.length-1)];
+    const pw=nw(p.name,p._lv);
+    const x1=p._x+pw, y1=p._y+NH/2;
+    const x2=n._x,    y2=n._y+NH/2;
+    const mx=(x1+x2)/2;
+    const sw=n._lv<=1?2.5:1.5, op=n._lv<=1?0.7:0.45;
+    s+=`<path class="lk" stroke="${ec}" stroke-width="${sw}" opacity="${op}"
+      d="M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}"/>`;
+  });
+
+  // ── Nodes ──
+  vis.forEach(n=>{
+    const w=nw(n.name,n._lv), h=nh(n._lv);
+    const x=n._x, y=n._y;
+    const stats=isStats(n.name);
+    const matched=_q&&(n.name||'').toLowerCase().includes(_q);
+    const hasKids=n.children.length>0;
+
+    // Fill / stroke — color by level
+    const LCOLS=[
+      {fill:'#0f1b2d',text:'#60a5fa',stroke:'#3b82f6'},  // lv0 — sapphire
+      {fill:'#0d2b1e',text:'#34d399',stroke:'#10b981'},  // lv1 — emerald
+      {fill:'#2d1b00',text:'#fbbf24',stroke:'#f59e0b'},  // lv2 — amber
+      {fill:'#1e0d35',text:'#c084fc',stroke:'#a855f7'},  // lv3 — violet
+      {fill:'#2d0a14',text:'#fb7185',stroke:'#f43f5e'},  // lv4 — rose
+      {fill:'#012a2a',text:'#2dd4bf',stroke:'#14b8a6'},  // lv5 — cyan
+    ];
+    const lc=LCOLS[Math.min(n._lv,LCOLS.length-1)];
+    let fill=lc.fill,textC=lc.text,strokeC=lc.stroke;
+    let strokeW=n._lv===0?2.5:n._lv===1?2:1.2;
+    let rx=n._lv===0?16:12;
+    if(stats){fill='#422006';textC='#fde68a';strokeC='#d97706';strokeW=2;rx=8;}
+    if(matched){fill='#2a1e00';strokeC='#fbbf24';strokeW=2.5;textC='#fde68a';}
+
+    const fs=n._lv===0?14:n._lv===1?12:11;
+    const fw=n._lv<=1?'bold':'normal';
+    const label=esc(n.name||'')+(n._collapsed&&hasKids?' ▸':'');
+
+    s+=`<g class="nd" data-name="${esc(n.name||'')}" onclick="nodeClick(${n._id},event)">`;
+    s+=`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${rx}" fill="${fill}" stroke="${strokeC}" stroke-width="${strokeW}"/>`;
+    // Stats badge
+    if(stats) s+=`<circle cx="${x+w-7}" cy="${y+7}" r="4" fill="#c09030" opacity="0.9"/>`;
+    // Detail dot
+    if(n._detail) s+=`<circle cx="${x+7}" cy="${y+7}" r="3" fill="${lc.text}" opacity="0.7"/>`;
+    s+=`<title>${esc(n.name||'')}${n._detail?'\n\n'+n._detail.slice(0,240):''}</title>`;
+    s+=`<text x="${x+w/2}" y="${y+h/2}" text-anchor="middle" fill="${textC}" font-size="${fs}" font-weight="${fw}">${label}</text>`;
+    s+=`</g>`;
+  });
+
+  document.getElementById('canvas').innerHTML=s;
+}
+
+// ── Node click ───────────────────────────────────────────
+function nodeClick(id,evt){
+  evt.stopPropagation();
+  const vis=allVis(RAW);
+  const n=vis.find(x=>x._id===id);
+  if(!n) return;
+  showDetail(n,evt);
+  if(n.children.length){n._collapsed=!n._collapsed;render();}
+}
+
+function nodeRightClick(name,evt){
+  evt.preventDefault();
+  evt.stopPropagation();
+  document.getElementById('ctx-menu')?.remove();
+  const m=document.createElement('div');
+  m.id='ctx-menu';
+  m.style.cssText=`position:fixed;left:${evt.clientX}px;top:${evt.clientY}px;
+    background:#313244;border:1px solid #45475a;border-radius:6px;
+    padding:4px 0;z-index:999;box-shadow:0 4px 12px #0006;min-width:160px;`;
+  const item=document.createElement('div');
+  item.textContent='📓 Send to NbLM';
+  item.style.cssText='padding:8px 14px;cursor:pointer;font-size:13px;color:#cdd6f4;';
+  item.onmouseenter=()=>item.style.background='#45475a';
+  item.onmouseleave=()=>item.style.background='';
+  item.onclick=()=>{m.remove();if(name)console.log('mm:ask:'+name);};
+  m.appendChild(item);
+  document.body.appendChild(m);
+  const close=()=>m.remove();
+  setTimeout(()=>document.addEventListener('click',close,{once:true}),0);
+}
+
+function breadcrumb(n){
+  const parts=[];
+  let cur=n._parent;
+  while(cur){parts.unshift(cur.name||'');cur=cur._parent;}
+  return parts.join(' › ');
+}
+
+function showDetail(n,evt){
+  const dlg=document.getElementById('detail');
+  document.getElementById('det-title').textContent=n.name||'';
+  const bread=breadcrumb(n);
+  const breadEl=document.getElementById('det-bread');
+  breadEl.textContent=bread; breadEl.style.display=bread?'block':'none';
+  const chEl=document.getElementById('det-children');
+  if(n.children.length){
+    chEl.innerHTML=n.children.map(c=>`<div>▸ ${esc(c.name||'')}</div>`).join('');
+    chEl.style.display='block';
+  } else {
+    chEl.innerHTML=''; chEl.style.display='none';
+  }
+  // Quote + page
+  let quoteEl=document.getElementById('det-quote');
+  if(!quoteEl){quoteEl=document.createElement('div');quoteEl.id='det-quote';dlg.appendChild(quoteEl);}
+  let pageEl=document.getElementById('det-page');
+  if(!pageEl){pageEl=document.createElement('div');pageEl.id='det-page';dlg.appendChild(pageEl);}
+  if(n._detail){
+    quoteEl.className='dquote'; quoteEl.textContent='"'+n._detail+'"'; quoteEl.style.display='block';
+  } else { quoteEl.style.display='none'; }
+  if(n._page){
+    pageEl.className='dpage';
+    pageEl.innerHTML='<a href="#" onclick="goToPage('+n._page+');return false;" style="color:#60a5fa;text-decoration:underline;cursor:pointer;">📄 Page '+n._page+'</a>';
+    pageEl.style.display='block';
+  } else { pageEl.style.display='none'; }
+  // position near click, avoid overflow
+  dlg.style.display='block';
+  const sw=window.innerWidth, sh=window.innerHeight;
+  const dw=dlg.offsetWidth||260, dh=dlg.offsetHeight||120;
+  let px=evt.clientX+14, py=evt.clientY-20;
+  if(px+dw>sw-8) px=evt.clientX-dw-14;
+  if(py+dh>sh-8) py=sh-dh-8;
+  if(py<8) py=8;
+  dlg.style.left=px+'px'; dlg.style.top=py+'px';
+}
+function closeDetail(){document.getElementById('detail').style.display='none';}
+function goToPage(pg){console.log('mm:page:'+pg);}
+
+// ── Search ───────────────────────────────────────────────
+function doSearch(val){
+  _q=val.trim().toLowerCase();
+  if(_q) expandForSearch(RAW,_q);
+  render();
+}
+function expandForSearch(n,q){
+  const mine=(n.name||'').toLowerCase().includes(q);
+  const childHit=n.children.some(c=>expandForSearch(c,q));
+  if(childHit) n._collapsed=false;
+  return mine||childHit;
+}
+
+// ── Expand / Collapse ────────────────────────────────────
+function setAll(n,v){n._collapsed=v;n.children.forEach(c=>setAll(c,v));}
+function expandAll(){setAll(RAW,false);render();fitScreen();}
+function collapseAll(){RAW.children.forEach(c=>setAll(c,true));render();fitScreen();}
+function collapseDeep(){collapseLevel(RAW,2);render();fitScreen();}
+function collapseLevel(n,max){n._collapsed=(n._lv>=max);n.children.forEach(c=>collapseLevel(c,max));}
+
+// ── Zoom & Pan ───────────────────────────────────────────
+const svg=document.getElementById('svg');
+const canvas=document.getElementById('canvas');
+let vx=0,vy=0,vs=1;
+function applyT(){canvas.setAttribute('transform',`translate(${vx},${vy}) scale(${vs})`);}
+function fitScreen(){
+  const sw=svg.clientWidth,sh=svg.clientHeight;
+  const cw=_bx1-_bx0,ch=_by1-_by0;
+  if(cw<=0||ch<=0) return;
+  vs=Math.min(sw/cw,sh/ch)*0.88;
+  vx=sw/2-(_bx0+cw/2)*vs; vy=sh/2-(_by0+ch/2)*vs;
+  applyT();
+}
+svg.addEventListener('wheel',e=>{
+  e.preventDefault();
+  const r=svg.getBoundingClientRect();
+  const mx=e.clientX-r.left,my=e.clientY-r.top;
+  const f=e.deltaY<0?1.12:0.89;
+  const ns=Math.min(6,Math.max(0.08,vs*f));
+  vx=mx-(mx-vx)*(ns/vs); vy=my-(my-vy)*(ns/vs); vs=ns; applyT();
+},{passive:false});
+let drag=false,ddx=0,ddy=0;
+svg.addEventListener('mousedown',e=>{
+  if(e.target.closest('.nd')) return;
+  drag=true; ddx=e.clientX-vx; ddy=e.clientY-vy; svg.classList.add('dragging');
+});
+window.addEventListener('mousemove',e=>{if(!drag)return;vx=e.clientX-ddx;vy=e.clientY-ddy;applyT();});
+window.addEventListener('mouseup',()=>{drag=false;svg.classList.remove('dragging');});
+svg.addEventListener('click',()=>closeDetail());
+
+
+
+// ── Keyboard shortcuts ───────────────────────────────────
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'){closeDetail();document.getElementById('search').value='';doSearch('');}
+  if(e.key==='f'&&!e.ctrlKey&&!e.metaKey) fitScreen();
+});
+
+// ── Context menu (right-click node → Send to NbLM) ───────
+document.addEventListener('contextmenu', e=>{
+  e.preventDefault();
+  document.getElementById('ctx-menu')?.remove();
+  const g = e.target.closest('g.nd');
+  if(!g) return;
+  const name = g.getAttribute('data-name');
+  if(!name) return;
+  const m = document.createElement('div');
+  m.id = 'ctx-menu';
+  m.style.cssText = `position:fixed;left:${e.clientX}px;top:${e.clientY}px;
+    background:#313244;border:1px solid #45475a;border-radius:6px;
+    padding:4px 0;z-index:9999;box-shadow:0 4px 12px #0008;min-width:170px;`;
+  const item = document.createElement('div');
+  item.textContent = '📓 Send to NbLM';
+  item.style.cssText = 'padding:8px 14px;cursor:pointer;font-size:13px;color:#cdd6f4;white-space:nowrap;';
+  item.onmouseenter = ()=>item.style.background='#45475a';
+  item.onmouseleave = ()=>item.style.background='';
+  item.onclick = ()=>{ m.remove(); console.log('mm:ask:'+name); };
+  m.appendChild(item);
+  document.body.appendChild(m);
+  setTimeout(()=>document.addEventListener('click', ()=>m.remove(), {once:true}), 0);
+});
+
+// ── Init ─────────────────────────────────────────────────
+render();
+setTimeout(fitScreen,80);
+</script></body></html>

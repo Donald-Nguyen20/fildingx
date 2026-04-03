@@ -20,6 +20,14 @@ Build:
   --exclude-module mako --exclude-module narwhals --exclude-module torch `
   --exclude-module faiss --exclude-module sentence_transformers `
   --exclude-module numpy --exclude-module scipy --exclude-module sklearn `
+  --exclude-module PySide6.QtQuick --exclude-module PySide6.QtQml `
+  --exclude-module PySide6.QtQuickWidgets --exclude-module PySide6.QtPositioning `
+  --exclude-module PySide6.Qt3DCore --exclude-module PySide6.Qt3DRender `
+  --exclude-module PySide6.QtMultimedia --exclude-module PySide6.QtMultimediaWidgets `
+  --exclude-module PySide6.QtCharts --exclude-module PySide6.QtDataVisualization `
+  --exclude-module PySide6.QtBluetooth --exclude-module PySide6.QtNfc `
+  --exclude-module PySide6.QtSensors --exclude-module PySide6.QtLocation `
+  --exclude-module PySide6.QtRemoteObjects --exclude-module PySide6.QtScxml `
   --hidden-import=win32com.client --hidden-import=win32api `
   --hidden-import=rapidfuzz --hidden-import=bs4 `
   --hidden-import=docx --hidden-import=pptx --hidden-import=fitz

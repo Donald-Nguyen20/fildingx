@@ -255,9 +255,10 @@ class FileSearchApp(QMainWindow):
         self.tree_widget.setColumnWidth(5, 200)
         self.tree_widget.itemDoubleClicked.connect(self.open_file)
         self.tree_widget.itemClicked.connect(self._on_tree_item_clicked)
-        self.tree_widget.setSelectionMode(QTreeWidget.MultiSelection)
+        self.tree_widget.setSelectionMode(QTreeWidget.ExtendedSelection)
         self.tree_widget.setContextMenuPolicy(Qt.CustomContextMenu)
         self.tree_widget.customContextMenuRequested.connect(self.show_treeview_context_menu)
+        self.tree_widget.viewport().installEventFilter(self)
 
         # ── PDF Preview ───────────────────────────────────────────
         self.pdf_preview = PdfPreviewWidget()
@@ -404,8 +405,6 @@ class FileSearchApp(QMainWindow):
             (dup_btn,                                    None),
             (QPushButton("Open Notes"),                  self.open_or_create_notes),
             (QPushButton("Get Hyperlink for Notes"),     self.get_hyperlink_from_tree_view),
-            (QPushButton("Get Path"),                    self.get_link_from_tree_view),
-            (QPushButton("Get Name"),                    self.get_name_from_tree_view),
             (QPushButton("List Files"),                  self.list_files_in_folder),
         ]:
             if fn:
@@ -636,15 +635,178 @@ class FileSearchApp(QMainWindow):
         item = self.tree_widget.itemAt(position)
         if not item:
             return
+        file_path = item.text(4)
         menu = QMenu(self)
         menu.addAction("Open Folder").triggered.connect(
-            lambda: self._open_folder_path(os.path.dirname(item.text(4)))
+            lambda: self._open_folder_path(os.path.dirname(file_path))
+        )
+        menu.addAction("📋 Copy Path").triggered.connect(
+            lambda: self.get_link_from_tree_view()
+        )
+        menu.addAction("📋 Copy Name").triggered.connect(
+            lambda: self.get_name_from_tree_view()
         )
         menu.addSeparator()
         menu.addAction("📓 Add to NotebookLM").triggered.connect(
             self._add_selected_to_notebooklm
         )
+        menu.addAction("💬 Ask NbLM about this file").triggered.connect(
+            lambda: self._ask_nlm_about_file(file_path)
+        )
+        menu.addSeparator()
+        menu.addAction("📁 Move to folder").triggered.connect(
+            lambda: self._move_files_from_tree(item)
+        )
+        menu.addAction("🗑 Delete file").triggered.connect(
+            lambda: self._delete_file_from_tree(item, file_path)
+        )
         menu.exec(QCursor.pos())
+
+    def _ask_nlm_about_file(self, file_path: str):
+        """Tạo notebook tạm, upload file, switch sang NbLM tab để chat."""
+        from ui.notebooklm_window import is_nlm_logged_in, NotebookLMWidget, TempChatWorker
+        if not is_nlm_logged_in():
+            QMessageBox.warning(self, "Not Logged In",
+                "Please log in to NotebookLM first.\n\nGo to the 📓 NotebookLM tab and click 🔑 Switch Account.")
+            return
+        NLM_SUPPORTED = {".pdf", ".txt", ".doc", ".docx", ".pptx", ".md"}
+        if os.path.splitext(file_path)[1].lower() not in NLM_SUPPORTED:
+            QMessageBox.warning(self, "Unsupported Format",
+                "NotebookLM chỉ hỗ trợ: .pdf .txt .doc .docx .pptx .md")
+            return
+        # Switch to NbLM tab
+        for i in range(self._search_tabs.count()):
+            if isinstance(self._search_tabs.widget(i), NotebookLMWidget):
+                self._search_tabs.setCurrentIndex(i)
+                break
+        fname = os.path.basename(file_path)
+        self.statusBar().showMessage(f"⏳ Uploading {fname} to NbLM…")
+        self.notebooklm_widget.lbl_nb_name.setText(f"⏳ Uploading {fname}…")
+        w = TempChatWorker(file_path)
+        w.done.connect(self._on_temp_chat_ready)
+        w.error.connect(lambda e: (
+            self.statusBar().showMessage(f"NbLM upload error: {e}"),
+            QMessageBox.critical(self, "Error", e),
+        ))
+        w.finished.connect(w.deleteLater)
+        if not hasattr(self, "_temp_chat_workers"):
+            self._temp_chat_workers = []
+        self._temp_chat_workers.append(w)
+        w.start()
+
+    def _on_temp_chat_ready(self, nb_id: str, nb_title: str):
+        self.statusBar().showMessage(f"✅ Ready — '{nb_title}' (will be deleted on close)")
+        if not hasattr(self, "_temp_nb_ids"):
+            self._temp_nb_ids = []
+        self._temp_nb_ids.append(nb_id)
+        self.notebooklm_widget.open_temp_chat_notebook(nb_id, nb_title)
+
+    def eventFilter(self, obj, event):
+        from PySide6.QtCore import QEvent
+        from PySide6.QtGui import QMouseEvent
+        if obj is self.tree_widget.viewport() and event.type() == QEvent.MouseButtonPress:
+            item = self.tree_widget.itemAt(event.pos())
+            if item is None:
+                self.tree_widget.clearSelection()
+        return super().eventFilter(obj, event)
+
+    def closeEvent(self, event):
+        self._cleanup_temp_notebooks()
+        event.accept()
+
+    def _cleanup_temp_notebooks(self):
+        ids = getattr(self, "_temp_nb_ids", [])
+        if not ids:
+            return
+        import asyncio
+        from notebooklm import NotebookLMClient
+        async def _delete_all():
+            async with await NotebookLMClient.from_storage() as client:
+                for nb_id in ids:
+                    try:
+                        await client.notebooks.delete(nb_id)
+                    except Exception:
+                        pass
+        try:
+            asyncio.run(_delete_all())
+        except Exception:
+            pass
+        self._temp_nb_ids = []
+
+    def _move_files_from_tree(self, item):
+        """Di chuyển file(s) đã chọn sang thư mục khác."""
+        import shutil
+        selected = self.tree_widget.selectedItems()
+        targets = [(i, i.text(4)) for i in (selected if selected else [item])]
+        targets = [(i, p) for i, p in targets if p and os.path.isfile(p)]
+        if not targets:
+            QMessageBox.warning(self, "File Not Found", "No valid files selected.")
+            return
+        dest_dir = QFileDialog.getExistingDirectory(self, "Select Destination Folder", "")
+        if not dest_dir:
+            return
+        failed = []
+        moved_items = []
+        for it, path in targets:
+            dest = os.path.join(dest_dir, os.path.basename(path))
+            if os.path.abspath(path) == os.path.abspath(dest):
+                continue
+            try:
+                shutil.move(path, dest)
+                moved_items.append(it)
+            except Exception as e:
+                failed.append(f"{os.path.basename(path)}: {e}")
+        for it in moved_items:
+            parent = it.parent()
+            if parent:
+                parent.removeChild(it)
+            else:
+                idx = self.tree_widget.indexOfTopLevelItem(it)
+                if idx >= 0:
+                    self.tree_widget.takeTopLevelItem(idx)
+        if failed:
+            QMessageBox.warning(self, "Error", "Could not move:\n" + "\n".join(failed))
+        if moved_items:
+            self.statusBar().showMessage(f'Moved {len(moved_items)} file(s) to {dest_dir}')
+
+    def _delete_file_from_tree(self, item, file_path: str):
+        """Xác nhận rồi xóa file(s) khỏi disk và khỏi tree."""
+        selected = self.tree_widget.selectedItems()
+        # Nếu không có multi-select, dùng item được click
+        targets = [(i, i.text(4)) for i in (selected if selected else [item])]
+        targets = [(i, p) for i, p in targets if p and os.path.isfile(p)]
+        if not targets:
+            QMessageBox.warning(self, "File Not Found", "No valid files selected.")
+            return
+        if len(targets) == 1:
+            msg = f'Delete this file from disk?\n\n"{os.path.basename(targets[0][1])}"'
+        else:
+            names = "\n".join(f'  • {os.path.basename(p)}' for _, p in targets[:10])
+            more = f"\n  … and {len(targets)-10} more" if len(targets) > 10 else ""
+            msg = f"Delete {len(targets)} files from disk?\n\n{names}{more}"
+        reply = QMessageBox.question(self, "Delete Files", msg, QMessageBox.Yes | QMessageBox.No)
+        if reply != QMessageBox.Yes:
+            return
+        failed = []
+        deleted_items = []
+        for it, path in targets:
+            try:
+                os.remove(path)
+                deleted_items.append(it)
+            except Exception as e:
+                failed.append(f"{os.path.basename(path)}: {e}")
+        # Remove from tree
+        for it in deleted_items:
+            parent = it.parent()
+            if parent:
+                parent.removeChild(it)
+            else:
+                idx = self.tree_widget.indexOfTopLevelItem(it)
+                if idx >= 0:
+                    self.tree_widget.takeTopLevelItem(idx)
+        if failed:
+            QMessageBox.warning(self, "Error", "Could not delete:\n" + "\n".join(failed))
+        self.statusBar().showMessage(f'Deleted {len(deleted_items)} file(s)')
 
     def _add_selected_to_notebooklm(self):
         from ui.notebooklm_window import is_nlm_logged_in, NLMNotebookPickerDialog, AddSourceWorker, ListSourcesWorker

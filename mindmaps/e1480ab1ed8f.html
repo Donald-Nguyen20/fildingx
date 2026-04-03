@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>VP1-0-L2-R-GTC-00002-AB0_Control Philosophy of ATS.pdf</title>
+<style>
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;background:#080c14;width:100%;height:100%;overflow:hidden;font-family:sans-serif;}
+  #app{width:100%;height:100%;}
+  svg{width:100%;height:100%;display:block;cursor:grab;}
+  svg.dragging{cursor:grabbing;}
+  .nd{cursor:pointer;}
+  .nd:hover rect,.nd:hover ellipse{filter:brightness(1.25);}
+  .lk{fill:none;}
+  text{pointer-events:none;dominant-baseline:middle;}
+  #toolbar{position:fixed;top:8px;left:50%;transform:translateX(-50%);display:flex;gap:5px;z-index:20;
+    background:rgba(8,12,20,0.92);padding:6px 10px;border-radius:10px;
+    border:1px solid rgba(255,255,255,0.1);backdrop-filter:blur(8px);}
+  #toolbar button{background:rgba(255,255,255,0.07);color:#c8d4f0;border:1px solid rgba(255,255,255,0.13);
+    border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;transition:background .15s;}
+  #toolbar button:hover{background:rgba(255,255,255,0.18);}
+  #search{background:rgba(255,255,255,0.07);color:#c8d4f0;border:1px solid rgba(255,255,255,0.18);
+    border-radius:6px;padding:4px 8px;font-size:12px;width:140px;outline:none;}
+  #search::placeholder{color:rgba(200,212,240,0.35);}
+  #detail{position:fixed;max-width:260px;min-width:180px;
+    background:rgba(8,12,20,0.97);border:1px solid rgba(255,255,255,0.14);border-radius:12px;
+    padding:12px 14px;color:#c8d4f0;font-size:12px;display:none;z-index:30;line-height:1.6;
+    box-shadow:0 4px 24px rgba(0,0,0,0.6);}
+  #detail .dtitle{font-weight:bold;font-size:13px;margin-bottom:6px;color:#60a5fa;word-break:break-word;}
+  #detail .dbread{font-size:10px;color:rgba(200,212,240,0.4);margin-bottom:6px;}
+  #detail .dchildren{margin-top:6px;font-size:11px;color:#a0b0d0;}
+  #detail .dchildren div{padding:2px 0;border-top:1px solid rgba(255,255,255,0.06);}
+  #detail .dquote{margin-top:6px;font-size:11px;color:#c8d4f0;font-style:italic;border-left:2px solid #3b82f6;padding-left:8px;}
+  #detail .dpage{margin-top:4px;font-size:10px;color:rgba(200,212,240,0.4);}
+  #detail .dclose{float:right;cursor:pointer;opacity:0.4;font-size:15px;line-height:1;margin-left:6px;color:#c8d4f0;}
+  #detail .dclose:hover{opacity:1;}
+</style></head><body>
+<div id="toolbar">
+  <input id="search" type="text" placeholder="🔍 Search…" oninput="doSearch(this.value)">
+  <button onclick="fitScreen()">⊡ Fit</button>
+  <button onclick="expandAll()">+ All</button>
+  <button onclick="collapseDeep()">− Deep</button>
+  <button onclick="collapseAll()">− All</button>
+
+</div>
+<div id="detail">
+  <span class="dclose" onclick="closeDetail()">✕</span>
+  <div class="dbread" id="det-bread"></div>
+  <div class="dtitle" id="det-title"></div>
+  <div class="dchildren" id="det-children"></div>
+</div>
+<div id="app"><svg id="svg"><g id="canvas"></g></svg></div>
+<script>
+const RAW={"name": "Triết lý điều khiển Hệ thống Xử lý Amoniac (ATS)", "children": [{"name": "Quy định Điều khiển Chung và Truy cập", "children": [{"name": "Logic Động cơ và Van", "children": [{"name": "Trạng thái khỏe của động cơ", "description": "Động cơ được coi là khỏe khi không có lỗi hoặc vấp (bao gồm vấp điện và vấp quy trình).", "page": 19, "children": []}, {"name": "Lỗi phản hồi van On/Off", "description": "Lỗi xảy ra khi có sự không khớp giữa lệnh và phản hồi hoặc mất kết nối; hoạt động sẽ bị chấm dứt và báo động được kích hoạt.", "page": 23, "children": []}, {"name": "Tổng thời gian chạy (Total Run Time)", "description": "Giá trị này dùng để lập lịch bảo trì thiết bị như thay thế hoặc châm thêm dầu nhờn và không thể thiết lập lại bởi toán viên.", "page": 22, "children": []}, {"name": "Thất bại khí nén van", "description": "Trong trường hợp mất khí nén, van tác động kép sẽ giữ nguyên vị trí cuối, van tác động đơn sẽ về vị trí an toàn.", "page": 24, "children": []}]}, {"name": "Quyền truy cập Hệ thống", "children": [{"name": "Cấp độ 0: Chỉ xem (View Only)", "description": "Cho phép người dùng xem tất cả các giá trị quy trình, màn hình hiển thị, xu hướng, nhật ký và báo cáo nhưng không được thao tác dữ liệu.", "page": 26, "children": []}, {"name": "Cấp độ 1: Nhân viên vận hành (Operator)", "description": "Cho phép thay đổi điểm cài đặt điều khiển, đầu ra, chế độ vận hành và xác nhận báo động quy trình.", "page": 26, "children": []}, {"name": "Cấp độ 2: Giám sát vận hành (Supervisor)", "description": "Cho phép thay đổi thông số báo động, bật/tắt báo động, quét điểm và ghi đè thủ công các giá trị quy trình.", "page": 27, "children": []}, {"name": "Cấp độ 4: Quản trị hệ thống (Administrator)", "description": "Cấp độ cao nhất, có thể thay đổi/xóa quyền người dùng, thiết lập quyền truy cập tệp và thuộc tính.", "page": 27, "children": []}]}, {"name": "Vận hành Hệ thống Tổng", "children": [{"name": "Nút Khởi động Tổng (Master Start)", "description": "Khi được chọn, các điều kiện cho phép của từng phân hệ sẽ được kiểm tra trước khi tiến hành vận hành bình thường.", "page": 30, "children": []}, {"name": "Nút Dừng Tổng (Master Stop)", "description": "Dừng toàn bộ nhà máy từ vận hành tự động theo trình tự dừng bình thường, bao gồm đóng van xả nước thải CPS.", "page": 31, "children": []}, {"name": "Dừng Khẩn cấp (Emergency Stop)", "description": "Dừng ngay lập tức tất cả các động cơ, đóng tất cả các van và chuyển sang chế độ thủ công.", "page": 33, "children": []}]}]}, {"name": "Hệ thống Tiền xử lý (Pretreatment System)", "children": [{"name": "Điều kiện và Trình tự Vận hành", "children": [{"name": "Điều kiện chạy (Run Permissive)", "description": "Yêu cầu ít nhất 1 bơm hố thu, các máy khuấy bể trung hòa, tạo bông, keo tụ và các bơm định lượng tương ứng phải ở chế độ AUTO và khỏe.", "page": 36, "children": []}, {"name": "Trình tự Khởi động Bước 1", "description": "Khởi động bơm hố thu nước thải Amoniac (00GNK97 AP001/002).", "page": 39, "children": []}, {"name": "Trình tự Khởi động Bước 2", "description": "Mở van On/Off sục rửa bơm tương ứng (00GNK98 AA492/493).", "page": 39, "children": []}, {"name": "Trình tự Khởi động Bước 3", "description": "Khởi động các máy khuấy bể trung hòa, keo tụ, tạo bông và điều chỉnh pH.", "page": 39, "children": []}, {"name": "Cảnh báo khởi động không hoàn tất", "description": "Nếu sau 1 phút trì hoãn mà trình tự khởi động không tiến triển do thiếu tín hiệu bơm, hệ thống sẽ dừng và chuyển sang 'OFF'.", "page": 41, "children": []}]}, {"name": "Kiểm soát Thiết bị và Thông số", "children": [{"name": "Hố thu nước thải (00GNK97 BB001)", "description": "Bơm hố thu khởi động khi mức >= M và dừng khi mức < L; vấp khi mức < LL.", "page": 50, "children": []}, {"name": "Bơm định lượng NaOH (Trung hòa)", "description": "Khởi động khi pH đo được bởi bộ phân tích (00GNK81 CQ001) < L2 và dừng khi pH >= L1.", "page": 58, "children": []}, {"name": "Bơm định lượng HCl (Trung hòa)", "description": "Khởi động khi pH tại bể trung hòa > H2 và dừng khi pH < H1.", "page": 60, "children": []}, {"name": "Khoảng thời gian xả bùn (20 giờ)", "description": "Bộ đếm khoảng thời gian xả bùn của thiết bị lắng Lamella được đặt là 20 giờ.", "page": 47, "children": []}, {"name": "Thời gian xả bùn (4 giờ)", "description": "Thời gian thực hiện quy trình xả bùn sau khi được kích hoạt là 4 giờ.", "page": 47, "children": []}]}]}, {"name": "Hệ thống Loại bỏ Amoniac (Ammonia Removal)", "children": [{"name": "Điều kiện và Trình tự Khởi động", "children": [{"name": "Điều kiện cho phép khởi động", "description": "Mức bể nạp liệu Stripper >= M, mức bể Air Stripper > L và mức bể giám sát cuối < H.", "page": 71, "children": []}, {"name": "Bước 1: Bơm chuyển Stripper", "description": "Khởi động bơm chuyển Stripper (00GNK87 AP001/002) khi nhiệt độ đầu vào Oxy hóa Xúc tác < H.", "page": 71, "children": []}, {"name": "Bước 8: Quạt Stripper", "description": "Khởi động quạt Stripper (00GNK86 AN001/002) và mở van nước dịch vụ sau khi nhận phản hồi chạy từ bơm chuyển Stripper.", "page": 74, "children": []}, {"name": "Bước 11: Bơm nạp Stripper", "description": "Khởi động bơm nạp Stripper (00GNK84 AP001/002) khi nhận phản hồi quạt chạy và các điều kiện nhiệt độ/lưu lượng thỏa mãn.", "page": 75, "children": []}, {"name": "Thời gian chờ khởi động (20 phút)", "description": "Nếu sau 20 phút mà tín hiệu bơm/nhiệt độ/lưu lượng không nằm trong phạm vi, trình tự khởi động sẽ dừng.", "page": 76, "children": []}]}, {"name": "Kiểm soát Thiết bị và Báo động", "children": [{"name": "Gia nhiệt nạp liệu (00GNK91 AH001)", "description": "Vấp (Trip) khi nhiệt độ đầu vào Air Stripper (00GNK91 CT002) > HH hoặc nhiệt độ vỏ gia nhiệt > HH.", "page": 89, "children": []}, {"name": "Bơm nạp Stripper (00GNK84 AP001/002)", "description": "Vấp khi mức bể nạp liệu < LL hoặc lưu lượng xả < LL với độ trễ 30 giây.", "page": 84, "children": []}, {"name": "Độ trễ van xả Off-spec (40 phút)", "description": "Mở van xả nước thải Amoniac không đạt chuẩn (00GNK94 AA401) khi chỉ số NH3 > H với thời gian trễ 40 phút.", "page": 80, "children": []}, {"name": "Độ trễ van xả đạt chuẩn (50 phút)", "description": "Mở van xả nước thải Amoniac đã xử lý khi NH3 < H với thời gian trễ 50 phút tại giá trị reset.", "page": 80, "children": []}]}]}, {"name": "Hệ thống Tách nước và Thiết bị Phụ trợ", "children": [{"name": "Hệ thống Tách nước (Dewatering System)", "children": [{"name": "Khoảng thời gian tách nước (20 giờ)", "description": "Bộ đếm bắt đầu khi bơm hố thu hoạt động; thông báo 'Dewatering' hiện lên sau 20 giờ.", "page": 116, "children": []}, {"name": "Trình tự dừng Máy ly tâm", "description": "Mở van nước dịch vụ để sục rửa máy ly tâm trong thời gian cài đặt trước khi dừng hẳn.", "page": 120, "children": []}]}, {"name": "Lưu trữ Hóa chất và Thoát nước", "children": [{"name": "Bơm nạp Axit (00GNN88 AP001/002)", "description": "Khởi động khi mức bể ngày < L và dừng khi mức >= H; vấp khi mức bể chứa bulk > HH hoặc < LL.", "page": 128, "children": []}, {"name": "Bơm hố thu thoát nước hóa chất", "description": "Khởi động khi mức hố thu (00GNK96 BB001) >= M và dừng khi mức < L.", "page": 134, "children": []}]}, {"name": "Hệ thống Máy nén khí (Air Compressor)", "children": [{"name": "Kiểm soát áp suất", "description": "Máy nén khí khởi động khi áp suất thấp và dừng khi áp suất vượt mức H, điều khiển thông qua LCP.", "page": 137, "children": []}, {"name": "Chế độ Luân phiên (Auto Switch Over)", "description": "Trong trường hợp thiết bị đang làm việc có lỗi chung, hệ thống sẽ tự động chuyển sang thiết bị dự phòng.", "page": 140, "children": []}]}]}]};
+const TITLE="VP1-0-L2-R-GTC-00002-AB0_Control Philosophy of ATS.pdf";
+
+// ── Topic palettes (one per level-1 branch) ─────────────
+const PAL=[
+  {node:'#1a3560',text:'#89b4fa',edge:'#4a80c8',accent:'#89b4fa'},
+  {node:'#1a3d22',text:'#a6e3a1',edge:'#4caf70',accent:'#a6e3a1'},
+  {node:'#3d2800',text:'#fab387',edge:'#d07030',accent:'#fab387'},
+  {node:'#301a50',text:'#cba6f7',edge:'#8060c0',accent:'#cba6f7'},
+  {node:'#3d1020',text:'#f38ba8',edge:'#c04060',accent:'#f38ba8'},
+  {node:'#0d3530',text:'#94e2d5',edge:'#30a898',accent:'#94e2d5'},
+  {node:'#3d3000',text:'#f9e2af',edge:'#c09030',accent:'#f9e2af'},
+];
+
+// ── Stats pattern: numbers with technical units ──────────
+const STATS_RE=/\b\d[\d,.]* *(°[CF]|bar|rpm|%|kg|kw|mw|kv|hz|m\/s|cycles?|h\b|hr\b|min\b|ms\b|psi|mpa|kpa|kj|mj|kwh|mwh|°)\b/i;
+function isStats(s){return STATS_RE.test(s||'');}
+
+// ── Tree init ────────────────────────────────────────────
+let uid=0;
+function initTree(n,parent,level,topic){
+  n._id=uid++;n._parent=parent;n._level=level;
+  n._collapsed=(level>=3);
+  n._topic=topic;
+  n._detail=n.description||n.detail||n.content||'';
+  n._page=n.page||0;
+  n.children=(n.children||[]);
+  if(level===0) n.children.forEach((c,i)=>initTree(c,n,1,i%PAL.length));
+  else          n.children.forEach(c=>initTree(c,n,level+1,topic));
+}
+initTree(RAW,null,0,0);
+
+// ── Leaf count (for arc allocation) ─────────────────────
+function leaves(n){
+  if(n._collapsed||!n.children.length) return 1;
+  return n.children.reduce((s,c)=>s+leaves(c),0);
+}
+
+// ── Horizontal tree layout ───────────────────────────────
+const NH=30,VGAP=8,HGAP=44;
+let _bx0=0,_bx1=0,_by0=0,_by1=0;
+
+function subtreeH(n){
+  if(n._collapsed||!n.children.length) return NH+VGAP;
+  return n.children.reduce((s,c)=>s+subtreeH(c),0);
+}
+
+function layout(n,x,y0,lv){
+  n._lv=lv; n._x=x;
+  if(n._collapsed||!n.children.length){n._y=y0;return NH+VGAP;}
+  const tot=n.children.reduce((s,c)=>s+subtreeH(c),0);
+  let cy=y0;
+  n.children.forEach(c=>{layout(c,x+nw(n.name,lv)+HGAP,cy,lv+1);cy+=subtreeH(c);});
+  n._y=y0+(tot-NH)/2;
+  return tot;
+}
+
+function doLayout(){
+  layout(RAW,24,24,0);
+  const vis=allVis(RAW);
+  _bx0=0; _bx1=Math.max(...vis.map(n=>n._x+nw(n.name,n._lv)))+24;
+  _by0=0; _by1=Math.max(...vis.map(n=>n._y+NH))+24;
+}
+
+function allVis(n){
+  let r=[n];
+  if(!n._collapsed) n.children.forEach(c=>r=r.concat(allVis(c)));
+  return r;
+}
+
+// ── Helpers ──────────────────────────────────────────────
+function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function nw(name,lv){return Math.min(200,Math.max(64,(name||'').length*7+(lv===0?28:18)));}
+function nh(lv){return lv===0?38:lv===1?32:28;}
+
+let _q='';
+
+// ── Render ───────────────────────────────────────────────
+function render(){
+  doLayout();
+  const vis=allVis(RAW);
+  let s='';
+
+  // ── Edges ──
+  vis.forEach(n=>{
+    if(!n._parent) return;
+    const p=n._parent;
+    const ECOLS=['#3b82f6','#10b981','#f59e0b','#a855f7','#f43f5e','#14b8a6'];
+    const ec=ECOLS[Math.min(n._lv-1,ECOLS.length-1)];
+    const pw=nw(p.name,p._lv);
+    const x1=p._x+pw, y1=p._y+NH/2;
+    const x2=n._x,    y2=n._y+NH/2;
+    const mx=(x1+x2)/2;
+    const sw=n._lv<=1?2.5:1.5, op=n._lv<=1?0.7:0.45;
+    s+=`<path class="lk" stroke="${ec}" stroke-width="${sw}" opacity="${op}"
+      d="M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}"/>`;
+  });
+
+  // ── Nodes ──
+  vis.forEach(n=>{
+    const w=nw(n.name,n._lv), h=nh(n._lv);
+    const x=n._x, y=n._y;
+    const stats=isStats(n.name);
+    const matched=_q&&(n.name||'').toLowerCase().includes(_q);
+    const hasKids=n.children.length>0;
+
+    // Fill / stroke — color by level
+    const LCOLS=[
+      {fill:'#0f1b2d',text:'#60a5fa',stroke:'#3b82f6'},  // lv0 — sapphire
+      {fill:'#0d2b1e',text:'#34d399',stroke:'#10b981'},  // lv1 — emerald
+      {fill:'#2d1b00',text:'#fbbf24',stroke:'#f59e0b'},  // lv2 — amber
+      {fill:'#1e0d35',text:'#c084fc',stroke:'#a855f7'},  // lv3 — violet
+      {fill:'#2d0a14',text:'#fb7185',stroke:'#f43f5e'},  // lv4 — rose
+      {fill:'#012a2a',text:'#2dd4bf',stroke:'#14b8a6'},  // lv5 — cyan
+    ];
+    const lc=LCOLS[Math.min(n._lv,LCOLS.length-1)];
+    let fill=lc.fill,textC=lc.text,strokeC=lc.stroke;
+    let strokeW=n._lv===0?2.5:n._lv===1?2:1.2;
+    let rx=n._lv===0?16:12;
+    if(stats){fill='#422006';textC='#fde68a';strokeC='#d97706';strokeW=2;rx=8;}
+    if(matched){fill='#2a1e00';strokeC='#fbbf24';strokeW=2.5;textC='#fde68a';}
+
+    const fs=n._lv===0?14:n._lv===1?12:11;
+    const fw=n._lv<=1?'bold':'normal';
+    const label=esc(n.name||'')+(n._collapsed&&hasKids?' ▸':'');
+
+    s+=`<g class="nd" data-name="${esc(n.name||'')}" onclick="nodeClick(${n._id},event)">`;
+    s+=`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${rx}" fill="${fill}" stroke="${strokeC}" stroke-width="${strokeW}"/>`;
+    // Stats badge
+    if(stats) s+=`<circle cx="${x+w-7}" cy="${y+7}" r="4" fill="#c09030" opacity="0.9"/>`;
+    // Detail dot
+    if(n._detail) s+=`<circle cx="${x+7}" cy="${y+7}" r="3" fill="${lc.text}" opacity="0.7"/>`;
+    s+=`<title>${esc(n.name||'')}${n._detail?'\n\n'+n._detail.slice(0,240):''}</title>`;
+    s+=`<text x="${x+w/2}" y="${y+h/2}" text-anchor="middle" fill="${textC}" font-size="${fs}" font-weight="${fw}">${label}</text>`;
+    s+=`</g>`;
+  });
+
+  document.getElementById('canvas').innerHTML=s;
+}
+
+// ── Node click ───────────────────────────────────────────
+function nodeClick(id,evt){
+  evt.stopPropagation();
+  const vis=allVis(RAW);
+  const n=vis.find(x=>x._id===id);
+  if(!n) return;
+  showDetail(n,evt);
+  if(n.children.length){n._collapsed=!n._collapsed;render();}
+}
+
+function nodeRightClick(name,evt){
+  evt.preventDefault();
+  evt.stopPropagation();
+  document.getElementById('ctx-menu')?.remove();
+  const m=document.createElement('div');
+  m.id='ctx-menu';
+  m.style.cssText=`position:fixed;left:${evt.clientX}px;top:${evt.clientY}px;
+    background:#313244;border:1px solid #45475a;border-radius:6px;
+    padding:4px 0;z-index:999;box-shadow:0 4px 12px #0006;min-width:160px;`;
+  const item=document.createElement('div');
+  item.textContent='📓 Send to NbLM';
+  item.style.cssText='padding:8px 14px;cursor:pointer;font-size:13px;color:#cdd6f4;';
+  item.onmouseenter=()=>item.style.background='#45475a';
+  item.onmouseleave=()=>item.style.background='';
+  item.onclick=()=>{m.remove();if(name)console.log('mm:ask:'+name);};
+  m.appendChild(item);
+  document.body.appendChild(m);
+  const close=()=>m.remove();
+  setTimeout(()=>document.addEventListener('click',close,{once:true}),0);
+}
+
+function breadcrumb(n){
+  const parts=[];
+  let cur=n._parent;
+  while(cur){parts.unshift(cur.name||'');cur=cur._parent;}
+  return parts.join(' › ');
+}
+
+function showDetail(n,evt){
+  const dlg=document.getElementById('detail');
+  document.getElementById('det-title').textContent=n.name||'';
+  const bread=breadcrumb(n);
+  const breadEl=document.getElementById('det-bread');
+  breadEl.textContent=bread; breadEl.style.display=bread?'block':'none';
+  const chEl=document.getElementById('det-children');
+  if(n.children.length){
+    chEl.innerHTML=n.children.map(c=>`<div>▸ ${esc(c.name||'')}</div>`).join('');
+    chEl.style.display='block';
+  } else {
+    chEl.innerHTML=''; chEl.style.display='none';
+  }
+  // Quote + page
+  let quoteEl=document.getElementById('det-quote');
+  if(!quoteEl){quoteEl=document.createElement('div');quoteEl.id='det-quote';dlg.appendChild(quoteEl);}
+  let pageEl=document.getElementById('det-page');
+  if(!pageEl){pageEl=document.createElement('div');pageEl.id='det-page';dlg.appendChild(pageEl);}
+  if(n._detail){
+    quoteEl.className='dquote'; quoteEl.textContent='"'+n._detail+'"'; quoteEl.style.display='block';
+  } else { quoteEl.style.display='none'; }
+  if(n._page){
+    pageEl.className='dpage';
+    pageEl.innerHTML='<a href="#" onclick="goToPage('+n._page+');return false;" style="color:#60a5fa;text-decoration:underline;cursor:pointer;">📄 Page '+n._page+'</a>';
+    pageEl.style.display='block';
+  } else { pageEl.style.display='none'; }
+  // position near click, avoid overflow
+  dlg.style.display='block';
+  const sw=window.innerWidth, sh=window.innerHeight;
+  const dw=dlg.offsetWidth||260, dh=dlg.offsetHeight||120;
+  let px=evt.clientX+14, py=evt.clientY-20;
+  if(px+dw>sw-8) px=evt.clientX-dw-14;
+  if(py+dh>sh-8) py=sh-dh-8;
+  if(py<8) py=8;
+  dlg.style.left=px+'px'; dlg.style.top=py+'px';
+}
+function closeDetail(){document.getElementById('detail').style.display='none';}
+function goToPage(pg){console.log('mm:page:'+pg);}
+
+// ── Search ───────────────────────────────────────────────
+function doSearch(val){
+  _q=val.trim().toLowerCase();
+  if(_q) expandForSearch(RAW,_q);
+  render();
+}
+function expandForSearch(n,q){
+  const mine=(n.name||'').toLowerCase().includes(q);
+  const childHit=n.children.some(c=>expandForSearch(c,q));
+  if(childHit) n._collapsed=false;
+  return mine||childHit;
+}
+
+// ── Expand / Collapse ────────────────────────────────────
+function setAll(n,v){n._collapsed=v;n.children.forEach(c=>setAll(c,v));}
+function expandAll(){setAll(RAW,false);render();fitScreen();}
+function collapseAll(){RAW.children.forEach(c=>setAll(c,true));render();fitScreen();}
+function collapseDeep(){collapseLevel(RAW,2);render();fitScreen();}
+function collapseLevel(n,max){n._collapsed=(n._lv>=max);n.children.forEach(c=>collapseLevel(c,max));}
+
+// ── Zoom & Pan ───────────────────────────────────────────
+const svg=document.getElementById('svg');
+const canvas=document.getElementById('canvas');
+let vx=0,vy=0,vs=1;
+function applyT(){canvas.setAttribute('transform',`translate(${vx},${vy}) scale(${vs})`);}
+function fitScreen(){
+  const sw=svg.clientWidth,sh=svg.clientHeight;
+  const cw=_bx1-_bx0,ch=_by1-_by0;
+  if(cw<=0||ch<=0) return;
+  vs=Math.min(sw/cw,sh/ch)*0.88;
+  vx=sw/2-(_bx0+cw/2)*vs; vy=sh/2-(_by0+ch/2)*vs;
+  applyT();
+}
+svg.addEventListener('wheel',e=>{
+  e.preventDefault();
+  const r=svg.getBoundingClientRect();
+  const mx=e.clientX-r.left,my=e.clientY-r.top;
+  const f=e.deltaY<0?1.12:0.89;
+  const ns=Math.min(6,Math.max(0.08,vs*f));
+  vx=mx-(mx-vx)*(ns/vs); vy=my-(my-vy)*(ns/vs); vs=ns; applyT();
+},{passive:false});
+let drag=false,ddx=0,ddy=0;
+svg.addEventListener('mousedown',e=>{
+  if(e.target.closest('.nd')) return;
+  drag=true; ddx=e.clientX-vx; ddy=e.clientY-vy; svg.classList.add('dragging');
+});
+window.addEventListener('mousemove',e=>{if(!drag)return;vx=e.clientX-ddx;vy=e.clientY-ddy;applyT();});
+window.addEventListener('mouseup',()=>{drag=false;svg.classList.remove('dragging');});
+svg.addEventListener('click',()=>closeDetail());
+
+
+
+// ── Keyboard shortcuts ───────────────────────────────────
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'){closeDetail();document.getElementById('search').value='';doSearch('');}
+  if(e.key==='f'&&!e.ctrlKey&&!e.metaKey) fitScreen();
+});
+
+// ── Context menu (right-click node → Send to NbLM) ───────
+document.addEventListener('contextmenu', e=>{
+  e.preventDefault();
+  document.getElementById('ctx-menu')?.remove();
+  const g = e.target.closest('g.nd');
+  if(!g) return;
+  const name = g.getAttribute('data-name');
+  if(!name) return;
+  const m = document.createElement('div');
+  m.id = 'ctx-menu';
+  m.style.cssText = `position:fixed;left:${e.clientX}px;top:${e.clientY}px;
+    background:#313244;border:1px solid #45475a;border-radius:6px;
+    padding:4px 0;z-index:9999;box-shadow:0 4px 12px #0008;min-width:170px;`;
+  const item = document.createElement('div');
+  item.textContent = '📓 Send to NbLM';
+  item.style.cssText = 'padding:8px 14px;cursor:pointer;font-size:13px;color:#cdd6f4;white-space:nowrap;';
+  item.onmouseenter = ()=>item.style.background='#45475a';
+  item.onmouseleave = ()=>item.style.background='';
+  item.onclick = ()=>{ m.remove(); console.log('mm:ask:'+name); };
+  m.appendChild(item);
+  document.body.appendChild(m);
+  setTimeout(()=>document.addEventListener('click', ()=>m.remove(), {once:true}), 0);
+});
+
+// ── Init ─────────────────────────────────────────────────
+render();
+setTimeout(fitScreen,80);
+</script></body></html>
