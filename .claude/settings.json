@@ -42,7 +42,19 @@
       "Bash(python -c \"from ui.main_window import FileSearchApp; print\\(''ok''\\)\")",
       "Bash(python -c \"from ui.pdf_preview import PdfPreviewWidget; from ui.notebooklm_window import NotebookLMWidget; print\\(''ok''\\)\")",
       "Bash(python -c \"import fitz; import rapidfuzz; import bs4; import docx; import pptx; import win32com.client; import win32api; print\\('all ok'\\)\")",
-      "Bash(python -c ':*)"
+      "Bash(python -c ':*)",
+      "Bash(python -c \"from notebooklm import _notes; help\\(_notes\\)\")",
+      "Bash(python -c \"from ui.notebooklm_window import NotebookLMWidget\")",
+      "Bash(python -c \"from notebooklm import _sources; help\\(_sources.SourcesAPI\\)\")",
+      "Bash(python -c \"import openpyxl; print\\(openpyxl.__version__\\)\")",
+      "Bash(python -c \"from notebooklm import _artifacts; help\\(_artifacts.ArtifactsAPI\\)\")",
+      "Bash(python -c \"from notebooklm.types import ArtifactType; print\\(list\\(ArtifactType\\)\\)\")",
+      "Bash(python -c \"from notebooklm.rpc.types import ReportFormat; print\\(list\\(ReportFormat\\)\\)\")",
+      "Bash(python -c \"from notebooklm.types import Source; import inspect; print\\([f for f in dir\\(Source\\) if not f.startswith\\('_'\\)]\\)\")",
+      "Bash(python -c \"import inspect; from notebooklm._client import Artifacts; print\\(inspect.getsource\\(Artifacts.generate_report\\)\\)\")",
+      "Bash(python -c \"import inspect; from notebooklm import NotebookLMClient; import notebooklm; print\\(notebooklm.__file__\\)\")",
+      "Bash(grep -rn \"generate_report\\\\|generate_mind_map\\\\|source_id\" \"C:\\\\Users\\\\Admin\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python312\\\\Lib\\\\site-packages\\\\notebooklm\\\\\" --include=\"*.py\" -l 2>&1)",
+      "Bash(xargs grep:*)"
     ],
     "additionalDirectories": [
       "C:\\Users\\Admin\\AppData\\Roaming\\Code\\User"

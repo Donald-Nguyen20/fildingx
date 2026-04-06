@@ -3,6 +3,12 @@ import requests
 from typing import List, Tuple
 from core.llm_config import load_llm_config
 
+# Generation limits
+_OLLAMA_NUM_PREDICT = 700
+_OLLAMA_NUM_CTX     = 4096
+_MAX_TOKENS_CHAT    = 900
+_MAX_TOKENS_GEMINI  = 2048
+
 # Provider keys used internally + labels shown in UI
 PROVIDERS: List[Tuple[str, str]] = [
     ("ollama",      "Ollama (Local)"),
@@ -29,8 +35,8 @@ class LLMClientOllama(BaseLLMClient):
                 "stream": False,
                 "options": {
                     "temperature": 0.2,
-                    "num_predict": 700,
-                    "num_ctx": 4096,
+                    "num_predict": _OLLAMA_NUM_PREDICT,
+                    "num_ctx":     _OLLAMA_NUM_CTX,
                 },
             },
             timeout=280,
@@ -58,7 +64,7 @@ class OpenAICompatibleChatClient(BaseLLMClient):
             "model": self.model,
             "messages": [{"role": "user", "content": prompt}],
             "temperature": 0.1,
-            "max_tokens": 900,
+            "max_tokens": _MAX_TOKENS_CHAT,
         }
         r = requests.post(url, headers=headers, json=payload, timeout=self.timeout)
         r.raise_for_status()
@@ -102,7 +108,7 @@ class LLMClientGemini(BaseLLMClient):
         url = f"{self.BASE}/{self.model}:generateContent?key={self.api_key}"
         payload = {
             "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {"temperature": 0.2, "maxOutputTokens": 2048},
+            "generationConfig": {"temperature": 0.2, "maxOutputTokens": _MAX_TOKENS_GEMINI},
         }
         r = requests.post(url, json=payload, timeout=self.timeout)
         r.raise_for_status()
@@ -126,17 +132,17 @@ def create_llm_client(provider_key: str, model_override: str = "") -> BaseLLMCli
 
     if provider_key == "openrouter":
         api_key = (cfg.get("openrouter_api_key") or "").strip()
-        model = model_override or cfg["openrouter_model"]
+        model = model_override or cfg.get("openrouter_model", "meta-llama/llama-3.3-70b-instruct:free")
         return LLMClientOpenRouter(api_key=api_key, model=model)
 
     if provider_key == "groq":
         api_key = (cfg.get("groq_api_key") or "").strip()
-        model = model_override or cfg["groq_model"]
+        model = model_override or cfg.get("groq_model", "llama-3.3-70b-versatile")
         return LLMClientGroq(api_key=api_key, model=model)
 
     if provider_key == "gemini":
         api_key = (cfg.get("gemini_api_key") or "").strip()
-        model = model_override or cfg.get("gemini_model", "gemini-1.5-flash")
+        model = model_override or cfg.get("gemini_model", "gemini-2.0-flash")
         return LLMClientGemini(api_key=api_key, model=model)
 
     # fallback

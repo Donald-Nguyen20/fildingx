@@ -73,6 +73,18 @@ class LLMSettingsDialog(QDialog):
         self.ed_ollama_host = QLineEdit(cfg.get("ollama_host", "http://localhost:11434"))
         form.addRow("Ollama host:", self.ed_ollama_host)
 
+        self.ed_ollama_model = QLineEdit(cfg.get("ollama_model", "llama3.1:8b"))
+        form.addRow("Ollama model:", self.ed_ollama_model)
+
+        self.ed_openrouter_model = QLineEdit(cfg.get("openrouter_model", "meta-llama/llama-3.3-70b-instruct:free"))
+        form.addRow("OpenRouter model:", self.ed_openrouter_model)
+
+        self.ed_groq_model = QLineEdit(cfg.get("groq_model", "llama-3.3-70b-versatile"))
+        form.addRow("Groq model:", self.ed_groq_model)
+
+        self.ed_gemini_model = QLineEdit(cfg.get("gemini_model", "gemini-2.0-flash"))
+        form.addRow("Gemini model:", self.ed_gemini_model)
+
         self.cbo_translate = QComboBox()
         for key, label in PROVIDERS:
             self.cbo_translate.addItem(label, key)
@@ -139,6 +151,10 @@ class LLMSettingsDialog(QDialog):
         cfg["groq_api_key"]        = self.ed_groq.text().strip()
         cfg["gemini_api_key"]      = self.ed_gemini.text().strip()
         cfg["ollama_host"]         = self.ed_ollama_host.text().strip() or "http://localhost:11434"
+        cfg["ollama_model"]        = self.ed_ollama_model.text().strip() or "llama3.1:8b"
+        cfg["openrouter_model"]    = self.ed_openrouter_model.text().strip() or "meta-llama/llama-3.3-70b-instruct:free"
+        cfg["groq_model"]          = self.ed_groq_model.text().strip() or "llama-3.3-70b-versatile"
+        cfg["gemini_model"]        = self.ed_gemini_model.text().strip() or "gemini-2.0-flash"
         cfg["translate_provider"]  = self.cbo_translate.currentData()
         try:
             save_llm_config(cfg)
@@ -399,13 +415,6 @@ class PdfPreviewWidget(QWidget):
         self.btn_fullscreen_map.setVisible(False)
         self.btn_fullscreen_map.clicked.connect(self._open_mindmap_fullscreen)
         toolbar.addWidget(self.btn_fullscreen_map)
-
-        btn_settings = QPushButton("⚙")
-        btn_settings.setFixedSize(26, 26)
-        btn_settings.setStyleSheet(_btn_ss)
-        btn_settings.setToolTip("LLM Settings (API keys)")
-        btn_settings.clicked.connect(self._open_llm_settings)
-        toolbar.addWidget(btn_settings)
 
         self.btn_save = QPushButton("💾 Save")
         self.btn_save.setFixedHeight(26)
@@ -822,10 +831,10 @@ class PdfPreviewWidget(QWidget):
             nlm.select_notebook_for_file(self._path)
         elif self._online_mindmap_nb_id:
             # Mind map was generated online — select that notebook directly
-            for i in range(nlm.lst_notebooks.count()):
-                item = nlm.lst_notebooks.item(i)
-                from PySide6.QtCore import Qt as _Qt
-                if item.data(_Qt.UserRole) == self._online_mindmap_nb_id:
+            from PySide6.QtCore import Qt as _Qt
+            for i in range(nlm.lst_notebooks.topLevelItemCount()):
+                item = nlm.lst_notebooks.topLevelItem(i)
+                if item.data(0, _Qt.UserRole) == self._online_mindmap_nb_id:
                     nlm.lst_notebooks.setCurrentItem(item)
                     break
         # Check notebook is selected (auto or manual)
@@ -893,9 +902,6 @@ class PdfPreviewWidget(QWidget):
         self.btn_mind_map.setText("🗺 Mind Map")
 
     def _open_llm_summary(self):
-        LLMSettingsDialog(self).exec()
-
-    def _open_llm_settings(self):
         LLMSettingsDialog(self).exec()
 
     def closeEvent(self, event):

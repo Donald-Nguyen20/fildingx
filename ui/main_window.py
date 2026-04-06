@@ -481,9 +481,9 @@ class FileSearchApp(QMainWindow):
 
     def _make_tree_item(self, name: str, path: str):
         try:    mtime_ts  = os.path.getmtime(path)
-        except: mtime_ts  = None
+        except OSError: mtime_ts  = None
         try:    size_bytes = os.path.getsize(path)
-        except: size_bytes = None
+        except OSError: size_bytes = None
         return self.sort_helper.make_item(
             name       = name,
             date_text  = self.format_mtime(path),
@@ -688,10 +688,11 @@ class FileSearchApp(QMainWindow):
             self.statusBar().showMessage(f"NbLM upload error: {e}"),
             QMessageBox.critical(self, "Error", e),
         ))
-        w.finished.connect(w.deleteLater)
         if not hasattr(self, "_temp_chat_workers"):
             self._temp_chat_workers = []
         self._temp_chat_workers.append(w)
+        w.finished.connect(lambda: self._temp_chat_workers.remove(w) if w in self._temp_chat_workers else None)
+        w.finished.connect(w.deleteLater)
         w.start()
 
     def _on_temp_chat_ready(self, nb_id: str, nb_title: str):
@@ -863,17 +864,31 @@ class FileSearchApp(QMainWindow):
         if not to_upload:
             return
 
+        # Extract configurations from NotebookLM widget if instantiated
+        use_vision_val = False
+        main_win = self.window()
+        if hasattr(main_win, "notebooklm_widget") and main_win.notebooklm_widget:
+            try:
+                use_vision_val = main_win.notebooklm_widget.chk_vision.isChecked()
+            except AttributeError:
+                pass # Fallback in case checkbox is removed
+
         self._nlm_add_workers = []
         for file_path in to_upload:
-            w = AddSourceWorker(nb_id, file_path)
-            w.done.connect(lambda p=file_path: None)  # silent
+            w = AddSourceWorker(nb_id, file_path, use_vision=use_vision_val)
             w.error.connect(lambda e, p=file_path: QMessageBox.warning(
                 self, "NotebookLM Error", f"{os.path.basename(p)}:\n{e}"
             ))
             self._nlm_add_workers.append(w)
+            w.finished.connect(lambda _w=w: self._nlm_add_workers.remove(_w) if _w in self._nlm_add_workers else None)
+            w.finished.connect(w.deleteLater)
             w.start()
-        QMessageBox.information(self, "NotebookLM",
-            f"Adding {len(to_upload)} file(s) to NotebookLM in the background…")
+        
+        msg = f"Adding {len(to_upload)} file(s) to NotebookLM in the background…"
+        if use_vision_val:
+            msg += "\n\nApplying: [Vision AI]"
+            
+        QMessageBox.information(self, "NotebookLM", msg)
 
     def _open_preview_from_nlm(self, file_path: str, page_num):
         if not self.pdf_preview.isVisible():

@@ -147,6 +147,10 @@ file_stats.json
 synonyms.json
 promp.json
 summaries.json
+exe_addons.json
+nlm_source_map.json
+nlm_cookies.json
+browser_profile/
 
 # ###########################################################################
 #  12) LARGE GENERATED ASSETS
@@ -170,3 +174,4 @@ screenshots/
 release/
 outputs/
 images/
+mindmaps/
