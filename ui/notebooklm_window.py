@@ -106,7 +106,7 @@ from PySide6.QtWidgets import (
     QSplitter, QFileDialog, QMessageBox, QTabWidget, QWidget,
     QComboBox, QTreeWidget, QTreeWidgetItem,
 )
-from PySide6.QtCore import Qt, QThread, Signal, QTimer
+from PySide6.QtCore import Qt, QThread, Signal, QTimer, QObject
 from PySide6.QtGui import QFont
 
 
@@ -1231,6 +1231,118 @@ class ChatWorker(QThread):
             self.error.emit(str(e))
 
 
+class ImageChatWorker(QThread):
+    """Vision AI mô tả ảnh dán → NbLM chat.ask với prompt đã enrich."""
+    done  = Signal(str, list)
+    error = Signal(str)
+
+    _IMG_VISION_PROMPT = (
+        "Describe this image in full detail. "
+        "If it contains text, transcribe it verbatim. "
+        "If it is a diagram, chart, table, or technical drawing, describe ALL elements, "
+        "labels, values, connections, and relationships precisely. "
+        "Be thorough — the description will be used as context for a Q&A system."
+    )
+
+    def __init__(self, notebook_id: str, question: str, image_bytes: bytes):
+        super().__init__()
+        self.notebook_id = notebook_id
+        self.question    = question
+        self.image_bytes = image_bytes
+
+    def run(self):
+        try:
+            import base64
+            from core.llm_config import load_llm_config
+
+            cfg     = load_llm_config()
+            img_b64 = base64.b64encode(self.image_bytes).decode()
+
+            groq_key       = (cfg.get("groq_api_key")       or "").strip()
+            gemini_key     = (cfg.get("gemini_api_key")     or "").strip()
+            openrouter_key = (cfg.get("openrouter_api_key") or "").strip()
+            gemini_model   = (cfg.get("gemini_model")       or "gemini-2.0-flash").strip()
+
+            providers = []
+            if groq_key:
+                providers.append(lambda b: AddSourceWorker._call_openai_compat_vision(
+                    base_url="https://api.groq.com/openai/v1",
+                    api_key=groq_key,
+                    model="meta-llama/llama-4-scout-17b-16e-instruct",
+                    prompt=self._IMG_VISION_PROMPT, img_b64=b,
+                ))
+            if gemini_key:
+                providers.append(lambda b, m=gemini_model: AddSourceWorker._call_gemini_vision(
+                    api_key=gemini_key, model=m,
+                    prompt=self._IMG_VISION_PROMPT, img_b64=b,
+                ))
+            if openrouter_key:
+                providers.append(lambda b: AddSourceWorker._call_openai_compat_vision(
+                    base_url="https://openrouter.ai/api/v1",
+                    api_key=openrouter_key,
+                    model="meta-llama/llama-4-scout:free",
+                    prompt=self._IMG_VISION_PROMPT, img_b64=b,
+                ))
+
+            if not providers:
+                raise RuntimeError(
+                    "Chưa có API key Vision AI.\n"
+                    "Vào ⚙ Config LLM để nhập key Groq / Gemini / OpenRouter."
+                )
+
+            vision_desc = ""
+            last_err    = ""
+            for fn in providers:
+                try:
+                    vision_desc = fn(img_b64)
+                    if vision_desc:
+                        break
+                except Exception as e:
+                    last_err = str(e)
+
+            if not vision_desc:
+                raise RuntimeError(f"Vision AI thất bại ở tất cả provider. Lỗi cuối: {last_err}")
+
+            enriched = (
+                f"[Hình ảnh người dùng đính kèm — mô tả tự động bởi Vision AI]\n"
+                f"{vision_desc}\n\n"
+                f"[Câu hỏi của người dùng]\n"
+                f"{self.question}"
+            )
+
+            from notebooklm import NotebookLMClient
+            async def _chat():
+                async with await NotebookLMClient.from_storage() as client:
+                    result = await client.chat.ask(self.notebook_id, enriched)
+                    src_map = {}
+                    try:
+                        sources = await client.sources.list(self.notebook_id)
+                        for s in sources:
+                            sid   = getattr(s, "source_id", None) or getattr(s, "id", "")
+                            title = getattr(s, "title", None) or getattr(s, "name", "") or ""
+                            if sid:
+                                src_map[sid] = title
+                    except Exception:
+                        pass
+                    return result, src_map
+
+            result, src_map = _run_async(_chat())
+            text = (getattr(result, "answer", None) or getattr(result, "message", None)
+                    or getattr(result, "text", None) or str(result))
+
+            seen, citations = set(), []
+            for c in (getattr(result, "references", None) or []):
+                quote  = (getattr(c, "cited_text", None) or "").strip()
+                src_id = getattr(c, "source_id", "") or ""
+                if quote and quote not in seen:
+                    seen.add(quote)
+                    citations.append({"text": quote, "source": src_map.get(src_id, "")})
+
+            self.done.emit(text, citations)
+        except Exception as e:
+            self.error.emit(str(e))
+
+
 _TABLE_FORMAT_HINT = (
     "\n\n[Yêu cầu định dạng: Nếu dữ liệu phù hợp trình bày dạng bảng, "
     "hãy dùng markdown table với ký tự | phân cột và dòng --- phân header. "
@@ -1697,6 +1809,27 @@ class NLMNotebookPickerDialog(QDialog):
         return None
 
 
+# ── Image paste event filter ─────────────────────────────────────
+
+class _ImagePasteFilter(QObject):
+    """Intercept Ctrl+V trên QLineEdit khi clipboard chứa ảnh."""
+    image_pasted = Signal(object)   # QImage
+
+    def eventFilter(self, obj, event):
+        from PySide6.QtCore import QEvent
+        from PySide6.QtGui import QKeySequence
+        if event.type() == QEvent.Type.KeyPress:
+            if event.matches(QKeySequence.StandardKey.Paste):
+                from PySide6.QtWidgets import QApplication
+                mime = QApplication.clipboard().mimeData()
+                if mime.hasImage():
+                    img = QApplication.clipboard().image()
+                    if not img.isNull():
+                        self.image_pasted.emit(img)
+                        return True   # consume — không paste text
+        return False
+
+
 # ── Chat display with clickable source links ─────────────────────
 
 class ChatDisplay(QTextEdit):
@@ -1747,6 +1880,7 @@ class NotebookLMWidget(QWidget):
         self._last_answer: str = ""
 
         self._current_notebook_id = None
+        self._pasted_image_bytes: bytes | None = None
         self._workers = []
         self._thinking_step = 0
         self._thinking_timer = QTimer(self)
@@ -1885,11 +2019,38 @@ class NotebookLMWidget(QWidget):
         self.lbl_thinking.setVisible(False)
         chat_lay.addWidget(self.lbl_thinking)
 
+        # ── Image indicator row (ẩn mặc định) ──────────────────
+        img_row = QHBoxLayout()
+        self.lbl_img_thumb = QLabel()
+        self.lbl_img_thumb.setFixedSize(36, 36)
+        self.lbl_img_thumb.setScaledContents(True)
+        self.lbl_img_thumb.setStyleSheet(
+            "border:1px solid #3b82f6;border-radius:4px;background:#0f172a;")
+        self.lbl_img_thumb.setVisible(False)
+        self.lbl_img_indicator = QLabel("📷 Image attached")
+        self.lbl_img_indicator.setStyleSheet(
+            "color:#93c5fd;font-size:12px;padding:0 4px;")
+        self.lbl_img_indicator.setVisible(False)
+        self.btn_clear_img = QPushButton("✕")
+        self.btn_clear_img.setFixedSize(20, 20)
+        self.btn_clear_img.setToolTip("Remove attached image")
+        self.btn_clear_img.setVisible(False)
+        self.btn_clear_img.clicked.connect(self._clear_pasted_image)
+        img_row.addWidget(self.lbl_img_thumb)
+        img_row.addWidget(self.lbl_img_indicator)
+        img_row.addWidget(self.btn_clear_img)
+        img_row.addStretch()
+        chat_lay.addLayout(img_row)
+
         input_row = QHBoxLayout()
         self.chat_input = QLineEdit()
-        self.chat_input.setPlaceholderText("Ask a question about your documents…")
+        self.chat_input.setPlaceholderText("Ask a question about your documents… (Ctrl+V để dán ảnh)")
         self.chat_input.setFixedHeight(36)
         self.chat_input.returnPressed.connect(self._send_chat)
+        # Install image paste event filter
+        self._img_filter = _ImagePasteFilter(self)
+        self._img_filter.image_pasted.connect(self._on_image_pasted)
+        self.chat_input.installEventFilter(self._img_filter)
         self.btn_send = QPushButton("Send ➤")
         self.btn_send.setFixedHeight(36)
         self.btn_send.setEnabled(False)
@@ -2658,20 +2819,81 @@ class NotebookLMWidget(QWidget):
                 self._right_tabs.setCurrentIndex(i)
                 break
 
+    def _on_image_pasted(self, qimage):
+        """Lưu ảnh vừa dán và hiện thumbnail preview."""
+        from PySide6.QtCore import QBuffer, QIODevice
+        from PySide6.QtGui import QPixmap
+        buf = QBuffer()
+        buf.open(QIODevice.OpenMode.WriteOnly)
+        qimage.save(buf, "PNG")
+        self._pasted_image_bytes = bytes(buf.data())
+        buf.close()
+        pix = QPixmap.fromImage(qimage).scaled(
+            36, 36, Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        self.lbl_img_thumb.setPixmap(pix)
+        self.lbl_img_thumb.setVisible(True)
+        sz = qimage.size()
+        self.lbl_img_indicator.setText(f"📷 {sz.width()}×{sz.height()} px")
+        self.lbl_img_indicator.setVisible(True)
+        self.btn_clear_img.setVisible(True)
+
+    def _clear_pasted_image(self):
+        """Xóa ảnh đã dán."""
+        self._pasted_image_bytes = None
+        self.lbl_img_thumb.clear()
+        self.lbl_img_thumb.setVisible(False)
+        self.lbl_img_indicator.setVisible(False)
+        self.btn_clear_img.setVisible(False)
+
     def _send_chat(self):
         if not self._current_notebook_id:
             return
         question = self.chat_input.text().strip()
-        if not question:
+        if not question and not self._pasted_image_bytes:
             return
-        self.chat_display.append(f"<b style='color:#89b4fa'>You:</b> {question}")
+        if not question:
+            question = "Hãy mô tả và phân tích hình ảnh này."
+
+        img_bytes = self._pasted_image_bytes
+        self._clear_pasted_image()
+
+        # Hiện ảnh trong chat nếu có
+        if img_bytes:
+            from PySide6.QtGui import QImage, QTextDocument
+            from PySide6.QtCore import QUrl
+            qimg = QImage.fromData(img_bytes)
+            # Scale để không chiếm quá nhiều không gian
+            if qimg.width() > 320 or qimg.height() > 320:
+                qimg = qimg.scaled(
+                    320, 320,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+            img_name = f"pasted_{id(img_bytes)}"
+            self.chat_display.document().addResource(
+                QTextDocument.ResourceType.ImageResource,
+                QUrl(img_name),
+                qimg,
+            )
+            self.chat_display.append(
+                f"<b style='color:#89b4fa'>You:</b> {question}<br>"
+                f"<img src='{img_name}' width='{qimg.width()}' height='{qimg.height()}'>"
+            )
+        else:
+            self.chat_display.append(f"<b style='color:#89b4fa'>You:</b> {question}")
+
         self.chat_input.clear()
         self.btn_send.setEnabled(False)
         self.btn_save_note.setEnabled(False)
         self._start_thinking()
 
-        sent_question = question + (_TABLE_FORMAT_HINT if _needs_table_hint(question) else "")
-        w = ChatWorker(self._current_notebook_id, sent_question)
+        if img_bytes:
+            w = ImageChatWorker(self._current_notebook_id, question, img_bytes)
+        else:
+            sent_question = question + (_TABLE_FORMAT_HINT if _needs_table_hint(question) else "")
+            w = ChatWorker(self._current_notebook_id, sent_question)
         w.done.connect(self._on_chat_done)
         w.error.connect(self._on_chat_error)
         self._start_worker(w)
