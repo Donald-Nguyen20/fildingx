@@ -45,7 +45,7 @@ QLabel { background:transparent; border:none; color:rgba(220,230,245,235); font-
 QLineEdit, QPlainTextEdit, QTextEdit, QComboBox {
     background:rgba(252,254,255,245); border:1px solid rgba(60,120,165,85);
     border-radius:10px; padding:7px 10px; color:rgba(10,25,45,245);
-    selection-background-color:rgba(90,210,255,55);
+    selection-background-color:rgba(20,20,40,210); selection-color:rgba(255,255,255,255);
 }
 QLineEdit::placeholder { color:rgba(10,25,45,145); }
 QLineEdit:focus, QPlainTextEdit:focus, QTextEdit:focus, QComboBox:focus {
@@ -53,7 +53,7 @@ QLineEdit:focus, QPlainTextEdit:focus, QTextEdit:focus, QComboBox:focus {
 }
 QComboBox QAbstractItemView {
     background:rgba(252,254,255,255); border:1px solid rgba(60,120,165,85);
-    color:rgba(10,25,45,245); selection-background-color:rgba(90,210,255,45);
+    color:rgba(10,25,45,245); selection-background-color:rgba(20,20,40,210); selection-color:rgba(255,255,255,255);
 }
 QPushButton, QToolButton {
     background:qlineargradient(x1:0,y1:0,x2:1,y2:0,
@@ -122,7 +122,7 @@ QLabel { background:transparent; border:none; color:rgba(240,225,185,235); font-
 QLineEdit, QPlainTextEdit, QTextEdit, QComboBox {
     background:rgba(12,16,34,235); border:1px solid rgba(255,200,80,70);
     border-radius:10px; padding:7px 10px; color:rgba(240,225,185,245);
-    selection-background-color:rgba(255,200,80,60);
+    selection-background-color:rgba(20,20,40,230); selection-color:rgba(255,255,255,255);
 }
 QLineEdit::placeholder { color:rgba(240,225,185,100); }
 QLineEdit:focus, QPlainTextEdit:focus, QTextEdit:focus, QComboBox:focus {
@@ -130,7 +130,7 @@ QLineEdit:focus, QPlainTextEdit:focus, QTextEdit:focus, QComboBox:focus {
 }
 QComboBox QAbstractItemView {
     background:rgba(20,26,52,255); border:1px solid rgba(255,200,80,70);
-    color:rgba(240,225,185,245); selection-background-color:rgba(255,200,80,50);
+    color:rgba(240,225,185,245); selection-background-color:rgba(20,20,40,230); selection-color:rgba(255,255,255,255);
 }
 QPushButton, QToolButton {
     background:qlineargradient(x1:0,y1:0,x2:1,y2:0,
@@ -199,7 +199,7 @@ QLabel { background:transparent; border:none; color:rgba(185,235,210,230); font-
 QLineEdit, QPlainTextEdit, QTextEdit, QComboBox {
     background:rgba(6,10,8,235); border:1px solid rgba(0,220,110,65);
     border-radius:10px; padding:7px 10px; color:rgba(185,235,210,245);
-    selection-background-color:rgba(0,255,136,55);
+    selection-background-color:rgba(20,20,40,230); selection-color:rgba(255,255,255,255);
 }
 QLineEdit::placeholder { color:rgba(185,235,210,90); }
 QLineEdit:focus, QPlainTextEdit:focus, QTextEdit:focus, QComboBox:focus {
@@ -207,7 +207,7 @@ QLineEdit:focus, QPlainTextEdit:focus, QTextEdit:focus, QComboBox:focus {
 }
 QComboBox QAbstractItemView {
     background:rgba(10,16,13,255); border:1px solid rgba(0,220,110,65);
-    color:rgba(185,235,210,245); selection-background-color:rgba(0,220,110,45);
+    color:rgba(185,235,210,245); selection-background-color:rgba(20,20,40,230); selection-color:rgba(255,255,255,255);
 }
 QPushButton, QToolButton {
     background:qlineargradient(x1:0,y1:0,x2:1,y2:0,
@@ -276,7 +276,7 @@ QLabel { background:transparent; border:none; color:rgba(215,200,255,230); font-
 QLineEdit, QPlainTextEdit, QTextEdit, QComboBox {
     background:rgba(14,7,30,238); border:1px solid rgba(155,90,255,68);
     border-radius:10px; padding:7px 10px; color:rgba(215,200,255,245);
-    selection-background-color:rgba(155,90,255,60);
+    selection-background-color:rgba(20,20,40,230); selection-color:rgba(255,255,255,255);
 }
 QLineEdit::placeholder { color:rgba(215,200,255,90); }
 QLineEdit:focus, QPlainTextEdit:focus, QTextEdit:focus, QComboBox:focus {
@@ -284,7 +284,7 @@ QLineEdit:focus, QPlainTextEdit:focus, QTextEdit:focus, QComboBox:focus {
 }
 QComboBox QAbstractItemView {
     background:rgba(18,9,38,255); border:1px solid rgba(155,90,255,65);
-    color:rgba(215,200,255,245); selection-background-color:rgba(155,90,255,48);
+    color:rgba(215,200,255,245); selection-background-color:rgba(20,20,40,230); selection-color:rgba(255,255,255,255);
 }
 QPushButton, QToolButton {
     background:qlineargradient(x1:0,y1:0,x2:1,y2:0,
@@ -353,7 +353,7 @@ QLabel { background:transparent; border:none; color:rgba(245,228,218,230); font-
 QLineEdit, QPlainTextEdit, QTextEdit, QComboBox {
     background:rgba(14,10,12,238); border:1px solid rgba(220,150,125,68);
     border-radius:10px; padding:7px 10px; color:rgba(245,228,218,245);
-    selection-background-color:rgba(232,160,135,60);
+    selection-background-color:rgba(20,20,40,230); selection-color:rgba(255,255,255,255);
 }
 QLineEdit::placeholder { color:rgba(245,228,218,88); }
 QLineEdit:focus, QPlainTextEdit:focus, QTextEdit:focus, QComboBox:focus {
@@ -361,7 +361,7 @@ QLineEdit:focus, QPlainTextEdit:focus, QTextEdit:focus, QComboBox:focus {
 }
 QComboBox QAbstractItemView {
     background:rgba(18,14,16,255); border:1px solid rgba(220,150,125,65);
-    color:rgba(245,228,218,245); selection-background-color:rgba(220,150,125,48);
+    color:rgba(245,228,218,245); selection-background-color:rgba(20,20,40,230); selection-color:rgba(255,255,255,255);
 }
 QPushButton, QToolButton {
     background:qlineargradient(x1:0,y1:0,x2:1,y2:0,
@@ -430,7 +430,7 @@ QLabel { background:transparent; border:none; color:rgba(15,35,75,225); font-wei
 QLineEdit, QPlainTextEdit, QTextEdit, QComboBox {
     background:rgba(255,255,255,245); border:1px solid rgba(0,150,255,72);
     border-radius:10px; padding:7px 10px; color:rgba(10,30,70,245);
-    selection-background-color:rgba(0,170,255,55);
+    selection-background-color:rgba(20,20,40,210); selection-color:rgba(255,255,255,255);
 }
 QLineEdit::placeholder { color:rgba(10,30,70,95); }
 QLineEdit:focus, QPlainTextEdit:focus, QTextEdit:focus, QComboBox:focus {
@@ -438,7 +438,7 @@ QLineEdit:focus, QPlainTextEdit:focus, QTextEdit:focus, QComboBox:focus {
 }
 QComboBox QAbstractItemView {
     background:rgba(245,250,255,255); border:1px solid rgba(0,150,255,68);
-    color:rgba(10,30,70,245); selection-background-color:rgba(0,160,255,45);
+    color:rgba(10,30,70,245); selection-background-color:rgba(20,20,40,210); selection-color:rgba(255,255,255,255);
 }
 QPushButton, QToolButton {
     background:qlineargradient(x1:0,y1:0,x2:1,y2:0,

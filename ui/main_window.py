@@ -45,6 +45,97 @@ from ui.list_files_window import show_list_files_window
 from ui.pdf_preview import PdfPreviewWidget
 
 
+class MultiFolderDialog(QDialog):
+    """Dialog chọn nhiều folder để search cùng lúc."""
+
+    def __init__(self, current_folders: list[str], parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Select Folders")
+        self.setMinimumWidth(560)
+        self.setModal(True)
+
+        from PySide6.QtWidgets import QScrollArea, QDialogButtonBox
+
+        outer = QVBoxLayout(self)
+        outer.setSpacing(8)
+
+        # Scroll area chứa các hàng folder
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setMinimumHeight(120)
+        scroll.setMaximumHeight(400)
+        inner_widget = QWidget()
+        self._rows_lay = QVBoxLayout(inner_widget)
+        self._rows_lay.setSpacing(6)
+        self._rows_lay.setContentsMargins(0, 0, 0, 0)
+        scroll.setWidget(inner_widget)
+        outer.addWidget(scroll)
+
+        self._rows: list[QLineEdit] = []
+
+        # Tạo 3 hàng mặc định
+        init = current_folders if current_folders else ["", "", ""]
+        for i, val in enumerate(init):
+            self._add_row(val, i + 1)
+        # Nếu current_folders > 3, thêm thêm
+        for i in range(3, len(current_folders)):
+            self._add_row(current_folders[i], i + 1)
+
+        # Nút Add source
+        btn_add = QPushButton("＋ Add source")
+        btn_add.setFixedHeight(32)
+        btn_add.clicked.connect(self._add_empty_row)
+        outer.addWidget(btn_add)
+
+        btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        btns.accepted.connect(self.accept)
+        btns.rejected.connect(self.reject)
+        outer.addWidget(btns)
+
+    def _add_row(self, value: str = "", index: int | None = None):
+        n = index if index is not None else len(self._rows) + 1
+        row_widget = QWidget()
+        row = QHBoxLayout(row_widget)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(6)
+        entry = QLineEdit()
+        entry.setPlaceholderText(f"Folder {n} (leave empty to skip)")
+        entry.setFixedHeight(34)
+        entry.setText(value)
+        btn_browse = QPushButton("📂")
+        btn_browse.setFixedSize(34, 34)
+        btn_browse.setToolTip("Browse")
+        btn_browse.clicked.connect(lambda _=False, e=entry: self._browse(e))
+        btn_remove = QPushButton("✕")
+        btn_remove.setFixedSize(28, 34)
+        btn_remove.setToolTip("Remove")
+        btn_remove.clicked.connect(lambda _=False, w=row_widget, e=entry: self._remove_row(w, e))
+        row.addWidget(entry, 1)
+        row.addWidget(btn_browse)
+        row.addWidget(btn_remove)
+        self._rows_lay.addWidget(row_widget)
+        self._rows.append(entry)
+
+    def _add_empty_row(self):
+        self._add_row("", len(self._rows) + 1)
+
+    def _remove_row(self, row_widget: QWidget, entry: QLineEdit):
+        if len(self._rows) <= 1:
+            return  # giữ ít nhất 1 hàng
+        self._rows.remove(entry)
+        row_widget.setParent(None)
+        row_widget.deleteLater()
+
+    def _browse(self, entry: QLineEdit):
+        folder = QFileDialog.getExistingDirectory(self, "Select Folder")
+        if folder:
+            entry.setText(folder)
+
+    def get_folders(self) -> list[str]:
+        return [e.text().strip() for e in self._rows if e.text().strip()]
+
+
 class FileSearchApp(QMainWindow):
 
     def __init__(self):
@@ -96,17 +187,25 @@ class FileSearchApp(QMainWindow):
         h.setContentsMargins(14, 0, 14, 0)
         h.setSpacing(8)
 
-        lbl_f = QLabel("Folder:")
-        lbl_f.setFixedWidth(46)
-        h.addWidget(lbl_f)
+        self._multi_folder_mode = False
+        self._multi_folders: list[str] = []
+
+        self.btn_folder_toggle = QPushButton("Folder")
+        self.btn_folder_toggle.setFixedWidth(82)
+        self.btn_folder_toggle.setMinimumHeight(40)
+        self.btn_folder_toggle.setToolTip("Click to switch to multi-folder mode")
+        self.btn_folder_toggle.clicked.connect(self._toggle_folder_mode)
+        h.addWidget(self.btn_folder_toggle)
+
         self.folder_entry = QLineEdit()
         self.folder_entry.setPlaceholderText("Select folder…")
         h.addWidget(self.folder_entry, 2)
-        browse_btn = QPushButton("Browse")
-        browse_btn.setMinimumWidth(90)
-        browse_btn.setMinimumHeight(40)
-        browse_btn.clicked.connect(self.browse_folder)
-        h.addWidget(browse_btn)
+
+        self.browse_btn = QPushButton("Browse")
+        self.browse_btn.setMinimumWidth(90)
+        self.browse_btn.setMinimumHeight(40)
+        self.browse_btn.clicked.connect(self.browse_folder)
+        h.addWidget(self.browse_btn)
 
         sep = QFrame(); sep.setFrameShape(QFrame.VLine)
         sep.setFixedHeight(28)
@@ -498,16 +597,55 @@ class FileSearchApp(QMainWindow):
     #  SEARCH
     # ══════════════════════════════════════════════════════════════
 
-    def browse_folder(self):
-        folder = QFileDialog.getExistingDirectory(self, "Select Folder")
-        if folder:
-            self.folder_entry.setText(folder)
+    def _toggle_folder_mode(self):
+        self._multi_folder_mode = not self._multi_folder_mode
+        if self._multi_folder_mode:
+            self.btn_folder_toggle.setText("Folders")
+            self.btn_folder_toggle.setToolTip("Click to switch back to single folder mode")
+            self.btn_folder_toggle.setStyleSheet(
+                "background: qlineargradient(x1:0,y1:0,x2:1,y2:0,"
+                "stop:0 rgba(251,146,60,230),stop:1 rgba(234,88,12,230));"
+                "color: white; border: 1.5px solid rgba(194,65,12,160);"
+                "border-radius: 10px; font-weight: 900;"
+            )
+            self.folder_entry.setPlaceholderText(
+                " | ".join(self._multi_folders) if self._multi_folders
+                else "Multiple folders — click Browse to select…"
+            )
+            self.folder_entry.setReadOnly(True)
+        else:
+            self.btn_folder_toggle.setText("Folder")
+            self.btn_folder_toggle.setToolTip("Click to switch to multi-folder mode")
+            self.btn_folder_toggle.setStyleSheet("")  # reset về theme mặc định
+            self.folder_entry.setReadOnly(False)
+            self.folder_entry.setPlaceholderText("Select folder…")
 
+    def browse_folder(self):
+        if self._multi_folder_mode:
+            dlg = MultiFolderDialog(self._multi_folders, self)
+            if dlg.exec() == QDialog.Accepted:
+                self._multi_folders = dlg.get_folders()
+                if self._multi_folders:
+                    self.folder_entry.setText(" | ".join(self._multi_folders))
+                else:
+                    self.folder_entry.clear()
+        else:
+            folder = QFileDialog.getExistingDirectory(self, "Select Folder")
+            if folder:
+                self.folder_entry.setText(folder)
+
+
+    def _get_search_folders(self) -> list[str]:
+        """Trả về danh sách folder cần search (1 hoặc nhiều)."""
+        if self._multi_folder_mode:
+            return [f for f in self._multi_folders if f]
+        folder = self.folder_entry.text().strip()
+        return [folder] if folder else []
 
     def search_files(self):
-        folder  = self.folder_entry.text().strip()
+        folders = self._get_search_folders()
         keyword = self.filename_entry.text().strip()
-        if not folder or not keyword:
+        if not folders or not keyword:
             QMessageBox.warning(self, "Input Error", "Please provide the folder path and keyword.")
             return
 
@@ -526,11 +664,13 @@ class FileSearchApp(QMainWindow):
             self._apply_theme(int(_cm.group(1)))
             return
 
-        if keyword.startswith("@"):
-            synonyms = synonym_manager.load_synonyms(paths.SYNONYMS_FILE)
-            results  = search_engine.fuzzy_search(folder, keyword[1:], synonyms)
-        else:
-            results = search_engine.search_files_by_name(folder, keyword)
+        results = []
+        for folder in folders:
+            if keyword.startswith("@"):
+                synonyms = synonym_manager.load_synonyms(paths.SYNONYMS_FILE)
+                results += search_engine.fuzzy_search(folder, keyword[1:], synonyms)
+            else:
+                results += search_engine.search_files_by_name(folder, keyword)
 
         self.display_results(results)
 
@@ -581,10 +721,12 @@ class FileSearchApp(QMainWindow):
     # ── Duplicate search (background thread) ─────────────────────
 
     def search_duplicates(self):
-        folder = self.folder_entry.text().strip()
-        if not folder:
+        folders = self._get_search_folders()
+        if not folders:
             QMessageBox.warning(self, "Input Error", "Please provide the folder path.")
             return
+        # DuplicateSearchWorker nhận 1 folder — dùng folder đầu tiên
+        folder = folders[0]
 
         self.search_duplicates_button.setEnabled(False)
         self.search_duplicates_button.setText("Searching…")

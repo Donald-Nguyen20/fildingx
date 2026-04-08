@@ -1141,9 +1141,14 @@ class MindMapWorkerOnline(QThread):
             from notebooklm import NotebookLMClient
             async def _work():
                 async with await NotebookLMClient.from_storage() as client:
-                    sid = self.source_id or None
+                    # source_id có thể là "" (tất cả), 1 ID, hoặc nhiều ID phân tách bằng ","
+                    if self.source_id:
+                        parts = [s.strip() for s in self.source_id.split(",") if s.strip()]
+                        sid = parts if parts else None
+                    else:
+                        sid = None
                     result = await client.chat.ask(self.notebook_id, _build_mindmap_prompt(self.lang),
-                                                   source_ids=[sid] if sid else None)
+                                                   source_ids=sid)
                     raw_text = (getattr(result, "answer", None) or str(result)).strip()
                     import json, re
                     m = re.search(r'\{.*\}', raw_text, re.DOTALL)
@@ -1628,7 +1633,7 @@ class OpenArtifactWorker(QThread):
     def run(self):
         import os, tempfile
         _NUM_KIND = {
-            "1": "audio", "2": "video", "3": "report",
+            "1": "audio", "2": "report", "3": "video",
             "4": "quiz",  "5": "mind_map", "6": "flashcards",
             "7": "infographic", "8": "slide_deck", "9": "data_table",
         }
@@ -1639,8 +1644,14 @@ class OpenArtifactWorker(QThread):
                     k   = _NUM_KIND.get(self.kind, self.kind)
                     tmp = tempfile.mkdtemp(prefix="finder_studio_")
                     if k == "mind_map":
-                        # Return the note_id so the UI can call request_mindmap_online
-                        return ("mind_map_json", self.artifact_id)
+                        # Download saved mind map JSON directly from NbLM (no re-generation)
+                        import json as _json
+                        path = os.path.join(tmp, "mind_map.json")
+                        await client.artifacts.download_mind_map(
+                            self.notebook_id, path, artifact_id=self.artifact_id)
+                        with open(path, encoding="utf-8") as f:
+                            tree = _json.load(f)
+                        return ("mind_map_saved", _json.dumps(tree, ensure_ascii=False))
                     elif k in ("briefing_doc", "study_guide", "blog_post", "report"):
                         path = os.path.join(tmp, "report.md")
                         await client.artifacts.download_report(
@@ -1958,9 +1969,22 @@ class NotebookLMWidget(QWidget):
         left_lay.setContentsMargins(0, 0, 0, 0)
         left_lay.setSpacing(6)
 
+        nb_header = QHBoxLayout()
         lbl_nb = QLabel("📓 Notebooks")
         lbl_nb.setStyleSheet("font-weight: bold; font-size: 13px;")
-        left_lay.addWidget(lbl_nb)
+        nb_header.addWidget(lbl_nb)
+        nb_header.addStretch()
+        self.cmb_nb_sort = QComboBox()
+        self.cmb_nb_sort.addItem("A→Z",  "alpha_asc")
+        self.cmb_nb_sort.addItem("Z→A",  "alpha_desc")
+        self.cmb_nb_sort.addItem("Newest", "date_desc")
+        self.cmb_nb_sort.addItem("Oldest", "date_asc")
+        self.cmb_nb_sort.setFixedHeight(26)
+        self.cmb_nb_sort.setFixedWidth(80)
+        self.cmb_nb_sort.setToolTip("Sort notebooks")
+        self.cmb_nb_sort.currentIndexChanged.connect(self._resort_notebooks)
+        nb_header.addWidget(self.cmb_nb_sort)
+        left_lay.addLayout(nb_header)
 
         self.lst_notebooks = QTreeWidget()
         self.lst_notebooks.setHeaderHidden(True)
@@ -2327,6 +2351,30 @@ class NotebookLMWidget(QWidget):
         return "📓"
 
     def _on_notebooks_loaded(self, notebooks):
+        self._notebooks_raw = list(notebooks)
+        self._render_notebooks(self._notebooks_raw)
+        self.lbl_status.setText(f"🟢 {len(notebooks)} notebook(s) loaded")
+
+    def _sort_key(self, nb, mode: str):
+        if mode in ("alpha_asc", "alpha_desc"):
+            return (getattr(nb, "title", None) or "").lower()
+        else:
+            dt = getattr(nb, "created_at", None)
+            import datetime
+            return dt if dt else datetime.datetime.min
+
+    def _resort_notebooks(self):
+        if not hasattr(self, "_notebooks_raw"):
+            return
+        mode = self.cmb_nb_sort.currentData()
+        notebooks = sorted(
+            self._notebooks_raw,
+            key=lambda nb: self._sort_key(nb, mode),
+            reverse=(mode in ("alpha_desc", "date_desc")),
+        )
+        self._render_notebooks(notebooks)
+
+    def _render_notebooks(self, notebooks):
         self.lst_notebooks.clear()
         for nb in notebooks:
             title = getattr(nb, "title", None) or getattr(nb, "name", str(nb))
@@ -2338,12 +2386,10 @@ class NotebookLMWidget(QWidget):
             font = item.font(0)
             font.setBold(True)
             item.setFont(0, font)
-            # Placeholder child so expand arrow appears
             placeholder = QTreeWidgetItem(["⏳"])
             placeholder.setData(0, Qt.UserRole + 1, "placeholder")
             item.addChild(placeholder)
             self.lst_notebooks.addTopLevelItem(item)
-        self.lbl_status.setText(f"🟢 {len(notebooks)} notebook(s) loaded")
 
     def _create_notebook(self):
         from PySide6.QtWidgets import QInputDialog
@@ -2628,8 +2674,13 @@ class NotebookLMWidget(QWidget):
 
     def _mindmap_from_source(self, item):
         try:
-            title     = item.text().strip()
-            source_id = item.data(Qt.UserRole) or ""
+            from PySide6.QtWidgets import QTreeWidgetItem as _QTWI
+            if isinstance(item, _QTWI):
+                title     = item.text(0).strip()
+                source_id = item.data(0, Qt.UserRole) or ""
+            else:
+                title     = item.text().strip()
+                source_id = item.data(Qt.UserRole) or ""
         except RuntimeError:
             return # item obj has been deleted by a background refresh
         local_path = _lookup_source_path(title)
@@ -3546,7 +3597,7 @@ class NotebookLMWidget(QWidget):
 
     # Numeric artifact type codes returned by NbLM API
     _ARTIFACT_TYPE_NUM = {
-        "1": "audio", "2": "video", "3": "report",
+        "1": "audio", "2": "report", "3": "video",
         "4": "quiz",  "5": "mind_map", "6": "flashcards",
         "7": "infographic", "8": "slide_deck", "9": "data_table",
     }
@@ -3635,13 +3686,31 @@ class NotebookLMWidget(QWidget):
             self._show_text_dialog("📄 Report", data, markdown=True)
         elif kind == "html_view":
             self._show_html_dialog(data)
-        elif kind == "mind_map_json":
-            # data = note_id; re-generate HTML via online worker
-            note_id = data.strip()
-            title   = "Mind Map"
-            self.request_mindmap_online.emit(
-                self._current_notebook_id, note_id, title
-            )
+        elif kind == "mind_map_saved":
+            # data = JSON string of the saved mind map tree → render trực tiếp, không gọi lại API
+            import json as _json
+            try:
+                tree = _json.loads(data)
+            except Exception:
+                tree = {"name": "Mind Map", "children": []}
+            title = tree.get("name", "Mind Map")
+            html = _mindmap_to_html(tree, title)
+            # Dùng pdf_preview để hiển thị giống mind map local
+            from ui.notebooklm_window import _mindmap_to_html as _mm2html
+            _parent = self.window()
+            pp = getattr(_parent, "pdf_preview", None)
+            if pp and getattr(pp, "_web_view", None):
+                if not pp.isVisible():
+                    pp.show()
+                    try:
+                        _parent._splitter.setSizes([6000, 4000])
+                    except Exception:
+                        pass
+                pp._web_view.setHtml(html)
+                pp._show_mindmap_panel()
+                pp._online_mindmap_html = html
+            else:
+                self._show_html_dialog(html)
 
     def _csv_to_excel_and_open(self, csv_path: str):
         import csv, os
@@ -3756,6 +3825,10 @@ class NotebookLMWidget(QWidget):
         # Lấy source IDs đang được tick (None = dùng tất)
         checked = self._get_checked_source_ids()
         source_ids = checked if checked else None
+
+        # Lưu lại để dùng khi mở mind map artifact
+        if kind == "mind_map":
+            self._pending_mindmap_source_ids = checked  # [] = all sources
 
         self._set_studio_btns_enabled(False)
         label = {
