@@ -190,7 +190,7 @@ class FileSearchApp(QMainWindow):
         self._multi_folder_mode = False
         self._multi_folders: list[str] = []
 
-        self.btn_folder_toggle = QPushButton("Folder")
+        self.btn_folder_toggle = QPushButton("Folder:")
         self.btn_folder_toggle.setFixedWidth(82)
         self.btn_folder_toggle.setMinimumHeight(40)
         self.btn_folder_toggle.setToolTip("Click to switch to multi-folder mode")
@@ -399,17 +399,23 @@ class FileSearchApp(QMainWindow):
         self._splitter.setSizes([10000, 0])
         self._splitter.setHandleWidth(4)
         self._splitter.setStyleSheet("QSplitter::handle { background: rgba(255,255,255,15); border-radius: 2px; }")
-        body.addWidget(self._splitter, 3)
 
         # ── Right stack ──────────────────────────────────────────
         self._right_stack = QStackedWidget()
         self._right_stack.setVisible(False)
-        self._right_stack.setMinimumWidth(380)
-        self._right_stack.setMaximumWidth(560)
+        self._right_stack.setMinimumWidth(300)
         self._right_stack.addWidget(self._build_containers_page())  # 0
         self._right_stack.addWidget(self._build_tools_page())       # 1
         self._right_stack.addWidget(self._build_exe_page())         # 2
-        body.addWidget(self._right_stack, 1)
+
+        # Outer splitter: center (tabs+preview) | right stack — kéo ngang được
+        self._outer_splitter = QSplitter(Qt.Horizontal)
+        self._outer_splitter.addWidget(self._splitter)
+        self._outer_splitter.addWidget(self._right_stack)
+        self._outer_splitter.setHandleWidth(5)
+        self._outer_splitter.setStyleSheet("QSplitter::handle { background: rgba(255,255,255,15); border-radius: 2px; }")
+        self._outer_splitter.setSizes([10000, 0])
+        body.addWidget(self._outer_splitter, 1)
 
         self.root_layout.addLayout(body)
 
@@ -426,14 +432,23 @@ class FileSearchApp(QMainWindow):
                 self.pdf_preview.show()
                 clicked_btn.setChecked(True)
             return
+
         already_visible = self._right_stack.isVisible()
         already_same    = self._right_stack.currentIndex() == index
         if already_visible and already_same:
+            # Lưu kích thước hiện tại rồi collapse
+            sizes = self._outer_splitter.sizes()
+            self._right_stack_saved_width = sizes[1]
+            self._outer_splitter.setSizes([sizes[0] + sizes[1], 0])
             self._right_stack.setVisible(False)
             clicked_btn.setChecked(False)
         else:
             self._right_stack.setCurrentIndex(index)
-            self._right_stack.setVisible(True)
+            if not already_visible:
+                self._right_stack.setVisible(True)
+                saved = getattr(self, "_right_stack_saved_width", 420)
+                total = self._outer_splitter.width()
+                self._outer_splitter.setSizes([max(total - saved, 200), saved])
             for btn in self._sidebar_btns:
                 btn.setChecked(False)
             clicked_btn.setChecked(True)
@@ -466,7 +481,6 @@ class FileSearchApp(QMainWindow):
 
         self.containers_list = QListWidget()
         self.containers_list.itemClicked.connect(self.display_container_files)
-        lay.addWidget(self.containers_list)
 
         self.container_files_list = QListWidget()
         self.container_files_list.itemClicked.connect(self.show_note_frame)
@@ -475,7 +489,14 @@ class FileSearchApp(QMainWindow):
         self.container_files_list.customContextMenuRequested.connect(
             self.show_context_menu_for_container
         )
-        lay.addWidget(self.container_files_list)
+
+        list_splitter = QSplitter(Qt.Vertical)
+        list_splitter.addWidget(self.containers_list)
+        list_splitter.addWidget(self.container_files_list)
+        list_splitter.setStretchFactor(0, 1)
+        list_splitter.setStretchFactor(1, 1)
+        list_splitter.setHandleWidth(6)
+        lay.addWidget(list_splitter)
 
         file_row = QHBoxLayout()
         add_btn = QPushButton("Add File")
@@ -600,7 +621,7 @@ class FileSearchApp(QMainWindow):
     def _toggle_folder_mode(self):
         self._multi_folder_mode = not self._multi_folder_mode
         if self._multi_folder_mode:
-            self.btn_folder_toggle.setText("Folders")
+            self.btn_folder_toggle.setText("Folders:")
             self.btn_folder_toggle.setToolTip("Click to switch back to single folder mode")
             self.btn_folder_toggle.setStyleSheet(
                 "background: qlineargradient(x1:0,y1:0,x2:1,y2:0,"
@@ -614,7 +635,7 @@ class FileSearchApp(QMainWindow):
             )
             self.folder_entry.setReadOnly(True)
         else:
-            self.btn_folder_toggle.setText("Folder")
+            self.btn_folder_toggle.setText("Folder:")
             self.btn_folder_toggle.setToolTip("Click to switch to multi-folder mode")
             self.btn_folder_toggle.setStyleSheet("")  # reset về theme mặc định
             self.folder_entry.setReadOnly(False)

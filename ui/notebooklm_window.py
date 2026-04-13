@@ -115,6 +115,95 @@ def _run_async(coro):
     return asyncio.run(coro)
 
 
+def _patch_notebooklm_infographic():
+    """Patch notebooklm library to fix infographic URL parsing.
+
+    The library's _find_infographic_url uses a hard-coded path that may not match
+    the current API response structure, causing wait_for_completion to time out
+    even when the server marks the artifact as COMPLETED.
+
+    Fixes:
+    1. _is_media_ready → trusts COMPLETED status for infographic (no URL check).
+    2. _find_infographic_url → adds a recursive fallback URL search.
+    3. download_infographic patched to use the improved URL finder.
+    """
+    try:
+        from notebooklm._artifacts import ArtifactsAPI, ArtifactTypeCode
+
+        # ── Patch 1: trust COMPLETED for infographic ──────────────────────
+        _orig_media_ready = ArtifactsAPI._is_media_ready
+
+        def _patched_is_media_ready(self, art, artifact_type):
+            if artifact_type == ArtifactTypeCode.INFOGRAPHIC.value:
+                return True  # trust API status code; URL may parse later
+            return _orig_media_ready(self, art, artifact_type)
+
+        ArtifactsAPI._is_media_ready = _patched_is_media_ready
+
+        # ── Patch 2: robust recursive URL search ──────────────────────────
+        _orig_find_url = ArtifactsAPI._find_infographic_url
+
+        def _deep_find_url(obj, depth=0):
+            """Recursively search for an image-like http URL."""
+            if depth > 14:
+                return None
+            if isinstance(obj, str) and obj.startswith(("http://", "https://")):
+                low = obj.lower()
+                if any(x in low for x in ('.png', '.jpg', '.jpeg', '.webp',
+                                           'image/', 'ais.google', 'lh3.google',
+                                           'storage.googleapis')):
+                    return obj
+            if isinstance(obj, list):
+                for item in reversed(obj):
+                    r = _deep_find_url(item, depth + 1)
+                    if r:
+                        return r
+            return None
+
+        def _patched_find_infographic_url(self, art):
+            url = _orig_find_url(self, art)
+            if url:
+                return url
+            return _deep_find_url(art)
+
+        ArtifactsAPI._find_infographic_url = _patched_find_infographic_url
+
+        # ── Patch 3: download_infographic uses patched _find_infographic_url ─
+        import asyncio as _asyncio
+        from notebooklm._artifacts import ArtifactStatus, ArtifactTypeCode as _ATC
+
+        async def _patched_download_infographic(
+                self, notebook_id, output_path, artifact_id=None):
+            artifacts_data = await self._list_raw(notebook_id)
+            info_candidates = [
+                a for a in artifacts_data
+                if isinstance(a, list) and len(a) > 4
+                and a[2] == _ATC.INFOGRAPHIC
+                and a[4] == ArtifactStatus.COMPLETED
+            ]
+            if artifact_id:
+                info_art = next((i for i in info_candidates if i[0] == artifact_id), None)
+            else:
+                info_art = info_candidates[0] if info_candidates else None
+            if not info_art:
+                from notebooklm._artifacts import ArtifactNotReadyError
+                raise ArtifactNotReadyError("infographic", artifact_id=artifact_id)
+            url = self._find_infographic_url(info_art)
+            if not url:
+                from notebooklm._artifacts import ArtifactParseError
+                raise ArtifactParseError("infographic",
+                                         details="Could not find image URL")
+            return await self._download_url(url, output_path)
+
+        ArtifactsAPI.download_infographic = _patched_download_infographic
+
+    except Exception:
+        pass  # silent – never break the app
+
+
+_patch_notebooklm_infographic()
+
+
 # ── Workers ──────────────────────────────────────────────────────
 
 class LoginWorker(QThread):
@@ -1610,10 +1699,16 @@ class GenerateArtifactWorker(QThread):
                         )
                     else:
                         raise ValueError(f"Unknown artifact kind: {k}")
-                    final = await client.artifacts.wait_for_completion(
-                        self.notebook_id, st.task_id, timeout=600
-                    )
-                    return final.task_id or st.task_id
+                    try:
+                        final = await client.artifacts.wait_for_completion(
+                            self.notebook_id, st.task_id, timeout=600
+                        )
+                        return final.task_id or st.task_id
+                    except TimeoutError:
+                        # For media artifacts the server may still complete after
+                        # our poll window. Return the task_id so the artifact
+                        # list can be refreshed and the user can open it.
+                        return st.task_id
             self.done.emit(_run_async(_gen()))
         except Exception as e:
             self.error.emit(str(e))
@@ -3670,7 +3765,18 @@ class NotebookLMWidget(QWidget):
         self.lbl_studio_status.setText(f"⏳ Opening {item.text().strip()}…")
         w = OpenArtifactWorker(self._current_notebook_id, aid, kind)
         w.done.connect(self._on_artifact_opened)
-        w.error.connect(lambda e: self.lbl_studio_status.setText(f"❌ {e}"))
+
+        def _on_open_error(msg: str, _kind=kind):
+            self.lbl_studio_status.setText(f"❌ {msg}")
+            if _kind == "infographic":
+                QMessageBox.warning(
+                    self, "Infographic",
+                    "Could not download the infographic image.\n\n"
+                    "The infographic may still be processing on Google's servers.\n"
+                    "Please wait a moment and try again, or view it at notebooklm.google.com."
+                )
+
+        w.error.connect(_on_open_error)
         self._start_worker(w)
 
     def _on_artifact_opened(self, kind: str, data: str):

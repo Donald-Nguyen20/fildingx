@@ -142,6 +142,16 @@ class HelpDialog(QDialog):
             <td>Hỏi "theo tài liệu kỹ thuật" có trích nguồn, tóm tắt nhanh PDF</td>
           </tr>
           <tr>
+            <td><b>🎨 Studio</b></td>
+            <td>Generate Mind Map, Briefing Doc, Flashcards, Quiz, Audio… từ notebook; lưu/xem Notes</td>
+            <td>Tạo tài liệu học, sơ đồ tư duy, quiz từ bộ tài liệu kỹ thuật</td>
+          </tr>
+          <tr>
+            <td><b>Vision AI</b></td>
+            <td>Phân tích bản vẽ kỹ thuật (P&amp;ID, FBD, sơ đồ) bằng LLM Vision khi Add File</td>
+            <td>Khi PDF chứa bản vẽ thuần ảnh, không có text layer</td>
+          </tr>
+          <tr>
             <td><b>Dịch thuật</b></td>
             <td>Dịch nội dung Notes sang tiếng Việt qua LLM API</td>
             <td>Khi cần đọc hiểu tài liệu kỹ thuật tiếng Anh</td>
@@ -493,61 +503,111 @@ class HelpDialog(QDialog):
         return f"""
         {self._base_style()}
         <body>
-        <h2>NotebookLM &amp; Dịch thuật</h2>
+        <h2>NotebookLM &amp; Studio</h2>
 
-        <h3>Tab NotebookLM</h3>
-        <p>Kết nối với <b>Google NotebookLM</b> để chat hỏi đáp tài liệu kỹ thuật có trích nguồn.</p>
+        <h3>Đăng nhập lần đầu</h3>
         <ol>
-          <li>Lần đầu: bấm <b>🔑 Switch Account</b> → trình duyệt mở → đăng nhập Google → bấm <b>✅ Save Login</b>.</li>
-          <li>Các lần sau: app tự load danh sách notebook (không cần đăng nhập lại).</li>
-          <li>Chọn notebook → tab <b>Chat</b>: nhập câu hỏi → Send.</li>
-          <li>Kết quả có phần <b>Sources</b> ghi rõ file và đoạn trích.</li>
-          <li>Tab <b>Sources</b>: xem danh sách file đã thêm vào notebook đang chọn.</li>
+          <li>Bấm <b>🔑 Switch Account</b> → trình duyệt tự mở → đăng nhập Google.</li>
+          <li>Sau khi đăng nhập xong, bấm <b>✅ Save Login</b> trong app.</li>
+          <li>Các lần sau app tự load danh sách notebook, không cần đăng nhập lại.</li>
         </ol>
-
         <div class="hint">
-          <b>File đăng nhập:</b> <code>%USERPROFILE%\\.notebooklm\\storage_state.json</code><br>
-          Lưu cookie Google. Xóa file này để đăng nhập lại tài khoản khác.
+          <b>File session:</b> <code>%USERPROFILE%\\.notebooklm\\storage_state.json</code> —
+          xóa file này để đăng nhập tài khoản khác.
         </div>
 
-        <h3>Tóm tắt file trong Notes (NbLM)</h3>
-        <p>Mở PDF trong Preview → tab <b>Notes</b> → bấm <b>📓 NbLM</b>:</p>
-        <ol>
-          <li>App tự upload file lên notebook đầu tiên của tài khoản.</li>
-          <li>Gửi lệnh tóm tắt → nhận kết quả → xóa source khỏi notebook.</li>
-          <li>Nội dung tóm tắt hiện trong ô Notes, có thể chỉnh sửa và lưu.</li>
-        </ol>
-        <div class="warn">Cần đã đăng nhập NotebookLM. Nếu chưa có notebook nào, app tự tạo notebook <i>Auto Summary</i>.</div>
-
-        <h3>Dịch thuật (🌐 VI)</h3>
-        <p>Trong tab <b>Notes</b> → bấm <b>🌐 VI</b> để dịch nội dung sang tiếng Việt qua LLM API.</p>
+        <h3>Cây Notebooks (panel trái)</h3>
         <ul>
-          <li>Bấm lại <b>🌐 VI</b> để toggle về bản gốc.</li>
-          <li>Provider dịch cấu hình tại <b>⚙ Settings</b> → mục <i>Translate Provider</i>.</li>
+          <li>Danh sách notebook hiển thị dạng <b>cây</b>. Click chọn notebook để load chat.</li>
+          <li><b>Double-click</b> (hoặc bấm mũi tên ▶) để <b>expand</b> và xem danh sách source con.</li>
+          <li>Mỗi source con có <b>checkbox</b> — tick để chọn file tham gia generate artifact.</li>
+          <li>Dòng đầu <b>☑ Select All</b>: tick/bỏ tick toàn bộ source của notebook đó.</li>
+          <li>Mặc định tất cả source được tick (dùng tất cả khi generate).</li>
+          <li>Click phải source → menu: <i>View Content, Create Mind Map, Delete</i>.</li>
         </ul>
 
-        <h3>Cấu hình LLM (API Keys)</h3>
-        <p>Bấm <b>⚙</b> trong tab Notes để mở LLM Settings. File cấu hình lưu tại:</p>
-        <table>
-          <tr><th>Chế độ</th><th>Đường dẫn</th></tr>
-          <tr>
-            <td>Chạy trực tiếp (Python)</td>
-            <td><code>&lt;thư mục project&gt;\\llm_config.json</code></td>
-          </tr>
-          <tr>
-            <td>Chạy từ EXE</td>
-            <td><code>&lt;thư mục chứa Finding8.exe&gt;\\llm_config.json</code></td>
-          </tr>
-        </table>
+        <h3>Tab Chat</h3>
+        <ul>
+          <li>Nhập câu hỏi → <b>Send</b>. Kết quả có trích nguồn bên dưới.</li>
+          <li>Click đoạn trích → app tự mở file PDF và nhảy đến trang tương ứng (nếu file có local path).</li>
+          <li>Câu trả lời dạng bảng → click link <b>📊 .xlsx</b> để mở file Excel tự động tạo.</li>
+          <li><b>📌 Note</b>: lưu nội dung chat hiện tại thành Note trong Studio. App tự mở Studio panel sau khi lưu.</li>
+        </ul>
 
-        <h3>Providers hỗ trợ</h3>
+        <h3>Tab Sources</h3>
+        <ul>
+          <li>Danh sách file đã add vào notebook đang chọn.</li>
+          <li>Mỗi file có <b>checkbox</b> — sync 2 chiều với cây Notebooks bên trái.</li>
+          <li><b>☐ Select All</b> ở header: chọn/bỏ chọn tất cả.</li>
+          <li>Khi có file được tick → nút <b>🗑 Delete Selected</b> hiện ra để xóa hàng loạt.</li>
+          <li><b>📄 Add File</b>: thêm file PDF/DOCX/TXT vào notebook.</li>
+          <li><b>📡 Phân tích Sơ đồ (Vision AI)</b>: tick trước khi Add File để phân tích bản vẽ kỹ thuật bằng Vision LLM, tạo thêm nguồn mô tả cấu trúc sơ đồ.</li>
+        </ul>
+        <div class="hint">
+          <b>Vision AI — Hybrid mode:</b> App tự detect từng trang PDF.<br>
+          • Trang có ≥50 từ text → dùng fitz extract (nhanh, chính xác, 0 chi phí).<br>
+          • Trang có ít text (bản vẽ thuần ảnh) → gọi Vision LLM để phân tích.<br>
+          Kết quả ghi rõ: <i>[Hybrid: 12 trang fitz, 3 trang Vision via Gemini]</i>
+        </div>
+
+        <h3>🎨 Studio Panel</h3>
+        <p>Bấm nút <b>🎨 Studio</b> ở thanh sidebar trái (bên dưới Preview) để mở/đóng panel Studio.</p>
+
+        <h4>Generate Artifact</h4>
+        <table>
+          <tr><th>Nút</th><th>Tạo ra</th></tr>
+          <tr><td>🗺 Mind Map</td><td>Sơ đồ tư duy dạng HTML tương tác, có thể zoom/collapse</td></tr>
+          <tr><td>📄 Briefing Doc</td><td>Tóm tắt ngắn gọn theo dạng báo cáo</td></tr>
+          <tr><td>📚 Study Guide</td><td>Tài liệu học theo cấu trúc câu hỏi–giải đáp</td></tr>
+          <tr><td>🃏 Flashcards</td><td>Thẻ ghi nhớ hỏi–đáp</td></tr>
+          <tr><td>❓ Quiz</td><td>Bộ câu hỏi trắc nghiệm</td></tr>
+          <tr><td>📊 Data Table</td><td>Bảng dữ liệu trích xuất từ tài liệu</td></tr>
+          <tr><td>🖼 Infographic</td><td>Infographic tóm tắt</td></tr>
+          <tr><td>🎞 Slide Deck</td><td>Bộ slide trình bày</td></tr>
+          <tr><td>🎙 Audio</td><td>File audio (podcast style)</td></tr>
+        </table>
+        <div class="ok">
+          <b>Lọc theo source:</b> Tick chọn file ở cây Notebooks hoặc tab Sources trước khi Generate —
+          artifact sẽ chỉ dùng những file đã tick. Không tick → dùng toàn bộ notebook.
+        </div>
+
+        <h4>Notes (trong Studio)</h4>
+        <ul>
+          <li>Hiển thị danh sách Note đã lưu trong notebook.</li>
+          <li>Double-click Note → xem nội dung. Có thể <b>Convert to Source</b> để thêm vào nguồn.</li>
+          <li>Click phải → <i>Delete Note</i>.</li>
+        </ul>
+
+        <h4>Existing Artifacts</h4>
+        <ul>
+          <li>Danh sách artifact đã tạo trước (Mind Map, Report, Audio…).</li>
+          <li>Double-click → mở artifact. Click phải → <i>Delete</i>.</li>
+        </ul>
+
+        <h3>Tóm tắt PDF trong Notes (NbLM)</h3>
+        <p>Mở PDF trong Preview → tab <b>Notes</b> → bấm <b>📓 NbLM</b>:</p>
+        <ol>
+          <li>App upload file lên notebook → tóm tắt → xóa source → trả kết quả vào ô Notes.</li>
+        </ol>
+        <div class="warn">Cần đã đăng nhập NotebookLM trước. Nếu chưa có notebook nào, app tự tạo <i>Auto Summary</i>.</div>
+
+        <h3>Dịch thuật (🌐 VI)</h3>
+        <ul>
+          <li>Tab <b>Notes</b> → bấm <b>🌐 VI</b> để dịch sang tiếng Việt qua LLM API.</li>
+          <li>Bấm lại để toggle về bản gốc.</li>
+          <li>Provider dịch cấu hình tại <b>⚙ Settings</b> → <i>Translate Provider</i>.</li>
+        </ul>
+
+        <h3>Cấu hình LLM (API Keys &amp; Models)</h3>
+        <p>Bấm <b>⚙</b> trong tab Notes → <b>LLM Settings</b>. Có thể nhập key và <b>chỉnh model</b> cho từng provider:</p>
         <table>
           <tr><th>Provider</th><th>Model mặc định</th><th>Ghi chú</th></tr>
-          <tr><td>Gemini</td><td>gemini-2.5-flash-preview</td><td>Cần Gemini API key</td></tr>
-          <tr><td>OpenRouter</td><td>llama-3.3-70b (free)</td><td>Cần OpenRouter API key</td></tr>
-          <tr><td>Groq</td><td>llama-3.3-70b-versatile</td><td>Cần Groq API key</td></tr>
-          <tr><td>Ollama</td><td>llama3.1:8b</td><td>Chạy local, không cần key</td></tr>
+          <tr><td>Gemini</td><td>gemini-2.0-flash</td><td>Hỗ trợ Vision AI cho bản vẽ</td></tr>
+          <tr><td>Groq</td><td>llama-3.3-70b-versatile</td><td>Nhanh, hỗ trợ Vision (llama-4-scout)</td></tr>
+          <tr><td>OpenRouter</td><td>llama-3.3-70b-instruct:free</td><td>Nhiều model, có free tier</td></tr>
+          <tr><td>Ollama</td><td>llama3.1:8b</td><td>Chạy local, không cần key, không cần internet</td></tr>
         </table>
+        <div class="hint">File cấu hình: <code>&lt;thư mục app&gt;\\llm_config.json</code></div>
         </body>
         """
 
