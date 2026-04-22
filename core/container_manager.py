@@ -23,6 +23,24 @@ def save_containers(containers: Dict, path: str) -> None:
         json.dump(containers, f, ensure_ascii=False, indent=2)
 
 
+
+def load_parents(path: str) -> Dict:
+    """Load container parent relationships từ JSON. Trả {} nếu lỗi."""
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def save_parents(parents: Dict, path: str) -> None:
+    """Ghi container_parents ra JSON."""
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(parents, f, ensure_ascii=False, indent=2)
+
+
 def get_file_containers(file_path: str, containers: Dict) -> list:
     """Trả về danh sách tên container đang chứa file_path."""
     result = []

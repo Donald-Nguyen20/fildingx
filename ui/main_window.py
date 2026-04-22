@@ -43,6 +43,7 @@ from ui.index_search_window import IndexSearchWindow, IndexSearchWidget
 from ui.notebooklm_window import NotebookLMWidget
 from ui.list_files_window import show_list_files_window
 from ui.pdf_preview import PdfPreviewWidget
+from ui.container_tree import ContainerOrgChartWidget
 
 
 class MultiFolderDialog(QDialog):
@@ -143,8 +144,9 @@ class FileSearchApp(QMainWindow):
         self.setWindowTitle("File Search and Management")
         self.setGeometry(100, 100, 1280, 800)
 
-        self.containers:      dict = {}
-        self.exe_addons:      list = []
+        self.containers:         dict = {}
+        self.container_parents:  dict = {}
+        self.exe_addons:         list = []
         self._dup_worker           = None
         self._sidebar_btns:   list = []
         self._right_stack          = None
@@ -458,56 +460,17 @@ class FileSearchApp(QMainWindow):
         page.setObjectName("rightFrame")
         lay = QVBoxLayout(page)
         lay.setContentsMargins(8, 8, 8, 8)
-        lay.setSpacing(8)
+        lay.setSpacing(4)
 
-        self.container_search_bar = QLineEdit()
-        self.container_search_bar.setPlaceholderText("Search containers…")
-        self.container_search_bar.textChanged.connect(self.filter_containers)
-        lay.addWidget(self.container_search_bar)
-
-        crud_row = QHBoxLayout()
-        del_btn = QPushButton("Delete")
-        del_btn.setMinimumHeight(36)
-        del_btn.clicked.connect(self.delete_container)
-        self.container_entry = QLineEdit()
-        self.container_entry.setMinimumHeight(36)
-        create_btn = QPushButton("Create")
-        create_btn.setMinimumHeight(36)
-        create_btn.clicked.connect(self.create_container)
-        crud_row.addWidget(del_btn)
-        crud_row.addWidget(self.container_entry)
-        crud_row.addWidget(create_btn)
-        lay.addLayout(crud_row)
-
-        self.containers_list = QListWidget()
-        self.containers_list.itemClicked.connect(self.display_container_files)
-
-        self.container_files_list = QListWidget()
-        self.container_files_list.itemClicked.connect(self.show_note_frame)
-        self.container_files_list.itemDoubleClicked.connect(self.open_file_from_container)
-        self.container_files_list.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.container_files_list.customContextMenuRequested.connect(
-            self.show_context_menu_for_container
+        self.org_chart = ContainerOrgChartWidget(page)
+        self.org_chart.btn_add_file.clicked.connect(self.add_to_container)
+        self.org_chart.containers_changed.connect(self._on_containers_changed)
+        self.org_chart.file_open_requested.connect(
+            lambda fp: (record_open(fp, paths.STATS_FILE), webbrowser.open(fp))
         )
-
-        list_splitter = QSplitter(Qt.Vertical)
-        list_splitter.addWidget(self.containers_list)
-        list_splitter.addWidget(self.container_files_list)
-        list_splitter.setStretchFactor(0, 1)
-        list_splitter.setStretchFactor(1, 1)
-        list_splitter.setHandleWidth(6)
-        lay.addWidget(list_splitter)
-
-        file_row = QHBoxLayout()
-        add_btn = QPushButton("Add File")
-        add_btn.setMinimumHeight(36)
-        add_btn.clicked.connect(self.add_to_container)
-        del_file_btn = QPushButton("Delete File")
-        del_file_btn.setMinimumHeight(36)
-        del_file_btn.clicked.connect(self.delete_file_from_container)
-        file_row.addWidget(add_btn)
-        file_row.addWidget(del_file_btn)
-        lay.addLayout(file_row)
+        self.org_chart.file_clicked.connect(self._on_container_file_clicked)
+        self.org_chart.file_context_menu_requested.connect(self._on_container_file_nlm)
+        lay.addWidget(self.org_chart)
         return page
 
     def _build_tools_page(self) -> QFrame:
@@ -1103,182 +1066,60 @@ class FileSearchApp(QMainWindow):
     #  CONTAINER MANAGEMENT
     # ══════════════════════════════════════════════════════════════
 
-    def create_container(self):
-        name = self.container_entry.text().strip()
-        if not name:
-            QMessageBox.warning(self, "Empty", "Please enter container name.")
-            return
-        if name in self.containers:
-            QMessageBox.warning(self, "Exists", "Container already exists.")
-            return
-        self.containers[name] = []
-        self.save_data_to_file()
-        self.container_search_bar.blockSignals(True)
-        self.container_search_bar.setText("")
-        self.container_search_bar.blockSignals(False)
-        self.filter_containers("")
-        for i in range(self.containers_list.count()):
-            if self.containers_list.item(i).text() == name:
-                self.containers_list.setCurrentRow(i)
-                self.display_container_files(self.containers_list.item(i))
-                break
-        self.container_entry.clear()
-        QMessageBox.information(self, "Created", f"Created container: {name}")
-
-    def delete_container(self):
-        item = self.containers_list.currentItem()
-        if item:
-            del self.containers[item.text()]
-            self.containers_list.takeItem(self.containers_list.row(item))
-            self.container_files_list.clear()
-            self.save_data_to_file()
-
     def add_to_container(self):
         selected = self.tree_widget.currentItem()
         if not selected:
             QMessageBox.warning(self, "Select Error", "Please select a file to add.")
             return
-        c_item = self.containers_list.currentItem()
-        if not c_item:
-            QMessageBox.warning(self, "Select Error", "Please select a container.")
+        if not self.org_chart.selected_container:
+            QMessageBox.warning(self, "Select Error", "Please select a container on the org chart.")
             return
         path = selected.text(4)
-        name = c_item.text()
-        if path not in [f[0] for f in self.containers[name]]:
-            self.containers[name].append((path, {"text": ""}))
-            self.save_data_to_file()
-            self.display_container_files(c_item)
-        else:
+        if not self.org_chart.add_file_to_selected(path):
             QMessageBox.warning(self, "File Exists", "This file already exists in the selected container.")
 
-    def delete_file_from_container(self):
-        f_item = self.container_files_list.currentItem()
-        c_item = self.containers_list.currentItem()
-        if not f_item or not c_item:
-            QMessageBox.warning(self, "Selection Error", "Please select a file and a container.")
-            return
-        file_name      = f_item.text()
-        container_name = c_item.text()
-        for i, (fp, _) in enumerate(self.containers[container_name]):
-            if os.path.basename(fp) == file_name:
-                del self.containers[container_name][i]
-                self.save_data_to_file()
-                self.display_container_files(c_item)
-                QMessageBox.information(self, "Success", f"'{file_name}' removed from container.")
-                break
-        else:
-            QMessageBox.warning(self, "Not Found", "File not found in container.")
+    def _on_containers_changed(self, containers: dict, parents: dict):
+        self.containers        = containers
+        self.container_parents = parents
+        self.save_data_to_file()
+        self._mark_saved_items()
 
-    def display_container_files(self, item):
-        self.container_files_list.clear()
-        name = item.text()
-        if name in self.containers:
-            for fp, _ in self.containers[name]:
-                list_item = QListWidgetItem(os.path.basename(fp))
-                if not os.path.exists(fp):
-                    list_item.setForeground(QBrush(QColor("#f85149")))
-                    list_item.setToolTip(f"File no longer exists:\n{fp}")
-                else:
-                    list_item.setToolTip(fp)
-                self.container_files_list.addItem(list_item)
+    def _on_container_file_clicked(self, fp: str):
+        if self.pdf_preview.isVisible():
+            if fp.lower().endswith(".pdf"):
+                self.pdf_preview.load(fp)
+            else:
+                self.pdf_preview.clear()
 
-    def open_file_from_container(self, item):
-        c_item = self.containers_list.currentItem()
-        if not c_item:
-            return
-        for fp, _ in self.containers[c_item.text()]:
-            if os.path.basename(fp) == item.text():
-                if os.path.exists(fp):
-                    record_open(fp, paths.STATS_FILE)
-                    webbrowser.open(fp)
-                else:
-                    QMessageBox.warning(self, "Not Found", "The file does not exist.")
-                break
-
-    def show_note_frame(self, item):
-        c_item = self.containers_list.currentItem()
-        if not c_item:
-            QMessageBox.warning(self, "No Container", "Please select a container first.")
-            return
-        for fp, _ in self.containers.get(c_item.text(), []):
-            if os.path.basename(fp) == item.text():
-                # Trigger PDF preview nếu đang bật
-                if self.pdf_preview.isVisible():
-                    if fp.lower().endswith(".pdf"):
-                        self.pdf_preview.load(fp)
-                    else:
-                        self.pdf_preview.clear()
-                return
-
-    def show_context_menu_for_container(self, pos):
-        item = self.container_files_list.itemAt(
-            self.container_files_list.viewport().mapFromGlobal(QCursor.pos())
-        )
-        if item:
-            menu = QMenu(self)
-            menu.addAction("Open Folder").triggered.connect(
-                lambda: self._open_folder_for_container_item(item)
-            )
-            menu.addSeparator()
-            menu.addAction("📓 Add this file to NotebookLM").triggered.connect(
-                lambda: self._add_container_file_to_nlm(item, all_files=False)
-            )
-            menu.addAction("📓 Add all files in container to NotebookLM").triggered.connect(
-                lambda: self._add_container_file_to_nlm(item, all_files=True)
-            )
-            menu.exec(QCursor.pos())
-
-    def _add_container_file_to_nlm(self, item, all_files: bool):
+    def _on_container_file_nlm(self, container_name: str, file_path: str, all_files: bool):
         from ui.notebooklm_window import is_nlm_logged_in, NLMNotebookPickerDialog, ListSourcesWorker
         if not is_nlm_logged_in():
             QMessageBox.warning(self, "Not Logged In",
                 "Please log in to NotebookLM first.\n\nGo to the 📓 NotebookLM tab and click 🔑 Switch Account.")
             return
-        c_item = self.containers_list.currentItem()
-        if not c_item:
-            return
         NLM_SUPPORTED = {".pdf", ".txt", ".doc", ".docx", ".pptx", ".md"}
         if all_files:
-            all_paths = [fp for fp, _ in self.containers[c_item.text()]
+            all_paths = [fp for fp, _ in self.containers.get(container_name, [])
                          if os.path.isfile(fp) and os.path.splitext(fp)[1].lower() in NLM_SUPPORTED]
         else:
-            # find path for clicked item
-            all_paths = []
-            for fp, _ in self.containers[c_item.text()]:
-                if os.path.basename(fp) == item.text() and os.path.isfile(fp):
-                    if os.path.splitext(fp)[1].lower() in NLM_SUPPORTED:
-                        all_paths = [fp]
-                    else:
-                        QMessageBox.warning(self, "Unsupported Format",
-                            f"NotebookLM only accepts: .pdf .txt .doc .docx .pptx .md")
-                    break
+            ext = os.path.splitext(file_path)[1].lower()
+            if ext not in NLM_SUPPORTED:
+                QMessageBox.warning(self, "Unsupported Format",
+                    "NotebookLM only accepts: .pdf .txt .doc .docx .pptx .md")
+                return
+            all_paths = [file_path] if os.path.isfile(file_path) else []
         if not all_paths:
             return
         nb_id = NLMNotebookPickerDialog.pick(self)
         if not nb_id:
             return
         lw = ListSourcesWorker(nb_id)
-        lw.done.connect(lambda sources, nb=nb_id, paths=all_paths:
-            self._do_add_after_check(nb, paths, sources))
-        lw.error.connect(lambda _, nb=nb_id, paths=all_paths:
-            self._do_add_after_check(nb, paths, []))
+        lw.done.connect(lambda sources, nb=nb_id, p=all_paths:
+            self._do_add_after_check(nb, p, sources))
+        lw.error.connect(lambda _, nb=nb_id, p=all_paths:
+            self._do_add_after_check(nb, p, []))
         self._nlm_list_worker = lw
         lw.start()
-
-    def _open_folder_for_container_item(self, item):
-        c_item = self.containers_list.currentItem()
-        if not c_item:
-            return
-        for fp, _ in self.containers[c_item.text()]:
-            if os.path.basename(fp) == item.text():
-                self._open_folder_path(os.path.dirname(fp))
-                break
-
-    def filter_containers(self, text: str):
-        self.containers_list.clear()
-        for name in self.containers:
-            if text.lower() in name.lower():
-                self.containers_list.addItem(name)
 
     # ══════════════════════════════════════════════════════════════
     #  DATA PERSISTENCE
@@ -1286,13 +1127,12 @@ class FileSearchApp(QMainWindow):
 
     def save_data_to_file(self):
         container_manager.save_containers(self.containers, paths.DATA_FILE)
+        container_manager.save_parents(self.container_parents, paths.PARENTS_FILE)
 
     def load_data_from_file(self):
-        self.containers = container_manager.load_containers(paths.DATA_FILE)
-        self.filter_containers("")
-        if self.containers_list.count() > 0 and self.containers_list.currentItem() is None:
-            self.containers_list.setCurrentRow(0)
-            self.display_container_files(self.containers_list.currentItem())
+        self.containers        = container_manager.load_containers(paths.DATA_FILE)
+        self.container_parents = container_manager.load_parents(paths.PARENTS_FILE)
+        self.org_chart.refresh(self.containers, self.container_parents)
 
     # ══════════════════════════════════════════════════════════════
     #  SYNONYMS

@@ -31,6 +31,7 @@ __pycache__/
 # ###########################################################################
 .venv/
 venv/
+venv_*/
 env/
 ENV/
 .conda/
@@ -143,6 +144,8 @@ base_path.txt
 
 # Runtime data (sinh ra khi chạy app, không commit lên git)
 containers_data.json
+container_parents.json
+container_types.json
 file_stats.json
 synonyms.json
 promp.json
@@ -175,3 +178,4 @@ release/
 outputs/
 images/
 mindmaps/
+test/
