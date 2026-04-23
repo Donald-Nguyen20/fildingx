@@ -218,14 +218,14 @@ class FileSearchApp(QMainWindow):
         lbl_k.setFixedWidth(60)
         h.addWidget(lbl_k)
         self.filename_entry = QLineEdit()
-        self.filename_entry.setPlaceholderText("Search by name… ($stats, @fuzzy, A%B, A*B)")
+        self.filename_entry.setPlaceholderText("Search by name… ($stats, @fuzzy, A%B, A*B, folder:name)")
         self.filename_entry.returnPressed.connect(self.search_files)
         h.addWidget(self.filename_entry, 3)
-        search_btn = QPushButton("🔍  Search")
-        search_btn.setMinimumWidth(120)
-        search_btn.setMinimumHeight(40)
-        search_btn.clicked.connect(self.search_files)
-        h.addWidget(search_btn)
+        self.search_btn = QPushButton("🔍  Search")
+        self.search_btn.setMinimumWidth(120)
+        self.search_btn.setMinimumHeight(40)
+        self.search_btn.clicked.connect(self.search_files)
+        h.addWidget(self.search_btn)
 
         self.lcd_number = QLCDNumber()
         self.lcd_number.setDigitCount(6)
@@ -649,15 +649,32 @@ class FileSearchApp(QMainWindow):
             self._apply_theme(int(_cm.group(1)))
             return
 
-        results = []
-        for folder in folders:
-            if keyword.startswith("@"):
-                synonyms = synonym_manager.load_synonyms(paths.SYNONYMS_FILE)
-                results += search_engine.fuzzy_search(folder, keyword[1:], synonyms)
+        self.search_btn.setText("⏳  Searching…")
+        self.search_btn.setEnabled(False)
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        QApplication.processEvents()
+        try:
+            if keyword.lower().startswith("folder:"):
+                q = keyword[7:].strip()
+                if not q:
+                    return
+                results = []
+                for folder in folders:
+                    results += search_engine.search_folders_by_name(folder, q)
+                self.display_folder_results(results)
             else:
-                results += search_engine.search_files_by_name(folder, keyword)
-
-        self.display_results(results)
+                results = []
+                for folder in folders:
+                    if keyword.startswith("@"):
+                        synonyms = synonym_manager.load_synonyms(paths.SYNONYMS_FILE)
+                        results += search_engine.fuzzy_search(folder, keyword[1:], synonyms)
+                    else:
+                        results += search_engine.search_files_by_name(folder, keyword)
+                self.display_results(results)
+        finally:
+            QApplication.restoreOverrideCursor()
+            self.search_btn.setEnabled(True)
+            self.search_btn.setText("🔍  Search")
 
     def display_results(self, results: list):
         self.tree_widget.clear()
@@ -670,6 +687,32 @@ class FileSearchApp(QMainWindow):
         else:
             self.lcd_number.display(0)
             self.statusBar().showMessage("No files found.")
+            self.tree_widget.addTopLevelItem(
+                self.sort_helper.make_item("No matches found", "", "", "", "",
+                                           mtime_ts=None, size_bytes=None)
+            )
+
+    def display_folder_results(self, results: list):
+        self.tree_widget.clear()
+        if results:
+            for name, path in results:
+                try:    mtime_ts = os.path.getmtime(path)
+                except OSError: mtime_ts = None
+                item = self.sort_helper.make_item(
+                    name       = f"📁 {name}",
+                    date_text  = self.format_mtime(path),
+                    type_text  = "DIR",
+                    size_text  = "",
+                    path       = path,
+                    mtime_ts   = mtime_ts,
+                    size_bytes = None,
+                )
+                self.tree_widget.addTopLevelItem(item)
+            self.lcd_number.display(len(results))
+            self.statusBar().showMessage(f"Found {len(results)} folder(s).")
+        else:
+            self.lcd_number.display(0)
+            self.statusBar().showMessage("No folders found.")
             self.tree_widget.addTopLevelItem(
                 self.sort_helper.make_item("No matches found", "", "", "", "",
                                            mtime_ts=None, size_bytes=None)

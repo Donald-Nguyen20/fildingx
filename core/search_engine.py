@@ -52,6 +52,32 @@ def search_files_by_name(folder_path: str, keyword: str) -> FileResult:
     return matches
 
 
+def search_folders_by_name(folder_path: str, keyword: str) -> FileResult:
+    """
+    Tìm folder theo tên. Hỗ trợ A*B syntax (giống search_files_by_name).
+    Trả về [(folder_name, full_path), ...]
+    """
+    if "*" in keyword:
+        parts = [p.strip() for p in keyword.split("*") if p.strip()]
+        if len(parts) == 2:
+            p1 = re.escape(parts[0]) + ".*" + re.escape(parts[1])
+            p2 = re.escape(parts[1]) + ".*" + re.escape(parts[0])
+            pattern = re.compile(f"({p1}|{p2})", re.IGNORECASE)
+        else:
+            pattern = re.compile(
+                re.escape(keyword).replace(r"\*", ".*"), re.IGNORECASE
+            )
+    else:
+        pattern = re.compile(re.escape(keyword), re.IGNORECASE)
+
+    matches: FileResult = []
+    for root, dirs, _ in os.walk(folder_path):
+        for d in dirs:
+            if pattern.search(d):
+                matches.append((d, os.path.join(root, d)))
+    return matches
+
+
 def fuzzy_search(
     folder_path: str,
     keyword: str,

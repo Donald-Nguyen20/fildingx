@@ -1,8 +1,8 @@
-"""
+r"""
 Finding8.py — Entry point.
 
 Build:
-    pyinstaller --noconfirm --clean --onedir --windowed "Finding8.py" --icon "icon.ico" `
+    pyinstaller --noconfirm --clean --onedir --windowed --name "Finding8.1" "Finding8.py" --icon "icon.ico" `
   --add-data "$env:LOCALAPPDATA\ms-playwright\chromium-1208;ms-playwright\chromium-1208" `
   --add-data "$env:LOCALAPPDATA\ms-playwright\ffmpeg-1011;ms-playwright\ffmpeg-1011" `
   --add-data "$env:LOCALAPPDATA\ms-playwright\winldd-1007;ms-playwright\winldd-1007" `
@@ -34,6 +34,30 @@ Build:
   --hidden-import=docx --hidden-import=pptx --hidden-import=fitz
 
 """
+"""""
+cd "d:\3. Coding\Tim file\fildingx"
+
+.\venv\Scripts\python.exe -m PyInstaller `
+  --noconfirm --clean --onedir --windowed `
+  "Finding8.py" --icon "icon.ico" `
+  --add-data "$env:LOCALAPPDATA\ms-playwright\chromium-1208;ms-playwright\chromium-1208" `
+  --add-data "$env:LOCALAPPDATA\ms-playwright\ffmpeg-1011;ms-playwright\ffmpeg-1011" `
+  --add-data "$env:LOCALAPPDATA\ms-playwright\winldd-1007;ms-playwright\winldd-1007" `
+  --collect-all notebooklm --collect-all playwright `
+  --collect-all markdown_it --collect-all pygments `
+  --hidden-import=win32com.client --hidden-import=win32api `
+  --hidden-import=rapidfuzz --hidden-import=bs4 `
+  --hidden-import=docx --hidden-import=pptx --hidden-import=fitz `
+  --exclude-module matplotlib --exclude-module pandas --exclude-module tkinter `
+  --exclude-module IPython --exclude-module jupyter --exclude-module torch `
+  --exclude-module faiss --exclude-module sentence_transformers `
+  --exclude-module scipy --exclude-module sklearn `
+  --exclude-module PySide6.QtQuick --exclude-module PySide6.QtQml `
+  --exclude-module PySide6.Qt3DCore --exclude-module PySide6.Qt3DRender `
+  --exclude-module PySide6.QtMultimedia --exclude-module PySide6.QtCharts
+"""""
+
+
 import os
 import sys
 

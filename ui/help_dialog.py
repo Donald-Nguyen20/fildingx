@@ -261,7 +261,21 @@ class HelpDialog(QDialog):
           <li><code>@vibration</code> → ra cả "vib", "vibra", "vibration".</li>
         </ul>
 
-        <h3>4) Synonyms (từ đồng nghĩa) & chỉnh sửa</h3>
+        <h3>4) Tìm Folder bằng tiền tố folder:</h3>
+        <p>Dùng <code>folder:tên</code> để tìm <b>thư mục</b> thay vì file.</p>
+        <ul>
+          <li><code>folder:boiler</code> → tìm tất cả thư mục có tên chứa "boiler".</li>
+          <li><code>folder:UAT*trip</code> → thư mục chứa cả "UAT" và "trip" (kết hợp với <code>*</code>).</li>
+          <li>Kết quả hiển thị với icon 📁, cột TYPE = <b>DIR</b>, không có SIZE.</li>
+          <li>Double-click → mở thư mục trong Explorer.</li>
+        </ul>
+        <div class="ok">
+          <b>Ví dụ thực tế:</b><br/>
+          <code>folder:Commissioning</code> → tìm nhanh tất cả thư mục Commissioning trong folder đang chọn.<br/>
+          <code>folder:2024*boiler</code> → thư mục có năm 2024 và chứa "boiler".
+        </div>
+
+        <h3>5) Synonyms (từ đồng nghĩa) & chỉnh sửa</h3>
         <p>App có file <code>synonyms.json</code> để mở rộng từ khóa. Bạn có thể chỉnh từ đồng nghĩa trong UI.</p>
         <ul>
           <li>Ví dụ: "UAT" đồng nghĩa "Unit Aux Transformer".</li>
@@ -753,6 +767,11 @@ class HelpDialog(QDialog):
             <td><code>A * B</code></td>
             <td>Tìm chứa cả A và B (thứ tự bất kỳ)</td>
             <td>Ví dụ: <code>UAT * trip</code></td>
+          </tr>
+          <tr>
+            <td><code>folder:name</code></td>
+            <td>Tìm <b>thư mục</b> theo tên (thay vì file)</td>
+            <td>Ví dụ: <code>folder:boiler</code>, <code>folder:UAT*trip</code> — kết quả hiện icon 📁, double-click mở Explorer</td>
           </tr>
           <tr>
             <td><code>@colour0</code></td>
