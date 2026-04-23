@@ -43,7 +43,7 @@ from ui.index_search_window import IndexSearchWindow, IndexSearchWidget
 from ui.notebooklm_window import NotebookLMWidget
 from ui.list_files_window import show_list_files_window
 from ui.pdf_preview import PdfPreviewWidget
-from ui.container_tree import ContainerOrgChartWidget
+from ui.container_tree import ContainerOrgChartWidget, _fs_icon
 
 
 class MultiFolderDialog(QDialog):
@@ -470,6 +470,7 @@ class FileSearchApp(QMainWindow):
         )
         self.org_chart.file_clicked.connect(self._on_container_file_clicked)
         self.org_chart.file_context_menu_requested.connect(self._on_container_file_nlm)
+        self.org_chart.fullscreen_requested.connect(self._toggle_container_fullscreen)
         lay.addWidget(self.org_chart)
         return page
 
@@ -780,6 +781,9 @@ class FileSearchApp(QMainWindow):
             lambda: self._ask_nlm_about_file(file_path)
         )
         menu.addSeparator()
+        menu.addAction("📋 Copy to folder").triggered.connect(
+            lambda: self._copy_files_from_tree(item)
+        )
         menu.addAction("📁 Move to folder").triggered.connect(
             lambda: self._move_files_from_tree(item)
         )
@@ -859,6 +863,34 @@ class FileSearchApp(QMainWindow):
         except Exception:
             pass
         self._temp_nb_ids = []
+
+    def _copy_files_from_tree(self, item):
+        """Copy file(s) đã chọn sang thư mục khác."""
+        import shutil
+        selected = self.tree_widget.selectedItems()
+        targets  = [(i, i.text(4)) for i in (selected if selected else [item])]
+        targets  = [(i, p) for i, p in targets if p and os.path.isfile(p)]
+        if not targets:
+            QMessageBox.warning(self, "File Not Found", "No valid files selected.")
+            return
+        dest_dir = QFileDialog.getExistingDirectory(self, "Select Destination Folder", "")
+        if not dest_dir:
+            return
+        failed = []
+        count  = 0
+        for _, path in targets:
+            dest = os.path.join(dest_dir, os.path.basename(path))
+            if os.path.abspath(path) == os.path.abspath(dest):
+                continue
+            try:
+                shutil.copy2(path, dest)
+                count += 1
+            except Exception as e:
+                failed.append(f"{os.path.basename(path)}: {e}")
+        if failed:
+            QMessageBox.warning(self, "Error", "Could not copy:\n" + "\n".join(failed))
+        if count:
+            self.statusBar().showMessage(f"Copied {count} file(s) to {dest_dir}")
 
     def _move_files_from_tree(self, item):
         """Di chuyển file(s) đã chọn sang thư mục khác."""
@@ -1083,6 +1115,18 @@ class FileSearchApp(QMainWindow):
         self.container_parents = parents
         self.save_data_to_file()
         self._mark_saved_items()
+
+    def _toggle_container_fullscreen(self):
+        sizes = self._outer_splitter.sizes()
+        if sizes[0] > 10:
+            self._saved_center_width = sizes[0]
+            self._outer_splitter.setSizes([0, sizes[0] + sizes[1]])
+            self.org_chart._fs_btn.setIcon(_fs_icon(False))
+        else:
+            saved = getattr(self, "_saved_center_width", 600)
+            total = sum(sizes)
+            self._outer_splitter.setSizes([saved, total - saved])
+            self.org_chart._fs_btn.setIcon(_fs_icon(True))
 
     def _on_container_file_clicked(self, fp: str):
         if self.pdf_preview.isVisible():

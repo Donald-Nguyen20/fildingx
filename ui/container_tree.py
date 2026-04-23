@@ -17,7 +17,76 @@ from PySide6.QtWidgets import (
     QTreeWidget, QTreeWidgetItem,
 )
 from PySide6.QtCore import Qt, Signal, QRectF
-from PySide6.QtGui import QColor, QPen, QBrush, QPainter, QFont, QCursor
+from PySide6.QtGui import QColor, QPen, QBrush, QPainter, QFont, QCursor, QPixmap, QIcon
+
+# ── Icon helpers ─────────────────────────────────────────────────────────────
+
+def _panel_icon(expand: bool, size: int = 18) -> QIcon:
+    """Icon mở rộng / thu gọn panel dọc."""
+    px = QPixmap(size, size)
+    px.fill(Qt.transparent)
+    p   = QPainter(px)
+    p.setRenderHint(QPainter.Antialiasing)
+    pen = QPen(QColor("#374151"), 2, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+    p.setPen(pen)
+    cx = size // 2
+    m  = 3
+    e  = size - m
+
+    if expand:
+        # Mũi tên lên (trên) và mũi tên xuống (dưới)
+        mid = size // 2
+        # Mũi tên lên
+        p.drawLine(cx, m, cx, mid - 2)
+        p.drawLine(cx, m, cx - 3, m + 4)
+        p.drawLine(cx, m, cx + 3, m + 4)
+        # Mũi tên xuống
+        p.drawLine(cx, e, cx, mid + 2)
+        p.drawLine(cx, e, cx - 3, e - 4)
+        p.drawLine(cx, e, cx + 3, e - 4)
+    else:
+        # Mũi tên vào giữa (thu gọn)
+        mid = size // 2
+        p.drawLine(cx, mid - 2, cx, mid + 2)   # đường giữa nhỏ
+        # Mũi tên từ trên xuống giữa
+        p.drawLine(cx, m + 4, cx, mid - 2)
+        p.drawLine(cx, mid - 2, cx - 3, mid - 6)
+        p.drawLine(cx, mid - 2, cx + 3, mid - 6)
+        # Mũi tên từ dưới lên giữa
+        p.drawLine(cx, e - 4, cx, mid + 2)
+        p.drawLine(cx, mid + 2, cx - 3, mid + 6)
+        p.drawLine(cx, mid + 2, cx + 3, mid + 6)
+    p.end()
+    return QIcon(px)
+
+
+def _fs_icon(expand: bool, size: int = 18) -> QIcon:
+    """Vẽ icon fullscreen (expand=True) hoặc restore (expand=False)."""
+    px = QPixmap(size, size)
+    px.fill(Qt.transparent)
+    p  = QPainter(px)
+    p.setRenderHint(QPainter.Antialiasing)
+    pen = QPen(QColor("#374151"), 2, Qt.SolidLine, Qt.SquareCap, Qt.MiterJoin)
+    p.setPen(pen)
+    arm = 5          # độ dài cánh tay góc
+    m   = 2          # margin từ viền
+    e   = size - m   # cạnh phải/dưới
+
+    if expand:
+        # 4 góc chữ L hướng ra ngoài
+        for cx, cy, dx, dy in [(m,m,1,1),(e,m,-1,1),(m,e,1,-1),(e,e,-1,-1)]:
+            p.drawLine(cx, cy, cx + dx*arm, cy)
+            p.drawLine(cx, cy, cx, cy + dy*arm)
+    else:
+        # 4 góc chữ L hướng vào trong
+        c = size // 2
+        for cx, cy, dx, dy in [(m,m,1,1),(e,m,-1,1),(m,e,1,-1),(e,e,-1,-1)]:
+            ix, iy = cx + dx*arm, cy + dy*arm
+            p.drawLine(ix, cy, ix, iy)
+            p.drawLine(cx, iy, ix, iy)
+    p.end()
+    return QIcon(px)
+
 
 # ── Node dimensions ───────────────────────────────────────────────────────────
 NODE_W = 160
@@ -314,6 +383,7 @@ class ContainerOrgChartWidget(QWidget):
     file_open_requested         = Signal(str)
     file_clicked                = Signal(str)
     file_context_menu_requested = Signal(str, str, bool)
+    fullscreen_requested        = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -343,10 +413,11 @@ class ContainerOrgChartWidget(QWidget):
         self.search_bar.setFixedHeight(28)
         self.search_bar.textChanged.connect(self._on_search_changed)
 
-        self._fit_btn = QPushButton("⊡ Fit")
-        self._fit_btn.setFixedSize(58, 28)
-        self._fit_btn.setToolTip("Fit all in view")
-        self._fit_btn.clicked.connect(self.canvas.fit_all)
+        self._fs_btn = QPushButton()
+        self._fs_btn.setIcon(_fs_icon(expand=True))
+        self._fs_btn.setFixedSize(32, 28)
+        self._fs_btn.setToolTip("Fullscreen / thu nhỏ panel container")
+        self._fs_btn.clicked.connect(self.fullscreen_requested.emit)
 
         self._btn_dir = QPushButton("⇅ TB")
         self._btn_dir.setFixedSize(68, 28)
@@ -354,7 +425,7 @@ class ContainerOrgChartWidget(QWidget):
         self._btn_dir.clicked.connect(self._show_direction_menu)
 
         tb_lay.addWidget(self.search_bar, 1)
-        tb_lay.addWidget(self._fit_btn)
+        tb_lay.addWidget(self._fs_btn)
         tb_lay.addWidget(self._btn_dir)
         lay.addWidget(toolbar)
 
@@ -372,10 +443,6 @@ class ContainerOrgChartWidget(QWidget):
         bottom_lay.setContentsMargins(0, 0, 0, 0)
         bottom_lay.setSpacing(4)
 
-        self.lbl_selected = QLabel("Select a container to view its files")
-        self.lbl_selected.setAlignment(Qt.AlignCenter)
-        self.lbl_selected.setStyleSheet("color:#64748b;font-size:11px;padding:2px;")
-
         self.file_list = QListWidget()
         self.file_list.itemClicked.connect(self._on_file_clicked)
         self.file_list.itemDoubleClicked.connect(self._on_file_double_clicked)
@@ -388,20 +455,26 @@ class ContainerOrgChartWidget(QWidget):
         self.btn_del_file = QPushButton("Remove File")
         self.btn_del_file.setMinimumHeight(32)
         self.btn_del_file.clicked.connect(self.remove_selected_file)
+        self._btn_expand_panel = QPushButton()
+        self._btn_expand_panel.setIcon(_panel_icon(expand=True))
+        self._btn_expand_panel.setFixedSize(32, 32)
+        self._btn_expand_panel.setToolTip("Mở rộng / thu gọn khung tài liệu")
+        self._btn_expand_panel.clicked.connect(self._toggle_file_panel)
         btn_row.addWidget(self.btn_add_file)
         btn_row.addWidget(self.btn_del_file)
+        btn_row.addWidget(self._btn_expand_panel)
 
-        bottom_lay.addWidget(self.lbl_selected)
         bottom_lay.addWidget(self.file_list)
         bottom_lay.addLayout(btn_row)
 
-        splitter = QSplitter(Qt.Vertical)
-        splitter.addWidget(self._top_stack)
-        splitter.addWidget(bottom)
-        splitter.setStretchFactor(0, 3)
-        splitter.setStretchFactor(1, 1)
-        splitter.setHandleWidth(6)
-        lay.addWidget(splitter)
+        self._inner_splitter = QSplitter(Qt.Vertical)
+        self._inner_splitter.addWidget(self._top_stack)
+        self._inner_splitter.addWidget(bottom)
+        self._inner_splitter.setStretchFactor(0, 3)
+        self._inner_splitter.setStretchFactor(1, 2)
+        self._inner_splitter.setHandleWidth(6)
+        lay.addWidget(self._inner_splitter)
+        self._initial_sizes_set = False
 
     def _build_list_panel(self) -> QWidget:
         panel = QWidget()
@@ -455,6 +528,14 @@ class ContainerOrgChartWidget(QWidget):
         lay.addWidget(self._containers_list)
         return panel
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        if not self._initial_sizes_set:
+            self._initial_sizes_set = True
+            h = self._inner_splitter.height()
+            if h > 0:
+                self._inner_splitter.setSizes([h * 13 // 20, h * 7 // 20])
+
     # ── Direction / mode ──────────────────────────────────────────────────────
 
     def _show_direction_menu(self):
@@ -476,7 +557,6 @@ class ContainerOrgChartWidget(QWidget):
         self._btn_dir.setText(labels[direction])
 
         is_chart = direction in ("TB", "LR")
-        self._fit_btn.setVisible(is_chart)
         self._top_stack.setCurrentIndex(0 if is_chart else 1)
 
         if is_chart:
@@ -607,6 +687,24 @@ class ContainerOrgChartWidget(QWidget):
             lambda: self.delete_container(name)
         )
         menu.exec(QCursor.pos())
+
+    def _toggle_file_panel(self):
+        sizes = self._inner_splitter.sizes()
+        total = sum(sizes)
+        if total == 0:
+            return
+        target = total // 2
+        if abs(sizes[1] - target) < 30:          # đang ở ~50% → restore
+            saved = getattr(self, "_saved_panel_sizes", None)
+            if saved and sum(saved) > 0:
+                self._inner_splitter.setSizes(saved)
+            else:
+                self._inner_splitter.setSizes([total * 3 // 5, total * 2 // 5])
+            self._btn_expand_panel.setIcon(_panel_icon(expand=True))
+        else:                                     # chưa ở 50% → mở rộng lên 50%
+            self._saved_panel_sizes = list(sizes)
+            self._inner_splitter.setSizes([target, target])
+            self._btn_expand_panel.setIcon(_panel_icon(expand=False))
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -766,12 +864,7 @@ class ContainerOrgChartWidget(QWidget):
     def _refresh_file_list(self):
         self.file_list.clear()
         if not self._selected or self._selected not in self._containers:
-            self.lbl_selected.setText("Select a container to view its files")
             return
-        count = len(self._containers.get(self._selected, []))
-        self.lbl_selected.setText(
-            f"📂  {self._selected}  ({count} file{'s' if count != 1 else ''})"
-        )
         for fp, _ in self._containers.get(self._selected, []):
             item = QListWidgetItem(os.path.basename(fp))
             item.setToolTip(fp)
