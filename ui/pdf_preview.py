@@ -1,16 +1,15 @@
 # ui/pdf_preview.py
 import os
 import json
-import fitz
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QTabWidget, QComboBox, QFileDialog, QToolButton,
     QDialog, QFormLayout, QLineEdit, QMessageBox, QSplitter,
-    QScrollArea,
+    QTabWidget, QComboBox, QFileDialog, QToolButton,
+    QScrollArea, QMenu,
 )
 from PySide6.QtCore import Qt, QThread, Signal, QUrl
 from PySide6.QtGui import QPixmap, QImage, QTextCharFormat, QFont, QDesktopServices
-from PySide6.QtWebEngineCore import QWebEnginePage
+from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineSettings
 from PySide6.QtWebEngineWidgets import QWebEngineView
 
 import paths
@@ -218,8 +217,6 @@ def _save_summary(file_path: str, html: str):
 class PdfPreviewWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._doc              = None
-        self._page_idx         = 0
         self._path             = None
         self._translate_worker = None
         self._original_text    = None
@@ -228,7 +225,6 @@ class PdfPreviewWidget(QWidget):
         self._online_mindmap_nb_id  = None   # notebook_id khi dùng mind map online
         self._online_mindmap_html   = None   # HTML cache cho fullscreen
         self._online_mindmap_title  = ""
-        self._zoom_factor           = 1.0
         self.setMinimumWidth(300)
         self.setFocusPolicy(Qt.WheelFocus)
         self._setup_ui()
@@ -237,13 +233,6 @@ class PdfPreviewWidget(QWidget):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(6, 6, 6, 6)
         lay.setSpacing(4)
-
-        # File name header
-        self.lbl_name = QLabel("Select a PDF file to preview")
-        self.lbl_name.setAlignment(Qt.AlignCenter)
-        self.lbl_name.setWordWrap(True)
-        self.lbl_name.setStyleSheet("font-size: 10px; padding: 2px;")
-        lay.addWidget(self.lbl_name)
 
         # Tabs
         self.tabs = QTabWidget()
@@ -270,62 +259,15 @@ class PdfPreviewWidget(QWidget):
         viewer_widget = QWidget()
         viewer_widget.setObjectName("pdfContent")
         vlay = QVBoxLayout(viewer_widget)
-        vlay.setContentsMargins(0, 4, 0, 0)
-        vlay.setSpacing(4)
+        vlay.setContentsMargins(0, 0, 0, 0)
+        vlay.setSpacing(0)
 
-        self._scroll_area = QScrollArea()
-        self._scroll_area.setAlignment(Qt.AlignCenter)
-        self._scroll_area.setWidgetResizable(False)
-        self._scroll_area.setFrameShape(QScrollArea.NoFrame)
-        self._scroll_area.setStyleSheet("background: transparent;")
-        self.lbl_page = QLabel()
-        self.lbl_page.setAlignment(Qt.AlignCenter)
-        self._scroll_area.setWidget(self.lbl_page)
-        vlay.addWidget(self._scroll_area, 1)
-
-        nav = QHBoxLayout()
-
-        self.btn_prev = QPushButton("◀")
-        self.btn_prev.setFixedSize(36, 30)
-        self.btn_prev.setEnabled(False)
-        self.btn_prev.clicked.connect(self._prev_page)
-
-        self.lbl_counter = QLabel("—")
-        self.lbl_counter.setAlignment(Qt.AlignCenter)
-        self.lbl_counter.setStyleSheet("font-size: 11px;")
-
-        self.btn_next = QPushButton("▶")
-        self.btn_next.setFixedSize(36, 30)
-        self.btn_next.setEnabled(False)
-        self.btn_next.clicked.connect(self._next_page)
-
-        _zoom_ss = "padding:0; font-size:15px; font-weight:bold;"
-        btn_zoom_out = QPushButton("−")
-        btn_zoom_out.setFixedSize(28, 28)
-        btn_zoom_out.setToolTip("Zoom out (Ctrl+scroll)")
-        btn_zoom_out.setStyleSheet(_zoom_ss)
-        btn_zoom_out.clicked.connect(self._zoom_out)
-
-        btn_zoom_reset = QPushButton("⊡")
-        btn_zoom_reset.setFixedSize(28, 28)
-        btn_zoom_reset.setToolTip("Fit to window")
-        btn_zoom_reset.setStyleSheet(_zoom_ss)
-        btn_zoom_reset.clicked.connect(self._zoom_reset)
-
-        btn_zoom_in = QPushButton("+")
-        btn_zoom_in.setFixedSize(28, 28)
-        btn_zoom_in.setToolTip("Zoom in (Ctrl+scroll)")
-        btn_zoom_in.setStyleSheet(_zoom_ss)
-        btn_zoom_in.clicked.connect(self._zoom_in)
-
-        nav.addWidget(self.btn_prev)
-        nav.addWidget(self.lbl_counter, 1)
-        nav.addWidget(self.btn_next)
-        nav.addSpacing(8)
-        nav.addWidget(btn_zoom_out)
-        nav.addWidget(btn_zoom_reset)
-        nav.addWidget(btn_zoom_in)
-        vlay.addLayout(nav)
+        self.pdf_view = QWebEngineView()
+        self.pdf_view.settings().setAttribute(QWebEngineSettings.WebAttribute.PluginsEnabled, True)
+        self.pdf_view.settings().setAttribute(QWebEngineSettings.WebAttribute.PdfViewerEnabled, True)
+        self.pdf_view.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.pdf_view.customContextMenuRequested.connect(self._show_pdf_context_menu)
+        vlay.addWidget(self.pdf_view, 1)
 
         self.tabs.addTab(viewer_widget, "📄 Page")
 
@@ -456,6 +398,14 @@ class PdfPreviewWidget(QWidget):
 
         self.tabs.addTab(sum_widget, "📝 Notes")
 
+    def _show_pdf_context_menu(self, pos):
+        """Hiển thị menu ngữ cảnh tối giản cho PDF viewer."""
+        menu = QMenu(self)
+        copy_action = menu.addAction("Copy")
+        copy_action.triggered.connect(lambda: self.pdf_view.page().triggerAction(QWebEnginePage.Copy))
+        copy_action.setEnabled(self.pdf_view.page().hasSelection())
+        menu.exec(self.pdf_view.mapToGlobal(pos))
+
     # ── Load file ────────────────────────────────────────────────
     def load(self, path: str):
         if not path or not path.lower().endswith(".pdf"):
@@ -468,14 +418,10 @@ class PdfPreviewWidget(QWidget):
         if self._path and self._path != path:
             self._save_note(silent=True)
         try:
-            if self._doc:
-                self._doc.close()
-            self._doc      = fitz.open(path)
             self._path     = path
-            self._page_idx = 0
-            self._zoom_factor = 1.0
-            self.lbl_name.setText(os.path.basename(path))
-            self._render()
+            
+            url = QUrl.fromLocalFile(path)
+            self.pdf_view.setUrl(url)
             self._load_existing_summary(path)
         except Exception:
             self.clear()
@@ -483,96 +429,15 @@ class PdfPreviewWidget(QWidget):
     def clear(self):
         if self._path:
             self._save_note(silent=True)
-        if self._doc is not None:
-            try:
-                self._doc.close()
-            except Exception:
-                pass
-            self._doc = None
         self._path     = None
-        self._page_idx = 0
-        self.lbl_name.setText("Select a PDF file to preview")
-        self.lbl_page.clear()
-        self.lbl_counter.setText("—")
-        self.btn_prev.setEnabled(False)
-        self.btn_next.setEnabled(False)
+        self.pdf_view.setHtml("")
         self.txt_summary.clear()
 
-    # ── Render trang ────────────────────────────────────────────
-    def _render(self):
-        if not self._doc:
-            return
-        page = self._doc[self._page_idx]
-
-        vw = self._scroll_area.viewport().width()  - 4
-        vh = self._scroll_area.viewport().height() - 4
-        if vw < 100: vw = 400
-        if vh < 100: vh = 500
-
-        rect   = page.rect
-        zoom_w = vw / rect.width  if rect.width  > 0 else 1.0
-        zoom_h = vh / rect.height if rect.height > 0 else 1.0
-        base_zoom = min(zoom_w, zoom_h)
-        zoom = max(base_zoom * self._zoom_factor, 0.1)
-
-        pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
-        img = QImage(pix.samples, pix.width, pix.height, pix.stride, QImage.Format_RGB888)
-        pixmap = QPixmap.fromImage(img)
-        self.lbl_page.setPixmap(pixmap)
-        self.lbl_page.resize(pixmap.size())
-
-        total = len(self._doc)
-        self.lbl_counter.setText(f"{self._page_idx + 1} / {total}  {int(self._zoom_factor * 100)}%")
-        self.btn_prev.setEnabled(self._page_idx > 0)
-        self.btn_next.setEnabled(self._page_idx < total - 1)
-
     def goto_page(self, page_num: int):
-        if self._doc is not None:
-            page_num = max(0, min(page_num, len(self._doc) - 1))
-            self._page_idx = page_num
-            self._render()
-
-    def _prev_page(self):
-        if self._doc and self._page_idx > 0:
-            self._page_idx -= 1
-            self._render()
-
-    def _next_page(self):
-        if self._doc and self._page_idx < len(self._doc) - 1:
-            self._page_idx += 1
-            self._render()
-
-    def _zoom_in(self):
-        self._zoom_factor = min(self._zoom_factor * 1.25, 8.0)
-        self._render()
-
-    def _zoom_out(self):
-        self._zoom_factor = max(self._zoom_factor / 1.25, 0.1)
-        self._render()
-
-    def _zoom_reset(self):
-        self._zoom_factor = 1.0
-        self._render()
-
-    def wheelEvent(self, event):
-        if not self._doc:
-            return
-        if event.modifiers() & Qt.ControlModifier:
-            if event.angleDelta().y() > 0:
-                self._zoom_in()
-            else:
-                self._zoom_out()
-        else:
-            if event.angleDelta().y() < 0:
-                self._next_page()
-            else:
-                self._prev_page()
-        event.accept()
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        if self._doc:
-            self._render()
+        if self._path:
+            url = QUrl.fromLocalFile(self._path)
+            url.setFragment(f"page={page_num + 1}")
+            self.pdf_view.setUrl(url)
 
     # ── Font & format ────────────────────────────────────────────
     def _change_font_size(self, size: str):
@@ -907,7 +772,4 @@ class PdfPreviewWidget(QWidget):
     def closeEvent(self, event):
         if self._path:
             self._save_note(silent=True)
-        if self._doc:
-            self._doc.close()
-            self._doc = None
         super().closeEvent(event)

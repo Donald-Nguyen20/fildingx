@@ -46,6 +46,24 @@ from ui.pdf_preview import PdfPreviewWidget
 from ui.container_tree import ContainerOrgChartWidget, _fs_icon
 
 
+def _load_ui_state() -> dict:
+    try:
+        with open(paths.UI_STATE_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_ui_state(state: dict):
+    try:
+        tmp = paths.UI_STATE_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(state, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, paths.UI_STATE_FILE)
+    except Exception:
+        pass
+
+
 class MultiFolderDialog(QDialog):
     """Dialog chọn nhiều folder để search cùng lúc."""
 
@@ -129,9 +147,13 @@ class MultiFolderDialog(QDialog):
         row_widget.deleteLater()
 
     def _browse(self, entry: QLineEdit):
-        folder = QFileDialog.getExistingDirectory(self, "Select Folder")
+        state = _load_ui_state()
+        start_dir = entry.text().strip() or state.get("last_browse_dir", "")
+        folder = QFileDialog.getExistingDirectory(self, "Select Folder", start_dir)
         if folder:
             entry.setText(folder)
+            state["last_browse_dir"] = folder
+            _save_ui_state(state)
 
     def get_folders(self) -> list[str]:
         return [e.text().strip() for e in self._rows if e.text().strip()]
@@ -165,9 +187,22 @@ class FileSearchApp(QMainWindow):
 
         self.load_data_from_file()
         self.load_exe_addons()
-
+        self._restore_last_folder()
 
         os.makedirs(paths.IMAGE_DIR, exist_ok=True)
+
+    def _restore_last_folder(self):
+        state = _load_ui_state()
+        if self._multi_folder_mode:
+            folders = state.get("last_multi_folders", [])
+            folders = [f for f in folders if os.path.isdir(f)]
+            if folders:
+                self._multi_folders = folders
+                self.folder_entry.setText(" | ".join(folders))
+        else:
+            folder = state.get("last_single_folder", "")
+            if folder and os.path.isdir(folder):
+                self.folder_entry.setText(folder)
 
     # ══════════════════════════════════════════════════════════════
     #  SETUP HELPERS
@@ -612,12 +647,21 @@ class FileSearchApp(QMainWindow):
                 self._multi_folders = dlg.get_folders()
                 if self._multi_folders:
                     self.folder_entry.setText(" | ".join(self._multi_folders))
+                    state = _load_ui_state()
+                    state["last_browse_dir"] = self._multi_folders[-1]
+                    state["last_multi_folders"] = self._multi_folders
+                    _save_ui_state(state)
                 else:
                     self.folder_entry.clear()
         else:
-            folder = QFileDialog.getExistingDirectory(self, "Select Folder")
+            state = _load_ui_state()
+            start_dir = self.folder_entry.text().strip() or state.get("last_browse_dir", "")
+            folder = QFileDialog.getExistingDirectory(self, "Select Folder", start_dir)
             if folder:
                 self.folder_entry.setText(folder)
+                state["last_browse_dir"] = folder
+                state["last_single_folder"] = folder
+                _save_ui_state(state)
 
 
     def _get_search_folders(self) -> list[str]:

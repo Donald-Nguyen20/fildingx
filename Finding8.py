@@ -2,7 +2,7 @@ r"""
 Finding8.py — Entry point.
 
 Build:
-    pyinstaller --noconfirm --clean --onedir --windowed --name "Finding8.1" "Finding8.py" --icon "icon.ico" `
+    pyinstaller --noconfirm --clean --onedir --windowed --name "Finding8.1.1" "Finding8.py" --icon "icon.ico" `
   --add-data "$env:LOCALAPPDATA\ms-playwright\chromium-1208;ms-playwright\chromium-1208" `
   --add-data "$env:LOCALAPPDATA\ms-playwright\ffmpeg-1011;ms-playwright\ffmpeg-1011" `
   --add-data "$env:LOCALAPPDATA\ms-playwright\winldd-1007;ms-playwright\winldd-1007" `
