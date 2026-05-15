@@ -8,8 +8,8 @@ from typing import Callable, List, Optional, Set
 
 import numpy as np
 import faiss
-import torch
-from sentence_transformers import SentenceTransformer
+from embedding_client import create_embedding_client
+from llm_config import load_llm_config
 from Funtion.rag_dedup import (
     build_existing_filenames,
     is_duplicate_filename,
@@ -193,12 +193,6 @@ def build_vector_store(
     overlap: int = 150,
     progress_cb: Optional[Callable[[int], None]] = None,
 ) -> str:
-    # ---- CPU tuning for i7-12700F (20 threads logical) ----
-    CPU_THREADS = int(os.environ.get("RAG_CPU_THREADS", "14"))
-    torch.set_num_threads(CPU_THREADS)
-    os.environ["OMP_NUM_THREADS"] = str(CPU_THREADS)
-    os.environ["MKL_NUM_THREADS"] = str(CPU_THREADS)
-
     if allowed_ext is None:
         allowed_ext = {
             ".pdf", ".docx", ".xlsx", ".pptx", ".txt",
@@ -275,25 +269,17 @@ def build_vector_store(
     if not metas:
         raise RuntimeError("No chunks created.")
 
-    # ---- Embedding (use RTX 4060 if available) ----
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    model = SentenceTransformer(model_name, device=device)
-
-    print("cuda_available:", torch.cuda.is_available())
-    if torch.cuda.is_available():
-        print("gpu:", torch.cuda.get_device_name(0))
-    print("model_device:", getattr(model, "device", None))
+    # ---- Embedding ----
+    live_cfg = load_llm_config()
+    embedding_provider = live_cfg.get("embedding_provider", "local")
+    emb = create_embedding_client(
+        provider=embedding_provider,
+        model_name=model_name,
+        api_key=live_cfg.get("gemini_api_key", ""),
+    )
 
     texts = [m.text for m in metas]
-
-    batch_size = int(os.environ.get("RAG_BATCH_SIZE", "128"))  # 4060 + 32GB thường ok
-    vectors = model.encode(
-        texts,
-        batch_size=batch_size,
-        show_progress_bar=True,
-        normalize_embeddings=True
-    )
-    vectors = np.asarray(vectors, dtype="float32")
+    vectors = emb.embed_batch(texts)
     dim = vectors.shape[1]
 
     # ---- FAISS index: HNSW by default (scale-friendly) ----
@@ -320,20 +306,21 @@ def build_vector_store(
         f.write(folder_path)
 
     # Save index contract (to avoid model mismatch later)
-    cfg = {
+    index_cfg = {
         "model_name": model_name,
+        "embedding_provider": embedding_provider,
         "normalize_embeddings": True,
         "index_type": "HNSW" if use_hnsw else "FlatIP",
         "dim": int(dim),
         "chunk_size": int(chunk_size),
         "overlap": int(overlap),
-        "batch_size": int(batch_size),
-        "cpu_threads": int(CPU_THREADS),
+        "batch_size": int(os.environ.get("RAG_BATCH_SIZE", "128")),
+        "cpu_threads": int(os.environ.get("RAG_CPU_THREADS", "14")),
         "created_at": created_at,
         "min_chunk_len": int(MIN_CHUNK_LEN),
     }
     with open(os.path.join(output_dir, "index_config.json"), "w", encoding="utf-8") as f:
-        json.dump(cfg, f, ensure_ascii=False, indent=2)
+        json.dump(index_cfg, f, ensure_ascii=False, indent=2)
 
     if progress_cb:
         progress_cb(100)
@@ -349,12 +336,6 @@ def build_vector_store_from_files(
     overlap: int = 150,
     progress_cb: Optional[Callable[[int], None]] = None,
 ) -> str:
-    # ---- CPU tuning (giữ giống build_vector_store) ----
-    CPU_THREADS = int(os.environ.get("RAG_CPU_THREADS", "14"))
-    torch.set_num_threads(CPU_THREADS)
-    os.environ["OMP_NUM_THREADS"] = str(CPU_THREADS)
-    os.environ["MKL_NUM_THREADS"] = str(CPU_THREADS)
-
     if allowed_ext is None:
         allowed_ext = {
             ".pdf", ".docx", ".xlsx", ".pptx", ".txt",
@@ -445,22 +426,20 @@ def build_vector_store_from_files(
     if not metas:
         raise RuntimeError("No chunks created.")
 
-    # ---- Embedding (giữ giống build_vector_store) ----
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    model = SentenceTransformer(model_name, device=device)
+    # ---- Embedding ----
+    live_cfg = load_llm_config()
+    embedding_provider = live_cfg.get("embedding_provider", "local")
+    emb = create_embedding_client(
+        provider=embedding_provider,
+        model_name=model_name,
+        api_key=live_cfg.get("gemini_api_key", ""),
+    )
 
     texts = [m.text for m in metas]
-    batch_size = int(os.environ.get("RAG_BATCH_SIZE", "128"))
-    vectors = model.encode(
-        texts,
-        batch_size=batch_size,
-        show_progress_bar=True,
-        normalize_embeddings=True
-    )
-    vectors = np.asarray(vectors, dtype="float32")
+    vectors = emb.embed_batch(texts)
     dim = vectors.shape[1]
 
-    # ---- FAISS index (giữ giống build_vector_store) ----
+    # ---- FAISS index ----
     use_hnsw = os.environ.get("RAG_INDEX", "hnsw").lower() == "hnsw"
     if use_hnsw:
         M = int(os.environ.get("RAG_HNSW_M", "32"))
@@ -480,24 +459,24 @@ def build_vector_store_from_files(
     with open(os.path.join(output_dir, "metadata.json"), "w", encoding="utf-8") as f:
         json.dump([m.__dict__ for m in metas], f, ensure_ascii=False, indent=2)
 
-    # ✅ cái này để validator của anh không báo lỗi
     with open(os.path.join(output_dir, "base_path.txt"), "w", encoding="utf-8") as f:
         f.write(common_root)
 
-    cfg = {
+    index_cfg = {
         "model_name": model_name,
+        "embedding_provider": embedding_provider,
         "normalize_embeddings": True,
         "index_type": "HNSW" if use_hnsw else "FlatIP",
         "dim": int(dim),
         "chunk_size": int(chunk_size),
         "overlap": int(overlap),
-        "batch_size": int(batch_size),
-        "cpu_threads": int(CPU_THREADS),
+        "batch_size": int(os.environ.get("RAG_BATCH_SIZE", "128")),
+        "cpu_threads": int(os.environ.get("RAG_CPU_THREADS", "14")),
         "created_at": created_at,
         "min_chunk_len": int(MIN_CHUNK_LEN),
     }
     with open(os.path.join(output_dir, "index_config.json"), "w", encoding="utf-8") as f:
-        json.dump(cfg, f, ensure_ascii=False, indent=2)
+        json.dump(index_cfg, f, ensure_ascii=False, indent=2)
 
     if progress_cb:
         progress_cb(100)
@@ -590,24 +569,22 @@ def append_vector_store(
         return 0
 
 
-    # validate embedding model/dim
+    # validate embedding model/dim — must match original build
+    embedding_provider = cfg.get("embedding_provider", "local")
     model_name = cfg.get("model_name", "sentence-transformers/all-MiniLM-L6-v2")
     dim_expected = int(cfg.get("dim", 0))
 
-    # CPU tuning (giữ giống build)
-    CPU_THREADS = int(os.environ.get("RAG_CPU_THREADS", str(cfg.get("cpu_threads", 14))))
-    torch.set_num_threads(CPU_THREADS)
-    os.environ["OMP_NUM_THREADS"] = str(CPU_THREADS)
-    os.environ["MKL_NUM_THREADS"] = str(CPU_THREADS)
-
-    model = SentenceTransformer(model_name)
-    dim_now = int(model.get_sentence_embedding_dimension())
+    live_cfg = load_llm_config()
+    emb = create_embedding_client(
+        provider=embedding_provider,
+        model_name=model_name,
+        api_key=live_cfg.get("gemini_api_key", ""),
+    )
+    dim_now = emb.dim
     if dim_expected and dim_expected != dim_now:
         raise ValueError(f"Embedding dim mismatch: store={dim_expected}, current={dim_now}")
 
     chunk_size = int(cfg.get("chunk_size", 900))
-    overlap    = int(cfg.get("overlap", 150))  # (hiện build bạn không dùng overlap nhưng vẫn lưu)
-    batch_size = int(cfg.get("batch_size", 32))
     MIN_CHUNK_LEN = int(os.environ.get("RAG_MIN_CHUNK_LEN", str(cfg.get("min_chunk_len", 80))))
 
     source_folder = os.path.basename((folder_path or "").rstrip(os.sep)) if folder_path else ""
@@ -698,13 +675,7 @@ def append_vector_store(
         texts_to_add = [p[0] for p in unique_pairs]
         metas_to_add = [p[1] for p in unique_pairs]
 
-        vecs = model.encode(
-            texts_to_add,
-            batch_size=batch_size,
-            show_progress_bar=False,
-            normalize_embeddings=True
-        )
-        vecs = np.asarray(vecs, dtype="float32")
+        vecs = emb.embed_batch(texts_to_add)
         index.add(vecs)
 
         new_meta_dicts.extend(metas_to_add)

@@ -70,7 +70,19 @@ class LLMSettingsDialog(QDialog):
         self.ed_groq.setEchoMode(QLineEdit.Password)
         form.addRow("Groq API key:", self.ed_groq)
 
+        self.ed_gemini = QLineEdit(cfg.get("gemini_api_key",""))
+        self.ed_gemini.setEchoMode(QLineEdit.Password)
+        self.ed_gemini.setPlaceholderText("AIza...")
+        form.addRow("Gemini API key:", self.ed_gemini)
 
+        self.cbo_embed_provider = QComboBox()
+        self.cbo_embed_provider.addItem("Local (sentence-transformers)", "local")
+        self.cbo_embed_provider.addItem("Gemini text-embedding-004 (cloud)", "gemini")
+        current_provider = cfg.get("embedding_provider", "local")
+        idx = self.cbo_embed_provider.findData(current_provider)
+        if idx >= 0:
+            self.cbo_embed_provider.setCurrentIndex(idx)
+        form.addRow("Embedding provider:", self.cbo_embed_provider)
 
         self.ed_ollama_host = QLineEdit(cfg.get("ollama_host","http://localhost:11434"))
         form.addRow("Ollama host:", self.ed_ollama_host)
@@ -106,6 +118,8 @@ QComboBox QAbstractItemView {
         cfg = load_llm_config()
         cfg["openrouter_api_key"] = self.ed_openrouter.text().strip()
         cfg["groq_api_key"] = self.ed_groq.text().strip()
+        cfg["gemini_api_key"] = self.ed_gemini.text().strip()
+        cfg["embedding_provider"] = self.cbo_embed_provider.currentData() or "local"
         cfg["ollama_host"] = self.ed_ollama_host.text().strip() or "http://localhost:11434"
 
         try:

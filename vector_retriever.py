@@ -1,13 +1,14 @@
 # vector_retriever.py
-import os, json
-import numpy as np
-import faiss
-import torch
-from sentence_transformers import SentenceTransformer
-
+import os
+import json
 import math
 import re
 from collections import Counter, defaultdict
+
+import numpy as np
+import faiss
+from embedding_client import create_embedding_client
+from llm_config import load_llm_config
 
 # --- reranker (CrossEncoder) optional
 try:
@@ -76,7 +77,7 @@ class BM25Mini:
 # Vector Retriever (Dense + Hybrid + Rerank)
 # =========================
 class VectorRetriever:
-    def __init__(self, store_dir: str, model_name: str = "all-MiniLM-L6-v2"):
+    def __init__(self, store_dir: str, model_name: str = ""):
         self.store_dir = store_dir
         self.index = faiss.read_index(os.path.join(store_dir, "index.faiss"))
 
@@ -86,8 +87,23 @@ class VectorRetriever:
         with open(os.path.join(store_dir, "base_path.txt"), "r", encoding="utf-8") as f:
             self.base_path = f.read().strip()
 
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.model = SentenceTransformer(model_name, device=device)
+        # Load embedding provider from the store's build config
+        cfg_path = os.path.join(store_dir, "index_config.json")
+        store_cfg: dict = {}
+        if os.path.exists(cfg_path):
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                store_cfg = json.load(f)
+
+        embedding_provider = store_cfg.get("embedding_provider", "local")
+        stored_model_name = model_name or store_cfg.get(
+            "model_name", "sentence-transformers/all-MiniLM-L6-v2"
+        )
+        live_cfg = load_llm_config()
+        self.embed_client = create_embedding_client(
+            provider=embedding_provider,
+            model_name=stored_model_name,
+            api_key=live_cfg.get("gemini_api_key", ""),
+        )
 
         # Nếu index là HNSW thì set efSearch để tăng chất lượng
         if hasattr(self.index, "hnsw"):
@@ -164,7 +180,7 @@ class VectorRetriever:
         """
 
         # ---- 1) Dense search
-        qv = self.model.encode([query], normalize_embeddings=True)
+        qv = self.embed_client.embed_query(query)
         qv = np.asarray(qv, dtype="float32")
         D, I = self.index.search(qv, candidate_k)
 
