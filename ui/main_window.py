@@ -845,14 +845,29 @@ class FileSearchApp(QMainWindow):
     #  TREE CONTEXT MENU / OPEN FILE
     # ══════════════════════════════════════════════════════════════
 
+    def _checked_or_selected_items(self):
+        """Trả về items được check (nếu có), ngược lại trả về items được select."""
+        checked = []
+        root = self.tree_widget.invisibleRootItem()
+        for i in range(root.childCount()):
+            parent = root.child(i)
+            if parent.checkState(0) == Qt.Checked:
+                checked.append(parent)
+            for j in range(parent.childCount()):
+                child = parent.child(j)
+                if child.checkState(0) == Qt.Checked:
+                    checked.append(child)
+        return checked if checked else self.tree_widget.selectedItems()
+
     def show_treeview_context_menu(self, position):
         item = self.tree_widget.itemAt(position)
         if not item:
             return
         file_path = item.text(4)
+        is_dir = item.text(2) == "DIR"
         menu = QMenu(self)
         menu.addAction("Open Folder").triggered.connect(
-            lambda: self._open_folder_path(os.path.dirname(file_path))
+            lambda: self._open_folder_path(file_path if is_dir else os.path.dirname(file_path))
         )
         menu.addAction("📋 Copy Path").triggered.connect(
             lambda: self.get_link_from_tree_view()
@@ -877,7 +892,41 @@ class FileSearchApp(QMainWindow):
         menu.addAction("🗑 Delete file").triggered.connect(
             lambda: self._delete_file_from_tree(item, file_path)
         )
+
+        # ── Folder search actions (chỉ hiện khi kết quả là folder) ──
+        if is_dir:
+            selected_dirs = [
+                it.text(4) for it in self._checked_or_selected_items()
+                if it.text(2) == "DIR" and it.text(4)
+            ]
+            targets = selected_dirs or [file_path]
+            menu.addSeparator()
+            menu.addAction("➕ Add to search folders").triggered.connect(
+                lambda: self._add_to_search_folders(targets)
+            )
+
         menu.exec(QCursor.pos())
+
+    # ══════════════════════════════════════════════════════════════
+    #  FOLDER SEARCH NAVIGATION  (tính năng mới — dùng kết quả folder:
+    #  để tiếp tục tìm kiếm bên trong)
+    # ══════════════════════════════════════════════════════════════
+
+    def _add_to_search_folders(self, folder_paths: list[str]):
+        """Đặt folder(s) được chọn làm danh sách search (thay thế hoàn toàn)."""
+        valid = [p for p in folder_paths if p and os.path.isdir(p)]
+        if not valid:
+            self.statusBar().showMessage("No valid folders selected.")
+            return
+        if not self._multi_folder_mode:
+            self._toggle_folder_mode()
+        self._multi_folders = valid
+        self.folder_entry.setText(" | ".join(valid))
+        state = _load_ui_state()
+        state["last_multi_folders"] = valid
+        state["last_browse_dir"]    = valid[-1]
+        _save_ui_state(state)
+        self.statusBar().showMessage(f"Search folders set: {len(valid)} folder(s).")
 
     def _ask_nlm_about_file(self, file_path: str):
         """Tạo notebook tạm, upload file, switch sang NbLM tab để chat."""
@@ -954,7 +1003,7 @@ class FileSearchApp(QMainWindow):
     def _copy_files_from_tree(self, item):
         """Copy file(s) đã chọn sang thư mục khác."""
         import shutil
-        selected = self.tree_widget.selectedItems()
+        selected = self._checked_or_selected_items()
         targets  = [(i, i.text(4)) for i in (selected if selected else [item])]
         targets  = [(i, p) for i, p in targets if p and os.path.isfile(p)]
         if not targets:
@@ -982,7 +1031,7 @@ class FileSearchApp(QMainWindow):
     def _move_files_from_tree(self, item):
         """Di chuyển file(s) đã chọn sang thư mục khác."""
         import shutil
-        selected = self.tree_widget.selectedItems()
+        selected = self._checked_or_selected_items()
         targets = [(i, i.text(4)) for i in (selected if selected else [item])]
         targets = [(i, p) for i, p in targets if p and os.path.isfile(p)]
         if not targets:
@@ -1017,7 +1066,7 @@ class FileSearchApp(QMainWindow):
 
     def _delete_file_from_tree(self, item, file_path: str):
         """Xác nhận rồi xóa file(s) khỏi disk và khỏi tree."""
-        selected = self.tree_widget.selectedItems()
+        selected = self._checked_or_selected_items()
         # Nếu không có multi-select, dùng item được click
         targets = [(i, i.text(4)) for i in (selected if selected else [item])]
         targets = [(i, p) for i, p in targets if p and os.path.isfile(p)]
@@ -1060,7 +1109,7 @@ class FileSearchApp(QMainWindow):
             QMessageBox.warning(self, "Not Logged In",
                 "Please log in to NotebookLM first.\n\nGo to the 📓 NotebookLM tab and click 🔑 Switch Account.")
             return
-        selected = self.tree_widget.selectedItems()
+        selected = self._checked_or_selected_items()
         if not selected:
             return
         nb_id = NLMNotebookPickerDialog.pick(self)
@@ -1302,7 +1351,7 @@ class FileSearchApp(QMainWindow):
     # ══════════════════════════════════════════════════════════════
 
     def get_name_from_tree_view(self):
-        items = self.tree_widget.selectedItems()
+        items = self._checked_or_selected_items()
         if items:
             QApplication.clipboard().setText("\n".join(i.text(0) for i in items))
             QMessageBox.information(self, "Copied", "File names copied to clipboard.")
@@ -1310,7 +1359,7 @@ class FileSearchApp(QMainWindow):
             QMessageBox.warning(self, "No Selection", "Please select at least one file.")
 
     def get_link_from_tree_view(self):
-        items = self.tree_widget.selectedItems()
+        items = self._checked_or_selected_items()
         if items:
             QApplication.clipboard().setText("\n".join(i.text(4) for i in items))
             QMessageBox.information(self, "Copied", "File paths copied to clipboard.")
@@ -1329,7 +1378,7 @@ class FileSearchApp(QMainWindow):
             QMessageBox.critical(self, "Error", f"Failed to open Notes: {e}")
 
     def get_hyperlink_from_tree_view(self):
-        items = self.tree_widget.selectedItems()
+        items = self._checked_or_selected_items()
         if not items:
             QMessageBox.warning(self, "No Selection", "Please select at least one file.")
             return

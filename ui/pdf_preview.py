@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
     QScrollArea, QMenu,
 )
 from PySide6.QtCore import Qt, QThread, Signal, QUrl
-from PySide6.QtGui import QPixmap, QImage, QTextCharFormat, QFont, QDesktopServices
+from PySide6.QtGui import QPixmap, QImage, QTextCharFormat, QFont, QDesktopServices, QKeySequence, QShortcut
 from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineSettings
 from PySide6.QtWebEngineWidgets import QWebEngineView
 
@@ -262,6 +262,60 @@ class PdfPreviewWidget(QWidget):
         vlay.setContentsMargins(0, 0, 0, 0)
         vlay.setSpacing(0)
 
+        # Search bar (Ctrl+F to toggle)
+        self._pdf_search_bar = QWidget()
+        self._pdf_search_bar.setStyleSheet("""
+            QWidget { background: #2b3050; }
+            QLineEdit {
+                background: #3a4070;
+                color: #e0e8ff;
+                border: 1px solid #5068c0;
+                border-radius: 4px;
+                padding: 3px 8px;
+                font-size: 12px;
+            }
+            QLabel { color: #a8b8d8; background: transparent; font-size: 13px; }
+            QPushButton {
+                background: #404878;
+                color: #e0e8ff;
+                border: 1px solid #6070a8;
+                border-radius: 4px;
+                font-size: 10px;
+                padding: 2px 6px;
+            }
+            QPushButton:hover { background: #5060a0; }
+        """)
+        _sl = QHBoxLayout(self._pdf_search_bar)
+        _sl.setContentsMargins(8, 3, 8, 3)
+        _sl.setSpacing(4)
+        _sl.addWidget(QLabel("🔍"))
+        self._pdf_search_edit = QLineEdit()
+        self._pdf_search_edit.setPlaceholderText("Search in PDF…")
+        self._pdf_search_edit.returnPressed.connect(self._pdf_find_next)
+        self._pdf_search_edit.textChanged.connect(
+            lambda t: self.pdf_view.page().findText(t)
+        )
+        _sl.addWidget(self._pdf_search_edit, 1)
+        self._pdf_match_label = QLabel("")
+        self._pdf_match_label.setFixedWidth(64)
+        _sl.addWidget(self._pdf_match_label)
+        _btn_prev = QPushButton("Prev")
+        _btn_prev.setToolTip("Find previous (Shift+Enter)")
+        _btn_next = QPushButton("Next")
+        _btn_next.setToolTip("Find next (Enter)")
+        _btn_cls  = QPushButton("Close")
+        _btn_cls.setToolTip("Close search bar (Esc)")
+        for _b in (_btn_prev, _btn_next, _btn_cls):
+            _b.setFixedHeight(26)
+        _btn_prev.clicked.connect(self._pdf_find_prev)
+        _btn_next.clicked.connect(self._pdf_find_next)
+        _btn_cls.clicked.connect(self._close_pdf_search)
+        _sl.addWidget(_btn_prev)
+        _sl.addWidget(_btn_next)
+        _sl.addWidget(_btn_cls)
+        self._pdf_search_bar.setVisible(False)
+        vlay.addWidget(self._pdf_search_bar)
+
         self.pdf_view = QWebEngineView()
         self.pdf_view.settings().setAttribute(QWebEngineSettings.WebAttribute.PluginsEnabled, True)
         self.pdf_view.settings().setAttribute(QWebEngineSettings.WebAttribute.PdfViewerEnabled, True)
@@ -398,12 +452,58 @@ class PdfPreviewWidget(QWidget):
 
         self.tabs.addTab(sum_widget, "📝 Notes")
 
+        sc = QShortcut(QKeySequence("Ctrl+F"), self)
+        sc.activated.connect(self._on_find_shortcut)
+
+    def _on_find_shortcut(self):
+        if self.tabs.currentIndex() == 0:
+            self._toggle_pdf_search()
+
+    def _toggle_pdf_search(self):
+        visible = not self._pdf_search_bar.isVisible()
+        self._pdf_search_bar.setVisible(visible)
+        if visible:
+            self._pdf_search_edit.setFocus()
+            self._pdf_search_edit.selectAll()
+        else:
+            self.pdf_view.page().findText("")
+            self._pdf_match_label.setText("")
+
+    def _close_pdf_search(self):
+        self._pdf_search_bar.setVisible(False)
+        self.pdf_view.page().findText("")
+        self._pdf_match_label.setText("")
+
+    def _pdf_find_next(self):
+        text = self._pdf_search_edit.text()
+        self.pdf_view.page().findText(
+            text, QWebEnginePage.FindFlags(), self._on_find_result
+        )
+
+    def _pdf_find_prev(self):
+        text = self._pdf_search_edit.text()
+        self.pdf_view.page().findText(
+            text,
+            QWebEnginePage.FindFlag.FindBackward,
+            self._on_find_result,
+        )
+
+    def _on_find_result(self, result) -> None:
+        n = result.numberOfMatches()
+        if n == 0:
+            self._pdf_match_label.setText("No match" if self._pdf_search_edit.text() else "")
+        else:
+            self._pdf_match_label.setText(f"{result.activeMatch()}/{n}")
+
     def _show_pdf_context_menu(self, pos):
         """Hiển thị menu ngữ cảnh tối giản cho PDF viewer."""
         menu = QMenu(self)
         copy_action = menu.addAction("Copy")
         copy_action.triggered.connect(lambda: self.pdf_view.page().triggerAction(QWebEnginePage.Copy))
         copy_action.setEnabled(self.pdf_view.page().hasSelection())
+        menu.addSeparator()
+        find_action = menu.addAction("Find…\tCtrl+F")
+        find_action.triggered.connect(self._toggle_pdf_search)
         menu.exec(self.pdf_view.mapToGlobal(pos))
 
     # ── Load file ────────────────────────────────────────────────

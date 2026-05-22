@@ -85,6 +85,8 @@ class TreeSortHelper:
         - SIZE: bytes/float
         """
         it = SortableTreeItem([name, date_text, type_text, size_text, path])
+        it.setFlags(it.flags() | Qt.ItemIsUserCheckable)
+        it.setCheckState(0, Qt.Unchecked)
 
         # NAME sort key (natural)
         it.setData(0, Qt.UserRole, _natural_key(name))
