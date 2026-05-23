@@ -302,7 +302,7 @@ class _ListFilesWindow(QDialog):
     def _walk_checked(self, node: QTreeWidgetItem, result: list, include_dirs: bool):
         for i in range(node.childCount()):
             child = node.child(i)
-            if int(child.checkState(0)) == 2:   # Qt.Checked == 2
+            if child.checkState(0) == Qt.Checked:
                 if child.text(1) == "DIR":
                     if include_dirs:
                         result.append(child.text(3))
@@ -324,8 +324,7 @@ class _ListFilesWindow(QDialog):
             if child.text(1) != "DIR":
                 continue
             path = child.text(3)
-            cs = child.checkState(0)
-            if cs != Qt.Unchecked:
+            if child.checkState(0) != Qt.Unchecked:
                 if path and path not in added:
                     result.append(path)
                     added.add(path)

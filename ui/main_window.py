@@ -42,6 +42,7 @@ from ui.help_dialog import HelpDialog
 from ui.index_search_window import IndexSearchWindow, IndexSearchWidget
 from ui.notebooklm_window import NotebookLMWidget
 from ui.list_files_window import show_list_files_window
+from ui.sync_folder_window import show_sync_folder_window
 from ui.pdf_preview import PdfPreviewWidget
 from ui.container_tree import ContainerOrgChartWidget, _fs_icon
 
@@ -520,6 +521,7 @@ class FileSearchApp(QMainWindow):
 
         for btn, fn in [
             (QPushButton("List Files"),                  self.list_files_in_folder),
+            (QPushButton("Synchronize Folders"),         self.sync_folders),
             (dup_btn,                                    None),
             (QPushButton("Open Notes"),                  self.open_or_create_notes),
             (QPushButton("Get Hyperlink for Notes"),     self.get_hyperlink_from_tree_view),
@@ -1511,6 +1513,9 @@ class FileSearchApp(QMainWindow):
 
     def list_files_in_folder(self):
         show_list_files_window(self)
+
+    def sync_folders(self):
+        show_sync_folder_window(self)
 
     def open_index_interface(self):
         IndexSearchWindow(self).exec()
