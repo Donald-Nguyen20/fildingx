@@ -93,13 +93,10 @@ class MultiFolderDialog(QDialog):
 
         self._rows: list[QLineEdit] = []
 
-        # Tạo 3 hàng mặc định
+        # Tạo các hàng từ current_folders, hoặc 3 hàng trống nếu chưa có
         init = current_folders if current_folders else ["", "", ""]
         for i, val in enumerate(init):
             self._add_row(val, i + 1)
-        # Nếu current_folders > 3, thêm thêm
-        for i in range(3, len(current_folders)):
-            self._add_row(current_folders[i], i + 1)
 
         # Nút Add source
         btn_add = QPushButton("＋ Add source")
@@ -395,6 +392,7 @@ class FileSearchApp(QMainWindow):
         self.tree_widget.setContextMenuPolicy(Qt.CustomContextMenu)
         self.tree_widget.customContextMenuRequested.connect(self.show_treeview_context_menu)
         self.tree_widget.viewport().installEventFilter(self)
+        self.tree_widget.installEventFilter(self)
 
         # ── PDF Preview ───────────────────────────────────────────
         self.pdf_preview = PdfPreviewWidget()
@@ -521,10 +519,10 @@ class FileSearchApp(QMainWindow):
         self.search_duplicates_button = dup_btn
 
         for btn, fn in [
+            (QPushButton("List Files"),                  self.list_files_in_folder),
             (dup_btn,                                    None),
             (QPushButton("Open Notes"),                  self.open_or_create_notes),
             (QPushButton("Get Hyperlink for Notes"),     self.get_hyperlink_from_tree_view),
-            (QPushButton("List Files"),                  self.list_files_in_folder),
         ]:
             if fn:
                 btn.clicked.connect(fn)
@@ -722,12 +720,15 @@ class FileSearchApp(QMainWindow):
 
     def display_results(self, results: list):
         self.tree_widget.clear()
-        if results:
-            for name, path in results:
+        seen: set = set()
+        unique = [(n, p) for n, p in results
+                  if os.path.normpath(p) not in seen and not seen.add(os.path.normpath(p))]
+        if unique:
+            for name, path in unique:
                 self.tree_widget.addTopLevelItem(self._make_tree_item(name, path))
             self._mark_saved_items()
-            self.lcd_number.display(len(results))
-            self.statusBar().showMessage(f"Found {len(results)} file(s).")
+            self.lcd_number.display(len(unique))
+            self.statusBar().showMessage(f"Found {len(unique)} file(s).")
         else:
             self.lcd_number.display(0)
             self.statusBar().showMessage("No files found.")
@@ -738,8 +739,11 @@ class FileSearchApp(QMainWindow):
 
     def display_folder_results(self, results: list):
         self.tree_widget.clear()
-        if results:
-            for name, path in results:
+        seen: set = set()
+        unique = [(n, p) for n, p in results
+                  if os.path.normpath(p) not in seen and not seen.add(os.path.normpath(p))]
+        if unique:
+            for name, path in unique:
                 try:    mtime_ts = os.path.getmtime(path)
                 except OSError: mtime_ts = None
                 item = self.sort_helper.make_item(
@@ -752,8 +756,8 @@ class FileSearchApp(QMainWindow):
                     size_bytes = None,
                 )
                 self.tree_widget.addTopLevelItem(item)
-            self.lcd_number.display(len(results))
-            self.statusBar().showMessage(f"Found {len(results)} folder(s).")
+            self.lcd_number.display(len(unique))
+            self.statusBar().showMessage(f"Found {len(unique)} folder(s).")
         else:
             self.lcd_number.display(0)
             self.statusBar().showMessage("No folders found.")
@@ -895,11 +899,16 @@ class FileSearchApp(QMainWindow):
 
         # ── Folder search actions (chỉ hiện khi kết quả là folder) ──
         if is_dir:
-            selected_dirs = [
-                it.text(4) for it in self._checked_or_selected_items()
-                if it.text(2) == "DIR" and it.text(4)
+            # Chỉ lấy folder được CHECK bằng checkbox — không dùng selection
+            root = self.tree_widget.invisibleRootItem()
+            checked_dirs = [
+                root.child(i).text(4)
+                for i in range(root.childCount())
+                if root.child(i).checkState(0) == Qt.Checked
+                and root.child(i).text(2) == "DIR"
+                and root.child(i).text(4)
             ]
-            targets = selected_dirs or [file_path]
+            targets = checked_dirs or [file_path]
             menu.addSeparator()
             menu.addAction("➕ Add to search folders").triggered.connect(
                 lambda: self._add_to_search_folders(targets)
@@ -914,14 +923,21 @@ class FileSearchApp(QMainWindow):
 
     def _add_to_search_folders(self, folder_paths: list[str]):
         """Đặt folder(s) được chọn làm danh sách search (thay thế hoàn toàn)."""
-        valid = [p for p in folder_paths if p and os.path.isdir(p)]
+        seen: set = set()
+        valid = [os.path.normpath(p) for p in folder_paths
+                 if p and os.path.isdir(p)
+                 and os.path.normpath(p) not in seen and not seen.add(os.path.normpath(p))]
         if not valid:
             self.statusBar().showMessage("No valid folders selected.")
             return
         if not self._multi_folder_mode:
             self._toggle_folder_mode()
         self._multi_folders = valid
+        # Tắt ReadOnly tạm để clear + setText luôn áp dụng lên widget
+        self.folder_entry.setReadOnly(False)
+        self.folder_entry.clear()
         self.folder_entry.setText(" | ".join(valid))
+        self.folder_entry.setReadOnly(True)
         state = _load_ui_state()
         state["last_multi_folders"] = valid
         state["last_browse_dir"]    = valid[-1]
@@ -970,12 +986,37 @@ class FileSearchApp(QMainWindow):
 
     def eventFilter(self, obj, event):
         from PySide6.QtCore import QEvent
-        from PySide6.QtGui import QMouseEvent
+        from PySide6.QtGui import QMouseEvent, QKeyEvent
+        if obj is self.tree_widget and event.type() == QEvent.KeyPress:
+            if event.key() == Qt.Key_A and event.modifiers() == Qt.ControlModifier:
+                self._check_all_items()
+                return True
+            if event.key() == Qt.Key_A and event.modifiers() == (Qt.ControlModifier | Qt.ShiftModifier):
+                self._uncheck_all_items()
+                return True
         if obj is self.tree_widget.viewport() and event.type() == QEvent.MouseButtonPress:
             item = self.tree_widget.itemAt(event.pos())
             if item is None:
                 self.tree_widget.clearSelection()
         return super().eventFilter(obj, event)
+
+    def _check_all_items(self):
+        """Check tất cả items trong tree (Ctrl+A)."""
+        root = self.tree_widget.invisibleRootItem()
+        for i in range(root.childCount()):
+            parent = root.child(i)
+            parent.setCheckState(0, Qt.Checked)
+            for j in range(parent.childCount()):
+                parent.child(j).setCheckState(0, Qt.Checked)
+
+    def _uncheck_all_items(self):
+        """Uncheck tất cả items trong tree (Ctrl+Shift+A)."""
+        root = self.tree_widget.invisibleRootItem()
+        for i in range(root.childCount()):
+            parent = root.child(i)
+            parent.setCheckState(0, Qt.Unchecked)
+            for j in range(parent.childCount()):
+                parent.child(j).setCheckState(0, Qt.Unchecked)
 
     def closeEvent(self, event):
         self._cleanup_temp_notebooks()

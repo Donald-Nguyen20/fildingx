@@ -390,7 +390,7 @@ class ContainerOrgChartWidget(QWidget):
         self._containers: Dict           = {}
         self._parents:    Dict[str, str] = {}
         self._selected:   Optional[str]  = None
-        self._direction:  str            = "TB"
+        self._direction:  str            = "LIST"
         self._setup_ui()
 
     # ── UI setup ──────────────────────────────────────────────────────────────
@@ -419,7 +419,7 @@ class ContainerOrgChartWidget(QWidget):
         self._fs_btn.setToolTip("Fullscreen / thu nhỏ panel container")
         self._fs_btn.clicked.connect(self.fullscreen_requested.emit)
 
-        self._btn_dir = QPushButton("⇅ TB")
+        self._btn_dir = QPushButton("☰ List")
         self._btn_dir.setFixedSize(68, 28)
         self._btn_dir.setToolTip("Switch layout")
         self._btn_dir.clicked.connect(self._show_direction_menu)
@@ -475,6 +475,7 @@ class ContainerOrgChartWidget(QWidget):
         self._inner_splitter.setHandleWidth(6)
         lay.addWidget(self._inner_splitter)
         self._initial_sizes_set = False
+        self._top_stack.setCurrentIndex(1)  # mặc định List mode
 
     def _build_list_panel(self) -> QWidget:
         panel = QWidget()
@@ -541,9 +542,9 @@ class ContainerOrgChartWidget(QWidget):
     def _show_direction_menu(self):
         menu = QMenu(self)
         for label, mode in [
+            ("☰  List",          "LIST"),
             ("⇅  Top → Bottom", "TB"),
             ("⇄  Left → Right", "LR"),
-            ("☰  List",          "LIST"),
         ]:
             action = menu.addAction(label)
             action.setCheckable(True)
