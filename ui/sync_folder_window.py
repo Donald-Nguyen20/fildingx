@@ -1,7 +1,9 @@
 """
 ui/sync_folder_window.py — Đồng bộ nội dung Folder A → Folder B.
 Layout: 2 panel tree song song (Source | Target).
+Lưu/load cấu hình src+dst vào sync_config.json.
 """
+import json
 import os
 import shutil
 
@@ -13,6 +15,29 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 
 from ui import themes
+import paths
+
+
+_CONFIG_FILE = paths.SYNC_CONFIG_FILE
+
+
+def _load_config() -> dict:
+    try:
+        with open(_CONFIG_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_config(src: str, dst: str, unchecked: list[str] | None = None) -> None:
+    data: dict = {"source": src, "target": dst}
+    if unchecked is not None:
+        data["unchecked"] = unchecked
+    try:
+        with open(_CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
 
 
 def show_sync_folder_window(parent) -> None:
@@ -24,12 +49,17 @@ class _SyncFolderWindow(QDialog):
     def __init__(self, parent):
         super().__init__(parent)
         self.setWindowTitle("Synchronize Folders")
+        self.setWindowFlags(self.windowFlags() | Qt.WindowMaximizeButtonHint)
         self.setGeometry(100, 60, 1300, 740)
         self.setStyleSheet(themes.get_current()["qss"])
 
         self._src      = ""
         self._dst      = ""
         self._blocking = False
+
+        cfg = _load_config()
+        self._src = cfg.get("source", "")
+        self._dst = cfg.get("target", "")
 
         layout = QVBoxLayout(self)
         layout.setSpacing(8)
@@ -103,6 +133,20 @@ class _SyncFolderWindow(QDialog):
         splitter.setHandleWidth(6)
         layout.addWidget(splitter, 1)
 
+        # ── Restore saved paths ───────────────────────────────────
+        if self._src and os.path.isdir(self._src):
+            self.src_edit.setReadOnly(False)
+            self.src_edit.setText(self._src)
+            self.src_edit.setReadOnly(True)
+            self._build_tree(self.src_tree, self._src, checkable=True)
+            self._restore_check_state(set(cfg.get("unchecked", [])))
+        if self._dst and os.path.isdir(self._dst):
+            self.dst_edit.setReadOnly(False)
+            self.dst_edit.setText(self._dst)
+            self.dst_edit.setReadOnly(True)
+            self._build_tree(self.dst_tree, self._dst, checkable=False)
+        self._refresh_sync_btn()
+
         # Signals
         btn_check.clicked.connect(lambda: self._set_all(Qt.Checked))
         btn_uncheck.clicked.connect(lambda: self._set_all(Qt.Unchecked))
@@ -157,6 +201,7 @@ class _SyncFolderWindow(QDialog):
         self.src_edit.setReadOnly(True)
         self._build_tree(self.src_tree, self._src, checkable=True)
         self._refresh_sync_btn()
+        _save_config(self._src, self._dst, self._collect_unchecked())
 
     def _pick_dst(self):
         folder = QFileDialog.getExistingDirectory(self, "Select Target Folder (B)")
@@ -168,6 +213,7 @@ class _SyncFolderWindow(QDialog):
         self.dst_edit.setReadOnly(True)
         self._build_tree(self.dst_tree, self._dst, checkable=False)
         self._refresh_sync_btn()
+        _save_config(self._src, self._dst, self._collect_unchecked())
 
     def _refresh_sync_btn(self):
         self.btn_sync.setEnabled(bool(self._src and self._dst))
@@ -234,6 +280,7 @@ class _SyncFolderWindow(QDialog):
             self._propagate(item, item.checkState(0))
         finally:
             self._blocking = False
+        _save_config(self._src, self._dst, self._collect_unchecked())
 
     def _propagate(self, item: QTreeWidgetItem, state):
         for i in range(item.childCount()):
@@ -251,6 +298,39 @@ class _SyncFolderWindow(QDialog):
                 self._propagate(item, state)
         finally:
             self._blocking = False
+        _save_config(self._src, self._dst, self._collect_unchecked())
+
+    # ══════════════════════════════════════════════════════════════
+    #  CHECK STATE PERSISTENCE
+    # ══════════════════════════════════════════════════════════════
+
+    def _collect_unchecked(self) -> list[str]:
+        result: list[str] = []
+        self._walk_unchecked(self.src_tree.invisibleRootItem(), result)
+        return result
+
+    def _walk_unchecked(self, node: QTreeWidgetItem, result: list[str]) -> None:
+        for i in range(node.childCount()):
+            child = node.child(i)
+            if child.checkState(0) == Qt.Unchecked:
+                result.append(child.data(0, Qt.UserRole))
+            self._walk_unchecked(child, result)
+
+    def _restore_check_state(self, unchecked: set[str]) -> None:
+        if not unchecked:
+            return
+        self._blocking = True
+        try:
+            self._apply_check_state(self.src_tree.invisibleRootItem(), unchecked)
+        finally:
+            self._blocking = False
+
+    def _apply_check_state(self, node: QTreeWidgetItem, unchecked: set[str]) -> None:
+        for i in range(node.childCount()):
+            child = node.child(i)
+            if child.data(0, Qt.UserRole) in unchecked:
+                child.setCheckState(0, Qt.Unchecked)
+            self._apply_check_state(child, unchecked)
 
     # ══════════════════════════════════════════════════════════════
     #  COLLECT CHECKED

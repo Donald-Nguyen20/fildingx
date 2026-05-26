@@ -17,7 +17,7 @@ from datetime import datetime
 from functools import partial
 
 from PySide6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QFrame,
+    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QFrame,
     QLabel, QLineEdit, QPushButton, QFileDialog,
     QTreeWidget, QListWidget, QListWidgetItem, QMessageBox,
     QTextEdit, QDialog, QMenu, QLCDNumber, QApplication,
@@ -512,24 +512,31 @@ class FileSearchApp(QMainWindow):
         page = QFrame()
         lay = QVBoxLayout(page)
         lay.setContentsMargins(8, 8, 8, 8)
-        lay.setSpacing(4)
+        lay.setSpacing(6)
         lay.setAlignment(Qt.AlignTop)
 
-        dup_btn = QPushButton("Search Duplicates")
+        dup_btn = QPushButton("🔍\nDuplicates")
         dup_btn.clicked.connect(self.search_duplicates)
         self.search_duplicates_button = dup_btn
 
-        for btn, fn in [
-            (QPushButton("List Files"),                  self.list_files_in_folder),
-            (QPushButton("Synchronize Folders"),         self.sync_folders),
-            (dup_btn,                                    None),
-            (QPushButton("Open Notes"),                  self.open_or_create_notes),
-            (QPushButton("Get Hyperlink for Notes"),     self.get_hyperlink_from_tree_view),
-        ]:
+        tools = [
+            (QPushButton("📋\nList Files"),         self.list_files_in_folder),
+            (QPushButton("🔄\nSync Folders"),        self.sync_folders),
+            (dup_btn,                                None),
+            (QPushButton("📝\nOpen Notes"),          self.open_or_create_notes),
+            (QPushButton("🔗\nHyperlink Notes"),     self.get_hyperlink_from_tree_view),
+        ]
+
+        grid = QGridLayout()
+        grid.setSpacing(6)
+        for i, (btn, fn) in enumerate(tools):
             if fn:
                 btn.clicked.connect(fn)
-            btn.setMinimumHeight(38)
-            lay.addWidget(btn)
+            btn.setMinimumHeight(68)
+            grid.addWidget(btn, i // 2, i % 2)
+
+        lay.addLayout(grid)
+        lay.addStretch()
         return page
 
     def _build_exe_page(self) -> QFrame:
