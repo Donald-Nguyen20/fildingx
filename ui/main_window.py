@@ -43,6 +43,7 @@ from ui.index_search_window import IndexSearchWindow, IndexSearchWidget
 from ui.notebooklm_window import NotebookLMWidget
 from ui.list_files_window import show_list_files_window
 from ui.sync_folder_window import show_sync_folder_window
+from ui.google_sheet_window import show_google_sheet_window
 from ui.pdf_preview import PdfPreviewWidget
 from ui.container_tree import ContainerOrgChartWidget, _fs_icon
 
@@ -525,6 +526,7 @@ class FileSearchApp(QMainWindow):
             (dup_btn,                                None),
             (QPushButton("📝\nOpen Notes"),          self.open_or_create_notes),
             (QPushButton("🔗\nHyperlink Notes"),     self.get_hyperlink_from_tree_view),
+            (QPushButton("📊\nGoogle Sheet"),        self.check_google_sheet),
         ]
 
         grid = QGridLayout()
@@ -1523,6 +1525,9 @@ class FileSearchApp(QMainWindow):
 
     def sync_folders(self):
         show_sync_folder_window(self)
+
+    def check_google_sheet(self):
+        show_google_sheet_window(self)
 
     def open_index_interface(self):
         IndexSearchWindow(self).exec()
