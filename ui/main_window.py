@@ -46,6 +46,7 @@ from ui.sync_folder_window import show_sync_folder_window
 from ui.google_sheet_window import show_google_sheet_window
 from ui.pdf_preview import PdfPreviewWidget
 from ui.container_tree import ContainerOrgChartWidget, _fs_icon
+from core.ai_grouper import GroupWorker
 
 
 def _load_ui_state() -> dict:
@@ -169,6 +170,8 @@ class FileSearchApp(QMainWindow):
         self.container_parents:  dict = {}
         self.exe_addons:         list = []
         self._dup_worker           = None
+        self._group_worker         = None
+        self._last_results:   list = []
         self._sidebar_btns:   list = []
         self._right_stack          = None
 
@@ -271,6 +274,14 @@ class FileSearchApp(QMainWindow):
         pal.setColor(QPalette.Dark,       QColor("black"))
         self.lcd_number.setPalette(pal)
         h.addWidget(self.lcd_number)
+
+        self.btn_group = QPushButton("🤖 Group")
+        self.btn_group.setMinimumWidth(100)
+        self.btn_group.setMinimumHeight(40)
+        self.btn_group.setEnabled(False)
+        self.btn_group.setToolTip("Nhờ AI phân nhóm kết quả tìm kiếm theo loại tài liệu")
+        self.btn_group.clicked.connect(self._run_group)
+        h.addWidget(self.btn_group)
 
         h.addStretch(1)
 
@@ -734,19 +745,101 @@ class FileSearchApp(QMainWindow):
         seen: set = set()
         unique = [(n, p) for n, p in results
                   if os.path.normpath(p) not in seen and not seen.add(os.path.normpath(p))]
+        self._last_results = unique
         if unique:
             for name, path in unique:
                 self.tree_widget.addTopLevelItem(self._make_tree_item(name, path))
             self._mark_saved_items()
             self.lcd_number.display(len(unique))
             self.statusBar().showMessage(f"Found {len(unique)} file(s).")
+            self.btn_group.setEnabled(True)
         else:
             self.lcd_number.display(0)
             self.statusBar().showMessage("No files found.")
+            self.btn_group.setEnabled(False)
             self.tree_widget.addTopLevelItem(
                 self.sort_helper.make_item("No matches found", "", "", "", "",
                                            mtime_ts=None, size_bytes=None)
             )
+
+    # ══════════════════════════════════════════════════════════════
+    #  AI GROUP
+    # ══════════════════════════════════════════════════════════════
+
+    def _run_group(self):
+        if not self._last_results:
+            return
+        from core.llm_config import load_llm_config
+        provider = load_llm_config().get("translate_provider", "gemini")
+        self.btn_group.setEnabled(False)
+        self.btn_group.setText("⏳ Grouping…")
+        self._group_worker = GroupWorker(self._last_results, provider)
+        self._group_worker.done.connect(self._on_group_done)
+        self._group_worker.error.connect(self._on_group_error)
+        self._group_worker.start()
+
+    def _on_group_done(self, result: dict):
+        self.btn_group.setText("🤖 Group")
+        self.btn_group.setEnabled(True)
+        self._display_grouped(result)
+
+    def _on_group_error(self, msg: str):
+        self.btn_group.setText("🤖 Group")
+        self.btn_group.setEnabled(True)
+        QMessageBox.warning(self, "AI Group Error", msg)
+
+    def _display_grouped(self, result: dict):
+        pairs  = result.get("pairs", self._last_results)
+        groups = result.get("groups", [])
+        dupes  = result.get("dupes", [])
+
+        self.tree_widget.clear()
+        total = 0
+
+        for grp in groups:
+            label = grp["label"]
+            files = grp["files"]  # [(filename, original_index), ...]
+            header = self.sort_helper.make_item(
+                name      = f"📂 {label}  ({len(files)} files)",
+                date_text = "", type_text = "GROUP",
+                size_text = "", path      = "",
+                mtime_ts=None, size_bytes=None,
+            )
+            header.setExpanded(True)
+            for fname, orig_idx in files:
+                _, fpath = pairs[orig_idx]
+                header.addChild(self._make_tree_item(fname, fpath))
+                total += 1
+            self.tree_widget.addTopLevelItem(header)
+
+        if dupes:
+            dup_header = self.sort_helper.make_item(
+                name      = f"⚠️ Multiple Revisions  ({len(dupes)} document(s))",
+                date_text = "", type_text = "DUPE",
+                size_text = "", path      = "",
+                mtime_ts=None, size_bytes=None,
+            )
+            dup_header.setExpanded(True)
+            for dup in dupes:
+                sub = self.sort_helper.make_item(
+                    name      = f"  📄 {dup['base']}",
+                    date_text = "", type_text = "DUPE",
+                    size_text = "", path      = "",
+                    mtime_ts=None, size_bytes=None,
+                )
+                sub.setExpanded(True)
+                for fname, orig_idx in dup["files"]:
+                    _, fpath = pairs[orig_idx]
+                    sub.addChild(self._make_tree_item(fname, fpath))
+                dup_header.addChild(sub)
+            self.tree_widget.addTopLevelItem(dup_header)
+
+        self._mark_saved_items()
+        self.lcd_number.display(total)
+        self.statusBar().showMessage(
+            f"Grouped into {len(groups)} categories. "
+            + (f"{len(dupes)} duplicate document(s) detected." if dupes else "")
+        )
 
     def display_folder_results(self, results: list):
         self.tree_widget.clear()
