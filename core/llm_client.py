@@ -1,4 +1,5 @@
 # llm_client.py
+import time
 import requests
 from typing import List, Tuple
 from core.llm_config import load_llm_config
@@ -110,8 +111,14 @@ class LLMClientGemini(BaseLLMClient):
             "contents": [{"parts": [{"text": prompt}]}],
             "generationConfig": {"temperature": 0.2, "maxOutputTokens": _MAX_TOKENS_GEMINI},
         }
-        r = requests.post(url, json=payload, timeout=self.timeout)
-        r.raise_for_status()
+        delays = [15, 30, 60]
+        for attempt, wait in enumerate(delays + [None]):
+            r = requests.post(url, json=payload, timeout=self.timeout)
+            if r.status_code == 429 and wait is not None:
+                time.sleep(wait)
+                continue
+            r.raise_for_status()
+            break
         data = r.json()
         try:
             return data["candidates"][0]["content"]["parts"][0]["text"].strip()
