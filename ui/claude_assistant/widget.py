@@ -391,25 +391,34 @@ class ClaudeAssistantWidget(QWidget):
         )
 
         system = self._inp_system.text().strip()
-        db_context = self._build_db_context(msg)
 
-        if db_context:
+        if self._db_path:
             claude_md = self._load_claude_md()
             db_system = (
-                "Bạn là trợ lý kỹ thuật Nhà máy Nhiệt điện Van Phong 1 BOT. "
-                "Dưới đây là ngữ cảnh tài liệu được trích từ DB nội bộ (chunks FTS5). "
-                "Hãy trả lời dựa trên ngữ cảnh được cung cấp. "
-                "Không cần dùng Glob, Read hay tool tìm file — dữ liệu đã có sẵn bên dưới."
+                f'Bạn là trợ lý kỹ thuật Nhà máy Nhiệt điện Van Phong 1 BOT.\n'
+                f'File DB tài liệu: "{self._db_path}"\n\n'
+                f'Để truy vấn DB, dùng lệnh Bash:\n'
+                f'  python db_query.py "{self._db_path}" "SQL query"\n\n'
+                f'Ví dụ tìm tài liệu:\n'
+                f'  python db_query.py "{self._db_path}" "SELECT name,doc_number,system_code'
+                f' FROM files WHERE id IN (SELECT rowid FROM files_fts WHERE files_fts MATCH'
+                f" 'IDF*') AND name!='BASE_PATH' LIMIT 10\"\n\n"
+                f'Ví dụ tìm nội dung (dùng khi làm báo cáo):\n'
+                f'  python db_query.py "{self._db_path}" "SELECT f.name,c.heading,c.content'
+                f' FROM chunks c JOIN files f ON f.id=c.file_id WHERE c.id IN'
+                f" (SELECT rowid FROM chunks_fts WHERE chunks_fts MATCH 'IDF*')"
+                f' ORDER BY rank LIMIT 8"\n\n'
+                f'CHỈ dùng câu lệnh SELECT. Không chạy lệnh shell khác.\n'
             )
             if claude_md:
                 db_system = claude_md + "\n\n" + db_system
-            merged_system = (db_system + " " + system).strip()
-            prompt = f"{db_context}\nCâu hỏi: {msg}"
+            merged_system = (db_system + "\n" + system).strip()
+            options = make_options(system_prompt=merged_system, db_path=self._db_path)
+            prompt = msg
         else:
             merged_system = system
+            options = make_options(system_prompt=merged_system)
             prompt = msg
-
-        options = make_options(system_prompt=merged_system)
 
         self._worker = AgentWorker(prompt, options)
         self._worker.text_chunk.connect(self._on_text_chunk)
