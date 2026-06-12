@@ -20,6 +20,20 @@ from ui.claude_assistant.worker import AgentWorker
 _MAX_RESULTS   = 5    # số file lấy từ DB
 _MAX_CONTENT   = 800  # ký tự content mỗi file
 
+_STOPWORDS = {
+    "là", "gì", "vậy", "của", "và", "với", "có", "không", "trong",
+    "tên", "hãy", "cho", "từ", "về", "này", "đó", "đây", "thì",
+    "được", "bị", "những", "các", "một", "hay", "hoặc", "nào",
+    "tôi", "bạn", "mình", "cho", "muốn", "cần", "biết", "nói",
+    "the", "and", "for", "that", "this", "with", "are", "was",
+}
+
+
+def _extract_keywords(msg: str) -> list[str]:
+    """Lấy các từ khóa có nghĩa từ câu hỏi (bỏ stopword, từ ngắn)."""
+    words = msg.replace("?", " ").replace(",", " ").split()
+    return [w for w in words if len(w) >= 3 and w.lower() not in _STOPWORDS]
+
 
 def _search_db(db_path: str, keyword: str) -> list[tuple[str, str]]:
     """Trả về list (name, content) khớp keyword, giới hạn _MAX_RESULTS."""
@@ -255,15 +269,26 @@ class ClaudeAssistantWidget(QWidget):
         self._lbl_db.setToolTip("")
 
     def _build_db_context(self, msg: str) -> str:
-        """Search DB với keyword = msg, trả về context string (rỗng nếu không chọn DB)."""
+        """Search DB theo từng keyword, gộp kết quả, trả về context string."""
         if not self._db_path:
             return ""
-        rows = _search_db(self._db_path, msg)
-        if not rows:
+        keywords = _extract_keywords(msg)
+        if not keywords:
+            keywords = [msg]
+
+        seen: dict[str, str] = {}  # name -> content (dedup)
+        for kw in keywords:
+            for name, content in _search_db(self._db_path, kw):
+                if name not in seen:
+                    seen[name] = content or ""
+            if len(seen) >= _MAX_RESULTS:
+                break
+
+        if not seen:
             return ""
-        parts = [f"[Ngữ cảnh từ DB: {os.path.basename(self._db_path)}]\n"]
-        for name, content in rows:
-            snippet = (content or "")[:_MAX_CONTENT].strip()
+        parts = [f"[Ngữ cảnh tài liệu từ DB: {os.path.basename(self._db_path)}]\n"]
+        for name, content in list(seen.items())[:_MAX_RESULTS]:
+            snippet = content[:_MAX_CONTENT].strip()
             parts.append(f"[FILE] {name}\n{snippet}\n")
         parts.append("---\n")
         return "\n".join(parts)
@@ -310,10 +335,22 @@ class ClaudeAssistantWidget(QWidget):
         )
 
         system = self._inp_system.text().strip()
-        options = make_options(system_prompt=system)
-
         db_context = self._build_db_context(msg)
-        prompt = f"{db_context}Câu hỏi: {msg}" if db_context else msg
+
+        if db_context:
+            db_system = (
+                "Bạn là trợ lý kỹ thuật nhà máy. "
+                "Dưới đây là ngữ cảnh tài liệu được trích từ cơ sở dữ liệu tài liệu nội bộ. "
+                "Hãy trả lời dựa trên ngữ cảnh này. "
+                "Không cần dùng Glob, Read hay các tool tìm file khác."
+            )
+            merged_system = f"{db_system} {system}".strip()
+            prompt = f"{db_context}Câu hỏi: {msg}"
+        else:
+            merged_system = system
+            prompt = msg
+
+        options = make_options(system_prompt=merged_system)
 
         self._worker = AgentWorker(prompt, options)
         self._worker.text_chunk.connect(self._on_text_chunk)
