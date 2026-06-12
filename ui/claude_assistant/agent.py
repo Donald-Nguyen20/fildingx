@@ -13,7 +13,7 @@ def make_options(
     from paths import APP_DIR
     return ClaudeAgentOptions(
         system_prompt=system_prompt or "Bạn là trợ lý thông minh, trả lời bằng tiếng Việt.",
-        allowed_tools=allowed_tools or ["Read", "Glob", "Grep", "Bash", "WebSearch", "WebFetch"],
+        allowed_tools=allowed_tools or ["Read", "Glob", "Grep", "WebSearch", "WebFetch"],
         permission_mode="bypassPermissions",
         cwd=cwd or APP_DIR,
         max_turns=30,

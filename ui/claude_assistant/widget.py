@@ -1,19 +1,54 @@
 """ui/claude_assistant/widget.py — Chat UI dùng claude_agent_sdk (Claude Code session)."""
 from __future__ import annotations
 
+import json
+import os
+import sqlite3
 import subprocess
 import sys
 from pathlib import Path
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout,
-    QPushButton, QLabel, QLineEdit, QTextEdit,
+    QPushButton, QLabel, QLineEdit, QTextEdit, QComboBox,
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont, QTextCursor
 
 from ui.claude_assistant.agent import make_options
 from ui.claude_assistant.worker import AgentWorker
+
+_DB_LIST_FILE = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+    "db_list.json",
+)
+_MAX_RESULTS   = 5    # số file lấy từ DB
+_MAX_CONTENT   = 800  # ký tự content mỗi file
+
+
+def _load_db_list() -> list[str]:
+    try:
+        with open(_DB_LIST_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+
+def _search_db(db_path: str, keyword: str) -> list[tuple[str, str]]:
+    """Trả về list (name, content) khớp keyword, giới hạn _MAX_RESULTS."""
+    try:
+        conn = sqlite3.connect(db_path)
+        cur  = conn.cursor()
+        cur.execute(
+            "SELECT name, content FROM files "
+            "WHERE name LIKE ? OR content LIKE ? LIMIT ?",
+            (f"%{keyword}%", f"%{keyword}%", _MAX_RESULTS),
+        )
+        rows = cur.fetchall()
+        conn.close()
+        return rows
+    except Exception:
+        return []
 
 
 def _bundled_claude() -> str:
@@ -101,6 +136,38 @@ class ClaudeAssistantWidget(QWidget):
         sp_row.addWidget(self._inp_system, 1)
         root.addLayout(sp_row)
 
+        # DB selector row
+        db_row = QHBoxLayout()
+        db_lbl = QLabel("DB:")
+        db_lbl.setFixedWidth(52)
+        db_lbl.setStyleSheet("color: #64748b; font-size: 11px;")
+        self._db_combo = QComboBox()
+        self._db_combo.setFixedHeight(26)
+        self._db_combo.setStyleSheet("""
+            QComboBox {
+                background: #f8fafc; border: 1px solid #e2e8f0;
+                border-radius: 6px; color: #334155;
+                padding: 2px 8px; font-size: 11px;
+            }
+            QComboBox:focus { border-color: #6366f1; }
+        """)
+        self._btn_reload_db = QPushButton("🔄")
+        self._btn_reload_db.setFixedSize(26, 26)
+        self._btn_reload_db.setToolTip("Tải lại danh sách DB")
+        self._btn_reload_db.setStyleSheet("""
+            QPushButton {
+                background: #f1f5f9; border: 1px solid #e2e8f0;
+                border-radius: 5px; font-size: 12px;
+            }
+            QPushButton:hover { background: #e0f2fe; }
+        """)
+        self._btn_reload_db.clicked.connect(self._refresh_db_combo)
+        db_row.addWidget(db_lbl)
+        db_row.addWidget(self._db_combo, 1)
+        db_row.addWidget(self._btn_reload_db)
+        root.addLayout(db_row)
+        self._refresh_db_combo()
+
         # Chat history
         self._chat = QTextEdit()
         self._chat.setReadOnly(True)
@@ -169,6 +236,27 @@ class ClaudeAssistantWidget(QWidget):
         root.addLayout(input_row)
 
     # ── Helpers ───────────────────────────────────────────────────────
+    def _refresh_db_combo(self):
+        self._db_combo.clear()
+        self._db_combo.addItem("Không dùng DB", None)
+        for p in _load_db_list():
+            self._db_combo.addItem(os.path.basename(p), p)
+
+    def _build_db_context(self, msg: str) -> str:
+        """Search DB với keyword = msg, trả về context string (rỗng nếu không chọn DB)."""
+        db_path = self._db_combo.currentData()
+        if not db_path:
+            return ""
+        rows = _search_db(db_path, msg)
+        if not rows:
+            return ""
+        parts = [f"[Ngữ cảnh từ DB: {os.path.basename(db_path)}]\n"]
+        for name, content in rows:
+            snippet = (content or "")[:_MAX_CONTENT].strip()
+            parts.append(f"[FILE] {name}\n{snippet}\n")
+        parts.append("---\n")
+        return "\n".join(parts)
+
     def _append(self, html: str):
         self._chat.moveCursor(QTextCursor.End)
         self._chat.insertHtml(html)
@@ -202,17 +290,21 @@ class ClaudeAssistantWidget(QWidget):
 
         safe_msg = msg.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
         self._append(
-            f'<p style="color:#4f46e5;margin:8px 0 4px 0">'
+            f'<p style="color:#4f46e5;margin:8px 0 2px 0">'
             f'<b>Bạn:</b> {safe_msg}</p>'
+            f'<br>'
         )
         self._append(
-            '<p style="color:#166534;margin:4px 0"><b>Claude:</b> '
+            '<p style="color:#166534;margin:2px 0"><b>Claude:</b> '
         )
 
         system = self._inp_system.text().strip()
         options = make_options(system_prompt=system)
 
-        self._worker = AgentWorker(msg, options)
+        db_context = self._build_db_context(msg)
+        prompt = f"{db_context}Câu hỏi: {msg}" if db_context else msg
+
+        self._worker = AgentWorker(prompt, options)
         self._worker.text_chunk.connect(self._on_text_chunk)
         self._worker.tool_used.connect(self._on_tool_used)
         self._worker.done.connect(self._on_done)
