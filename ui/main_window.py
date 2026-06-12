@@ -46,6 +46,7 @@ from ui.sync_folder_window import show_sync_folder_window
 from ui.google_sheet_window import show_google_sheet_window
 from ui.pdf_preview import PdfPreviewWidget
 from ui.container_tree import ContainerOrgChartWidget, _fs_icon
+from ui.claude_assistant import ClaudeAssistantWidget
 from core.ai_grouper import GroupWorker
 
 
@@ -183,7 +184,6 @@ class FileSearchApp(QMainWindow):
         self.root_layout.setContentsMargins(8, 8, 8, 8)
         self.root_layout.setSpacing(6)
 
-        self._setup_toolbar()
         self._setup_body()
         self._bind_help_f1()
 
@@ -285,10 +285,12 @@ class FileSearchApp(QMainWindow):
 
         h.addStretch(1)
 
-        self.root_layout.addWidget(toolbar)
+        return toolbar
 
     def _setup_body(self):
-        """Sidebar (left) + Tree (center) + QStackedWidget (right)."""
+        """Sidebar (left) + TabWidget (center) + QStackedWidget (right)."""
+        toolbar = self._setup_toolbar()
+
         body = QHBoxLayout()
         body.setSpacing(6)
 
@@ -430,23 +432,32 @@ class FileSearchApp(QMainWindow):
             }
             QTabBar::tab:hover { background: rgba(255,255,255,20); }
         """)
-        self._search_tabs.addTab(self.tree_widget, "🔍 File Search")
-        self.db_search_widget = IndexSearchWidget()
-        self._search_tabs.addTab(self.db_search_widget, "🗄 DB Search")
-        self.notebooklm_widget = NotebookLMWidget()
-        self._search_tabs.addTab(self.notebooklm_widget, "📓 NotebookLM")
-        self.notebooklm_widget.open_preview.connect(self._open_preview_from_nlm)
-        self.notebooklm_widget.goto_page_signal.connect(self.pdf_preview.goto_page)
-        self.notebooklm_widget.request_mindmap.connect(self._mindmap_from_nlm_source)
-        self.notebooklm_widget.request_mindmap_online.connect(self._mindmap_online_in_preview)
+        # ── File Search page (toolbar + tree + pdf preview) ──────
+        file_search_page = QWidget()
+        fs_lay = QVBoxLayout(file_search_page)
+        fs_lay.setContentsMargins(0, 0, 0, 0)
+        fs_lay.setSpacing(4)
+        fs_lay.addWidget(toolbar)
 
-        # Splitter: tabs (trái) | pdf preview (phải)
         self._splitter = QSplitter(Qt.Horizontal)
-        self._splitter.addWidget(self._search_tabs)
+        self._splitter.addWidget(self.tree_widget)
         self._splitter.addWidget(self.pdf_preview)
         self._splitter.setSizes([10000, 0])
         self._splitter.setHandleWidth(4)
         self._splitter.setStyleSheet("QSplitter::handle { background: rgba(255,255,255,15); border-radius: 2px; }")
+        fs_lay.addWidget(self._splitter, 1)
+
+        self._search_tabs.addTab(file_search_page,       "🔍 File Search")
+        self.db_search_widget = IndexSearchWidget()
+        self._search_tabs.addTab(self.db_search_widget,  "🗄 DB Search")
+        self.notebooklm_widget = NotebookLMWidget()
+        self._search_tabs.addTab(self.notebooklm_widget, "📓 NotebookLM")
+        self.claude_assistant_widget = ClaudeAssistantWidget()
+        self._search_tabs.addTab(self.claude_assistant_widget, "🤖 Claude")
+        self.notebooklm_widget.open_preview.connect(self._open_preview_from_nlm)
+        self.notebooklm_widget.goto_page_signal.connect(self.pdf_preview.goto_page)
+        self.notebooklm_widget.request_mindmap.connect(self._mindmap_from_nlm_source)
+        self.notebooklm_widget.request_mindmap_online.connect(self._mindmap_online_in_preview)
 
         # ── Right stack ──────────────────────────────────────────
         self._right_stack = QStackedWidget()
@@ -456,9 +467,9 @@ class FileSearchApp(QMainWindow):
         self._right_stack.addWidget(self._build_tools_page())       # 1
         self._right_stack.addWidget(self._build_exe_page())         # 2
 
-        # Outer splitter: center (tabs+preview) | right stack — kéo ngang được
+        # Outer splitter: tabs (center) | right stack
         self._outer_splitter = QSplitter(Qt.Horizontal)
-        self._outer_splitter.addWidget(self._splitter)
+        self._outer_splitter.addWidget(self._search_tabs)
         self._outer_splitter.addWidget(self._right_stack)
         self._outer_splitter.setHandleWidth(5)
         self._outer_splitter.setStyleSheet("QSplitter::handle { background: rgba(255,255,255,15); border-radius: 2px; }")
