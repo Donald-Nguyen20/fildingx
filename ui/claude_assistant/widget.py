@@ -16,6 +16,7 @@ from PySide6.QtGui import QFont, QTextCursor
 
 from ui.claude_assistant.agent import make_options
 from ui.claude_assistant.worker import AgentWorker
+from ui.claude_assistant.animations import PulsingOrb, NeuralBackground
 
 _MAX_RESULTS   = 5    # số file lấy từ DB
 _MAX_CONTENT   = 800  # ký tự content mỗi file
@@ -122,7 +123,13 @@ class ClaudeAssistantWidget(QWidget):
         self._worker: AgentWorker | None = None
         self._response_started = False
         self._db_path: str = ""
+        self._neural_bg = NeuralBackground(self)
+        self._neural_bg.lower()
         self._build_ui()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._neural_bg.resize(self.size())
 
     # ── Build UI ──────────────────────────────────────────────────────
     def _build_ui(self):
@@ -142,7 +149,8 @@ class ClaudeAssistantWidget(QWidget):
 
         # Header
         header = QHBoxLayout()
-        lbl_title = QLabel("🤖  Claude Assistant")
+        self._orb = PulsingOrb()
+        lbl_title = QLabel("Claude Assistant")
         lbl_title.setFont(QFont("Segoe UI", 13, QFont.Bold))
         self._lbl_status = QLabel("✅  Claude Code session")
         self._lbl_status.setStyleSheet("color: #16a34a; font-size: 11px;")
@@ -160,6 +168,7 @@ class ClaudeAssistantWidget(QWidget):
         """)
         self._btn_login.clicked.connect(self._on_login)
 
+        header.addWidget(self._orb)
         header.addWidget(lbl_title)
         header.addStretch()
         header.addWidget(self._btn_login)
@@ -378,6 +387,7 @@ class ClaudeAssistantWidget(QWidget):
 
         self._inp_msg.clear()
         self._set_busy(True)
+        self._orb.set_active(True)
         self._response_started = False
 
         safe_msg = msg.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
@@ -442,6 +452,7 @@ class ClaudeAssistantWidget(QWidget):
     def _on_done(self):
         self._append("</p><br>")
         self._set_busy(False)
+        self._orb.set_active(False)
         self._inp_msg.setFocus()
 
     def _on_error(self, msg: str):
@@ -450,3 +461,4 @@ class ClaudeAssistantWidget(QWidget):
             f'<p style="color:#dc2626;margin:4px 0"><b>Lỗi:</b> {safe}</p>'
         )
         self._set_busy(False)
+        self._orb.set_active(False)
