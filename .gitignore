@@ -166,7 +166,13 @@ browser_profile/
 !icon.ico
 
 # ###########################################################################
-#  13) PROJECT-SPECIFIC (YOUR STRUCTURE)
+#  13) CLAUDE ASSISTANT - BROWSER / SESSION DATA (SENSITIVE)
+# ###########################################################################
+claude_browser_profile/
+claude_data/
+
+# ###########################################################################
+#  14) PROJECT-SPECIFIC (YOUR STRUCTURE)
 # ###########################################################################
 Funtion/__pycache__/
 Rag_funtions/__pycache__/
