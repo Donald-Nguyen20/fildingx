@@ -35,14 +35,64 @@ def _extract_keywords(msg: str) -> list[str]:
     return [w for w in words if len(w) >= 3 and w.lower() not in _STOPWORDS]
 
 
-def _search_db(db_path: str, keyword: str) -> list[tuple[str, str]]:
-    """Trả về list (name, content) khớp keyword, giới hạn _MAX_RESULTS."""
+def _search_db(db_path: str, keyword: str) -> list[tuple[str, str, str, str]]:
+    """Trả về list (file_name, doc_number, heading, chunk_content) dùng FTS5 chunks_fts.
+    Fallback về LIKE trên files nếu DB không có chunks_fts."""
     try:
         conn = sqlite3.connect(db_path)
         cur  = conn.cursor()
+
+        # Thử FTS5 chunks_fts trước (chính xác, tiết kiệm token)
+        try:
+            fts_query = " OR ".join(f'{w}*' for w in keyword.split() if w)
+            cur.execute(
+                """
+                SELECT f.name, COALESCE(f.doc_number,''), c.heading, c.content
+                FROM chunks c
+                JOIN files f ON f.id = c.file_id
+                WHERE c.id IN (
+                    SELECT rowid FROM chunks_fts WHERE chunks_fts MATCH ?
+                )
+                  AND f.name != 'BASE_PATH'
+                ORDER BY rank
+                LIMIT ?
+                """,
+                (fts_query, _MAX_RESULTS),
+            )
+            rows = cur.fetchall()
+            conn.close()
+            if rows:
+                return rows
+        except Exception:
+            pass
+
+        # Fallback: FTS5 trên files_fts (chỉ lấy tên + đoạn đầu content)
+        try:
+            fts_query = " OR ".join(f'{w}*' for w in keyword.split() if w)
+            cur.execute(
+                """
+                SELECT name, COALESCE(doc_number,''), '', content
+                FROM files
+                WHERE id IN (
+                    SELECT rowid FROM files_fts WHERE files_fts MATCH ?
+                )
+                  AND name != 'BASE_PATH'
+                ORDER BY rank
+                LIMIT ?
+                """,
+                (fts_query, _MAX_RESULTS),
+            )
+            rows = cur.fetchall()
+            conn.close()
+            if rows:
+                return rows
+        except Exception:
+            pass
+
+        # Fallback cuối: LIKE search
         cur.execute(
-            "SELECT name, content FROM files "
-            "WHERE name LIKE ? OR content LIKE ? LIMIT ?",
+            "SELECT name, COALESCE(doc_number,''), '', content FROM files "
+            "WHERE (name LIKE ? OR content LIKE ?) AND name != 'BASE_PATH' LIMIT ?",
             (f"%{keyword}%", f"%{keyword}%", _MAX_RESULTS),
         )
         rows = cur.fetchall()
@@ -269,29 +319,35 @@ class ClaudeAssistantWidget(QWidget):
         self._lbl_db.setToolTip("")
 
     def _build_db_context(self, msg: str) -> str:
-        """Search DB theo từng keyword, gộp kết quả, trả về context string."""
+        """Search DB dùng FTS5 chunks_fts, trả về context string."""
         if not self._db_path:
             return ""
         keywords = _extract_keywords(msg)
-        if not keywords:
-            keywords = [msg]
+        query_str = " OR ".join(f"{w}*" for w in keywords) if keywords else msg
 
-        seen: dict[str, str] = {}  # name -> content (dedup)
-        for kw in keywords:
-            for name, content in _search_db(self._db_path, kw):
-                if name not in seen:
-                    seen[name] = content or ""
-            if len(seen) >= _MAX_RESULTS:
-                break
-
-        if not seen:
+        rows = _search_db(self._db_path, query_str)
+        if not rows:
             return ""
-        parts = [f"[Ngữ cảnh tài liệu từ DB: {os.path.basename(self._db_path)}]\n"]
-        for name, content in list(seen.items())[:_MAX_RESULTS]:
-            snippet = content[:_MAX_CONTENT].strip()
-            parts.append(f"[FILE] {name}\n{snippet}\n")
+
+        parts = [f"[Ngữ cảnh tài liệu — DB: {os.path.basename(self._db_path)}]\n"]
+        for fname, doc_num, heading, content in rows:
+            label = f"[{doc_num}] {fname}" if doc_num else fname
+            section = f" > {heading}" if heading else ""
+            parts.append(f"### {label}{section}\n{(content or '').strip()}\n")
         parts.append("---\n")
         return "\n".join(parts)
+
+    def _load_claude_md(self) -> str:
+        """Đọc CLAUDE.md trong thư mục app làm system context."""
+        try:
+            md_path = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+                "CLAUDE.md",
+            )
+            with open(md_path, "r", encoding="utf-8") as f:
+                return f.read()
+        except Exception:
+            return ""
 
     def _append(self, html: str):
         self._chat.moveCursor(QTextCursor.End)
@@ -338,14 +394,17 @@ class ClaudeAssistantWidget(QWidget):
         db_context = self._build_db_context(msg)
 
         if db_context:
+            claude_md = self._load_claude_md()
             db_system = (
-                "Bạn là trợ lý kỹ thuật nhà máy. "
-                "Dưới đây là ngữ cảnh tài liệu được trích từ cơ sở dữ liệu tài liệu nội bộ. "
-                "Hãy trả lời dựa trên ngữ cảnh này. "
-                "Không cần dùng Glob, Read hay các tool tìm file khác."
+                "Bạn là trợ lý kỹ thuật Nhà máy Nhiệt điện Van Phong 1 BOT. "
+                "Dưới đây là ngữ cảnh tài liệu được trích từ DB nội bộ (chunks FTS5). "
+                "Hãy trả lời dựa trên ngữ cảnh được cung cấp. "
+                "Không cần dùng Glob, Read hay tool tìm file — dữ liệu đã có sẵn bên dưới."
             )
-            merged_system = f"{db_system} {system}".strip()
-            prompt = f"{db_context}Câu hỏi: {msg}"
+            if claude_md:
+                db_system = claude_md + "\n\n" + db_system
+            merged_system = (db_system + " " + system).strip()
+            prompt = f"{db_context}\nCâu hỏi: {msg}"
         else:
             merged_system = system
             prompt = msg
