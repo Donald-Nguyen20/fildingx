@@ -6,14 +6,14 @@
 <title>JARVIS Neural Orb v2</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{background:#02040b;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;font-family:system-ui,sans-serif}
+body{background:#f0f4f8;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;font-family:system-ui,sans-serif}
 #wrap{display:flex;flex-direction:column;align-items:center;padding:16px 12px 14px;gap:12px}
 canvas#jc{display:block}
-#lbl{font-family:monospace;font-size:11px;letter-spacing:.15em;color:rgba(120,200,255,.5);text-align:center;min-height:16px}
+#lbl{font-family:monospace;font-size:11px;letter-spacing:.15em;color:rgba(60,100,200,.65);text-align:center;min-height:16px}
 .ctrl{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
-.btn{font-family:monospace;font-size:10px;letter-spacing:.08em;padding:6px 16px;border-radius:16px;border:1px solid rgba(100,180,255,.2);background:rgba(80,160,255,.05);color:rgba(120,180,255,.7);cursor:pointer;transition:all .15s}
-.btn:hover{background:rgba(100,180,255,.15);border-color:rgba(100,180,255,.5);color:#88ccff}
-.btn.active{background:rgba(80,160,255,.2);border-color:#55aaff;color:#aaddff}
+.btn{font-family:monospace;font-size:10px;letter-spacing:.08em;padding:6px 16px;border-radius:16px;border:1px solid rgba(80,140,220,.25);background:rgba(80,140,220,.07);color:rgba(60,100,200,.75);cursor:pointer;transition:all .15s}
+.btn:hover{background:rgba(80,140,220,.18);border-color:rgba(80,140,220,.55);color:#2255bb}
+.btn.active{background:rgba(60,120,220,.18);border-color:#4488dd;color:#1144aa}
 </style>
 </head>
 <body>
@@ -215,7 +215,7 @@ function frame() {
     const g = ctx.createRadialGradient(CX,CY,0, CX,CY,r);
     g.addColorStop(0,   `rgba(${csA},${a})`);
     g.addColorStop(.5,  `rgba(${csB},${a*.4})`);
-    g.addColorStop(1,   'rgba(0,0,0,0)');
+    g.addColorStop(1,   'rgba(240,244,248,0)');
     ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
   });
 
@@ -247,7 +247,7 @@ function frame() {
       const pg = ctx.createRadialGradient(px,py,0, px,py,pr);
       pg.addColorStop(0,   `rgba(255,255,255,${.92*df})`);
       pg.addColorStop(.30, `rgba(${csA},${.75*df})`);
-      pg.addColorStop(1,   'rgba(0,0,0,0)');
+      pg.addColorStop(1,   'rgba(240,244,248,0)');
       ctx.fillStyle = pg; ctx.beginPath(); ctx.arc(px,py,pr,0,Math.PI*2); ctx.fill();
     });
     drawn++;
@@ -298,7 +298,7 @@ function frame() {
         fg.addColorStop(0,   `rgba(255,255,255,${fireG*.50*fade})`);
         fg.addColorStop(.25, `rgba(${csA},${fireG*.35*fade})`);
         fg.addColorStop(.60, `rgba(${csB},${fireG*.10*fade})`);
-        fg.addColorStop(1,   'rgba(0,0,0,0)');
+        fg.addColorStop(1,   'rgba(240,244,248,0)');
         ctx.fillStyle = fg; ctx.beginPath(); ctx.arc(n.x,n.y,r1,0,Math.PI*2); ctx.fill();
       }
 
@@ -314,7 +314,7 @@ function frame() {
   [[80,.016],[50,.035],[28,.08],[14,.18],[6,.38],[2.5,.88]].forEach(([r,a]) => {
     const g = ctx.createRadialGradient(CX,CY,0, CX,CY,r*corePulse);
     g.addColorStop(0, `rgba(${csA},${a*corePulse})`);
-    g.addColorStop(1, 'rgba(0,0,0,0)');
+    g.addColorStop(1, 'rgba(240,244,248,0)');
     ctx.fillStyle = g; ctx.beginPath(); ctx.arc(CX,CY,r*corePulse,0,Math.PI*2); ctx.fill();
   });
   ctx.beginPath(); ctx.arc(CX,CY,2.4,0,Math.PI*2);
