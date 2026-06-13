@@ -224,10 +224,10 @@ function frame() {
   SYNAPSES.forEach(s => {
     if (drawn >= connC*3) return;
     const na = NEURONS[s.from], nb = NEURONS[s.to];
-    const bright    = .05 + Math.sin(t*spd*.5 + s.phase) * waveAmp * .10;
+    const bright    = .12 + Math.sin(t*spd*.5 + s.phase) * waveAmp * .18;
     const distFade  = Math.max(0, 1 - s.dist/160);
-    const alpha     = Math.min(.55, bright * distFade * 2);
-    if (alpha < .018) { drawn++; return; }
+    const alpha     = Math.min(.80, bright * distFade * 4);
+    if (alpha < .025) { drawn++; return; }
 
     const mx = (na.x+nb.x)/2 + (na.y-nb.y)*.14;
     const my = (na.y+nb.y)/2 + (nb.x-na.x)*.14;
@@ -235,7 +235,7 @@ function frame() {
     ctx.moveTo(na.x, na.y);
     ctx.quadraticCurveTo(mx, my, nb.x, nb.y);
     ctx.strokeStyle = `rgba(${csA},${alpha})`;
-    ctx.lineWidth = .4; ctx.stroke();
+    ctx.lineWidth = 1.4; ctx.stroke();
 
     s.pulses.forEach(p => {
       const mt = p.prog;
@@ -259,21 +259,21 @@ function frame() {
     const fade  = Math.max(0, 1 - distC/285);
     if (fade < .03) return;
     const fireG = (n.firing>0 && n.firing<1) ? Math.sin(n.firing*Math.PI) : 0;
-    const alpha = (.08 + fireG*.30) * fade;
+    const alpha = (.22 + fireG*.55) * fade;
 
     n.dendrites.forEach(d => {
       const wobble = Math.sin(t*spd*.7 + n.phase + d.a) * waveAmp * 2;
       const ex = n.x + Math.cos(d.a + wobble*.04) * d.len;
       const ey = n.y + Math.sin(d.a + wobble*.04) * d.len;
       ctx.beginPath(); ctx.moveTo(n.x, n.y); ctx.lineTo(ex, ey);
-      ctx.strokeStyle = `rgba(${csA},${alpha})`; ctx.lineWidth = .5; ctx.stroke();
+      ctx.strokeStyle = `rgba(${csA},${alpha})`; ctx.lineWidth = 1.1; ctx.stroke();
       d.subs.forEach(sb => {
         const smx = n.x + Math.cos(d.a)*d.len*.48;
         const smy = n.y + Math.sin(d.a)*d.len*.48;
         ctx.beginPath(); ctx.moveTo(smx, smy);
         ctx.lineTo(smx + Math.cos(sb.da + wobble*.06)*sb.dl,
                    smy + Math.sin(sb.da + wobble*.06)*sb.dl);
-        ctx.strokeStyle = `rgba(${csA},${alpha*.5})`; ctx.lineWidth = .28; ctx.stroke();
+        ctx.strokeStyle = `rgba(${csA},${alpha*.65})`; ctx.lineWidth = .55; ctx.stroke();
       });
     });
   });
@@ -289,8 +289,8 @@ function frame() {
       const isFiring = n.firing > 0 && n.firing < 1;
       const fireG    = isFiring ? Math.sin(n.firing*Math.PI) : 0;
       const pulse    = .28 + Math.sin(t*spd*n.fireSpd + n.phase) * waveAmp * .32;
-      const sz       = n.sz * (.42 + pulse*.48 + fireG*.85);
-      const alpha    = Math.min(.95, (.22 + pulse*.32 + fireG*.7) * fade);
+      const sz       = n.sz * (.55 + pulse*.55 + fireG*.95);
+      const alpha    = Math.min(.98, (.45 + pulse*.45 + fireG*.9) * fade);
 
       if (fireG > .05) {
         const r1 = sz * 7 * (1 + waveAmp*.3);
@@ -311,7 +311,7 @@ function frame() {
 
   // Core glow — breathes
   const corePulse = .7 + Math.sin(t*3.2) * waveAmp * .4;
-  [[80,.016],[50,.035],[28,.08],[14,.18],[6,.38],[2.5,.88]].forEach(([r,a]) => {
+  [[80,.035],[50,.07],[28,.16],[14,.35],[6,.65],[2.5,.95]].forEach(([r,a]) => {
     const g = ctx.createRadialGradient(CX,CY,0, CX,CY,r*corePulse);
     g.addColorStop(0, `rgba(${csA},${a*corePulse})`);
     g.addColorStop(1, 'rgba(240,244,248,0)');
