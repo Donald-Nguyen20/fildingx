@@ -8,15 +8,16 @@ import sys
 from pathlib import Path
 
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout,
+    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QSplitter,
     QPushButton, QLabel, QLineEdit, QTextEdit, QFileDialog,
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QUrl, QTimer
 from PySide6.QtGui import QFont, QTextCursor
+from PySide6.QtWebEngineWidgets import QWebEngineView
 
 from ui.claude_assistant.agent import make_options
 from ui.claude_assistant.worker import AgentWorker
-from ui.claude_assistant.animations import PulsingOrb, NeuralBackground
+from ui.claude_assistant.animations import PulsingOrb
 
 _MAX_RESULTS   = 5    # số file lấy từ DB
 _MAX_CONTENT   = 800  # ký tự content mỗi file
@@ -123,79 +124,139 @@ class ClaudeAssistantWidget(QWidget):
         self._worker: AgentWorker | None = None
         self._response_started = False
         self._db_path: str = ""
-        self._neural_bg = NeuralBackground(self)
-        self._neural_bg.lower()
+        self._orb_view: QWebEngineView | None = None
         self._build_ui()
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self._neural_bg.resize(self.size())
 
     # ── Build UI ──────────────────────────────────────────────────────
     def _build_ui(self):
-        self.setStyleSheet("""
-            ClaudeAssistantWidget {
-                background: #ffffff;
-            }
-            ClaudeAssistantWidget QLabel {
-                color: #1e293b;
-                background: transparent;
-            }
-        """)
+        self.setStyleSheet("ClaudeAssistantWidget { background: #02040b; }")
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(10, 10, 10, 10)
-        root.setSpacing(6)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
 
-        # Header
-        header = QHBoxLayout()
+        # ── Header (full width, dark) ─────────────────────────────
+        hdr_w = QWidget()
+        hdr_w.setFixedHeight(44)
+        hdr_w.setStyleSheet(
+            "background: #06090f; border-bottom: 1px solid #1a2535;"
+        )
+        hdr = QHBoxLayout(hdr_w)
+        hdr.setContentsMargins(12, 0, 12, 0)
+        hdr.setSpacing(8)
+
         self._orb = PulsingOrb()
+
         lbl_title = QLabel("Claude Assistant")
         lbl_title.setFont(QFont("Segoe UI", 13, QFont.Bold))
+        lbl_title.setStyleSheet("color: #88ccff; background: transparent;")
+
         self._lbl_status = QLabel("✅  Claude Code session")
-        self._lbl_status.setStyleSheet("color: #16a34a; font-size: 11px;")
+        self._lbl_status.setStyleSheet(
+            "color: #16a34a; font-size: 11px; background: transparent;"
+        )
 
         self._btn_login = QPushButton("🔑 Đăng nhập")
         self._btn_login.setFixedHeight(26)
         self._btn_login.setToolTip("Mở cửa sổ đăng nhập Claude Code")
         self._btn_login.setStyleSheet("""
             QPushButton {
-                background: #e0f2fe; color: #0369a1;
-                border: 1px solid #7dd3fc; border-radius: 5px;
+                background: #0d2236; color: #7dd3fc;
+                border: 1px solid #1e4d72; border-radius: 5px;
                 font-size: 11px; padding: 0 8px;
             }
-            QPushButton:hover { background: #bae6fd; }
+            QPushButton:hover { background: #1a3a5c; }
         """)
         self._btn_login.clicked.connect(self._on_login)
 
-        header.addWidget(self._orb)
-        header.addWidget(lbl_title)
-        header.addStretch()
-        header.addWidget(self._btn_login)
-        header.addWidget(self._lbl_status)
-        root.addLayout(header)
+        hdr.addWidget(self._orb)
+        hdr.addWidget(lbl_title)
+        hdr.addStretch()
+        hdr.addWidget(self._btn_login)
+        hdr.addWidget(self._lbl_status)
+        root.addWidget(hdr_w)
 
-        # System prompt
+        # ── Splitter: Orb (left) | Chat (right) ──────────────────
+        splitter = QSplitter(Qt.Horizontal)
+        splitter.setHandleWidth(1)
+        splitter.setStyleSheet("QSplitter::handle { background: #1a2535; }")
+
+        # Left — JARVIS orb + action buttons
+        left = QWidget()
+        left.setStyleSheet("background: #02040b;")
+        left.setMinimumWidth(180)
+        left_lay = QVBoxLayout(left)
+        left_lay.setContentsMargins(0, 0, 0, 0)
+        left_lay.setSpacing(0)
+
+        self._orb_view = QWebEngineView()
+        self._orb_view.loadFinished.connect(self._on_orb_loaded)
+        left_lay.addWidget(self._orb_view, 1)
+
+        # Action buttons (thay thế state buttons trong HTML)
+        btn_frame = QWidget()
+        btn_frame.setStyleSheet(
+            "background: #06090f; border-top: 1px solid #1a2535;"
+        )
+        btn_grid = QGridLayout(btn_frame)
+        btn_grid.setContentsMargins(8, 8, 8, 8)
+        btn_grid.setSpacing(6)
+
+        _ACTIONS = [
+            ("🔍", "Tìm tài liệu", "Tìm trong DB tài liệu về: ", 1),
+            ("📝", "Tạo báo cáo",  "Tạo báo cáo vận hành về: ", 3),
+            ("🔬", "Phân tích",    "Phân tích chi tiết: ",       2),
+            ("💬", "Hỏi đáp",      "",                           0),
+        ]
+        _btn_style = """
+            QPushButton {
+                background: #0d1b2a; color: #7ecfff;
+                border: 1px solid #1a3a5c; border-radius: 8px;
+                font-size: 11px; padding: 6px 4px;
+            }
+            QPushButton:hover   { background: #1a2f45; border-color: #4488cc; color: #aaddff; }
+            QPushButton:pressed { background: #0a1520; }
+        """
+        for idx, (icon, label, prefix, state) in enumerate(_ACTIONS):
+            btn = QPushButton(f"{icon}\n{label}")
+            btn.setStyleSheet(_btn_style)
+            btn.setFixedHeight(52)
+            btn.clicked.connect(
+                lambda _checked, p=prefix, s=state: self._on_action(p, s)
+            )
+            btn_grid.addWidget(btn, idx // 2, idx % 2)
+
+        left_lay.addWidget(btn_frame)
+        splitter.addWidget(left)
+        QTimer.singleShot(0, self._load_orb_html)
+
+        # Right — chat panel (white)
+        right = QWidget()
+        right.setStyleSheet("background: #ffffff;")
+        r_lay = QVBoxLayout(right)
+        r_lay.setContentsMargins(10, 8, 10, 8)
+        r_lay.setSpacing(6)
+
+        # System prompt row
         sp_row = QHBoxLayout()
         sp_lbl = QLabel("System:")
         sp_lbl.setFixedWidth(52)
         sp_lbl.setStyleSheet("color: #64748b; font-size: 11px;")
         self._inp_system = QLineEdit()
-        self._inp_system.setPlaceholderText("Bạn là trợ lý thông minh, trả lời bằng tiếng Việt.")
+        self._inp_system.setPlaceholderText(
+            "Bạn là trợ lý thông minh, trả lời bằng tiếng Việt."
+        )
         self._inp_system.setStyleSheet("""
             QLineEdit {
-                background: #f8fafc;
-                border: 1px solid #e2e8f0;
-                border-radius: 6px;
-                color: #334155;
-                padding: 3px 8px;
-                font-size: 11px;
+                background: #f8fafc; border: 1px solid #e2e8f0;
+                border-radius: 6px; color: #334155;
+                padding: 3px 8px; font-size: 11px;
             }
             QLineEdit:focus { border-color: #6366f1; }
         """)
         sp_row.addWidget(sp_lbl)
         sp_row.addWidget(self._inp_system, 1)
-        root.addLayout(sp_row)
+        r_lay.addLayout(sp_row)
 
         # DB selector row
         db_row = QHBoxLayout()
@@ -233,7 +294,7 @@ class ClaudeAssistantWidget(QWidget):
         db_row.addWidget(self._lbl_db, 1)
         db_row.addWidget(self._btn_pick_db)
         db_row.addWidget(self._btn_clear_db)
-        root.addLayout(db_row)
+        r_lay.addLayout(db_row)
 
         # Chat history
         self._chat = QTextEdit()
@@ -241,14 +302,11 @@ class ClaudeAssistantWidget(QWidget):
         self._chat.setFont(QFont("Segoe UI", 12))
         self._chat.setStyleSheet("""
             QTextEdit {
-                background: #f8fafc;
-                border: 1px solid #e2e8f0;
-                border-radius: 8px;
-                color: #1e293b;
-                padding: 10px;
+                background: #f8fafc; border: 1px solid #e2e8f0;
+                border-radius: 8px; color: #1e293b; padding: 10px;
             }
         """)
-        root.addWidget(self._chat, 1)
+        r_lay.addWidget(self._chat, 1)
 
         # Input bar
         input_row = QHBoxLayout()
@@ -257,12 +315,9 @@ class ClaudeAssistantWidget(QWidget):
         self._inp_msg.setFixedHeight(36)
         self._inp_msg.setStyleSheet("""
             QLineEdit {
-                background: #ffffff;
-                border: 1px solid #cbd5e1;
-                border-radius: 8px;
-                color: #1e293b;
-                padding: 0 10px;
-                font-size: 13px;
+                background: #ffffff; border: 1px solid #cbd5e1;
+                border-radius: 8px; color: #1e293b;
+                padding: 0 10px; font-size: 13px;
             }
             QLineEdit:focus { border-color: #6366f1; }
         """)
@@ -287,22 +342,65 @@ class ClaudeAssistantWidget(QWidget):
         self._btn_clear.setToolTip("Xoá hội thoại")
         self._btn_clear.setStyleSheet("""
             QPushButton {
-                background: #f1f5f9;
-                border: 1px solid #e2e8f0;
-                border-radius: 8px;
-                color: #64748b;
-                font-size: 14px;
+                background: #f1f5f9; border: 1px solid #e2e8f0;
+                border-radius: 8px; color: #64748b; font-size: 14px;
             }
-            QPushButton:hover { background: #fee2e2; color: #dc2626; border-color: #fca5a5; }
+            QPushButton:hover {
+                background: #fee2e2; color: #dc2626; border-color: #fca5a5;
+            }
         """)
         self._btn_clear.clicked.connect(self._chat.clear)
 
         input_row.addWidget(self._inp_msg, 1)
         input_row.addWidget(self._btn_send)
         input_row.addWidget(self._btn_clear)
-        root.addLayout(input_row)
+        r_lay.addLayout(input_row)
+
+        splitter.addWidget(right)
+        splitter.setSizes([340, 660])
+        root.addWidget(splitter, 1)
+
+    # ── JARVIS orb control ────────────────────────────────────────────
+    def _load_orb_html(self):
+        html_path = Path(__file__).parent / "neural_interface.html"
+        url = QUrl.fromLocalFile(str(html_path))
+        print(f"[orb] loading: {url.toString()}")
+        print(f"[orb] file exists: {html_path.exists()}")
+        self._orb_view.load(url)
+
+    def _on_orb_loaded(self, ok: bool):
+        print(f"[orb] loadFinished ok={ok}")
+        # Local file trên Windows có thể báo ok=False nhưng vẫn render được
+        # nên inject JS bất kể ok để đảm bảo controls được ẩn
+        js = """
+(function() {
+    var lbl  = document.getElementById('lbl');
+    if (lbl)  lbl.style.display  = 'none';
+    var ctrl = document.querySelector('.ctrl');
+    if (ctrl) ctrl.style.display = 'none';
+
+    document.body.style.overflow = 'hidden';
+    document.body.style.margin   = '0';
+    document.body.style.padding  = '0';
+    setS(0);
+})();
+"""
+        self._orb_view.page().runJavaScript(
+            js, lambda r: print(f"[orb] js inject done, result={r}")
+        )
+
+    def _set_jarvis(self, state: int):
+        if self._orb_view is not None:
+            self._orb_view.page().runJavaScript(f"setS({state})")
 
     # ── Helpers ───────────────────────────────────────────────────────
+    def _on_action(self, prefix: str, state: int):
+        """Bấm action button: đổi orb state + pre-fill input."""
+        self._set_jarvis(state)
+        self._inp_msg.setText(prefix)
+        self._inp_msg.setFocus()
+        self._inp_msg.setCursorPosition(len(prefix))
+
     def _pick_db(self):
         path, _ = QFileDialog.getOpenFileName(
             self, "Chọn file DB", "", "SQLite DB (*.db *.sqlite)"
@@ -388,6 +486,7 @@ class ClaudeAssistantWidget(QWidget):
         self._inp_msg.clear()
         self._set_busy(True)
         self._orb.set_active(True)
+        self._set_jarvis(2)          # THINK — đang xử lý
         self._response_started = False
 
         safe_msg = msg.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
@@ -453,6 +552,7 @@ class ClaudeAssistantWidget(QWidget):
         self._append("</p><br>")
         self._set_busy(False)
         self._orb.set_active(False)
+        self._set_jarvis(1)          # FOCUS — hoàn thành
         self._inp_msg.setFocus()
 
     def _on_error(self, msg: str):
@@ -462,3 +562,4 @@ class ClaudeAssistantWidget(QWidget):
         )
         self._set_busy(False)
         self._orb.set_active(False)
+        self._set_jarvis(4)          # OVERLOAD — lỗi
