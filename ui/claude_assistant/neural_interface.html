@@ -3,17 +3,17 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JARVIS Neural Orb v2</title>
+<title>Neural Orb — Fluorescence</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{background:#f0f4f8;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;font-family:system-ui,sans-serif}
+body{background:transparent;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;font-family:system-ui,sans-serif}
 #wrap{display:flex;flex-direction:column;align-items:center;padding:16px 12px 14px;gap:12px}
 canvas#jc{display:block}
-#lbl{font-family:monospace;font-size:11px;letter-spacing:.15em;color:rgba(60,100,200,.65);text-align:center;min-height:16px}
+#lbl{font-family:monospace;font-size:11px;letter-spacing:.15em;color:rgba(8,145,158,.8);text-align:center;min-height:16px}
 .ctrl{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
-.btn{font-family:monospace;font-size:10px;letter-spacing:.08em;padding:6px 16px;border-radius:16px;border:1px solid rgba(80,140,220,.25);background:rgba(80,140,220,.07);color:rgba(60,100,200,.75);cursor:pointer;transition:all .15s}
-.btn:hover{background:rgba(80,140,220,.18);border-color:rgba(80,140,220,.55);color:#2255bb}
-.btn.active{background:rgba(60,120,220,.18);border-color:#4488dd;color:#1144aa}
+.btn{font-family:monospace;font-size:10px;letter-spacing:.08em;padding:6px 16px;border-radius:16px;border:1px solid rgba(8,145,158,.28);background:rgba(8,145,158,.06);color:rgba(8,145,158,.80);cursor:pointer;transition:all .15s}
+.btn:hover{background:rgba(8,145,158,.18);border-color:rgba(8,145,158,.55);color:#07919c}
+.btn.active{background:rgba(8,145,158,.20);border-color:#08919c;color:#057882}
 </style>
 </head>
 <body>
@@ -22,16 +22,17 @@ canvas#jc{display:block}
   <div id="lbl">RESTING STATE — LOW FREQUENCY</div>
   <div class="ctrl">
     <button class="btn active" id="b0" onclick="setS(0)">REST</button>
-    <button class="btn" id="b1" onclick="setS(1)">FOCUS</button>
-    <button class="btn" id="b2" onclick="setS(2)">THINK</button>
-    <button class="btn" id="b3" onclick="setS(3)">CREATIVE</button>
-    <button class="btn" id="b4" onclick="setS(4)">OVERLOAD</button>
+    <button class="btn"        id="b1" onclick="setS(1)">FOCUS</button>
+    <button class="btn"        id="b2" onclick="setS(2)">THINK</button>
+    <button class="btn"        id="b3" onclick="setS(3)">CREATIVE</button>
+    <button class="btn"        id="b4" onclick="setS(4)">OVERLOAD</button>
   </div>
 </div>
 
 <script>
 // ============================================================
-//  JARVIS Neural Orb v2 — wide, fast, organic motion
+//  Neural Orb — Fluorescence microscopy aesthetic
+//  Wavy organic dendrites + shadowBlur soft glow on light bg.
 //
 //  PySide6 API:
 //    view.page().runJavaScript("setS(0)")  // REST
@@ -41,287 +42,289 @@ canvas#jc{display:block}
 //    view.page().runJavaScript("setS(4)")  // OVERLOAD
 // ============================================================
 
-const cv = document.getElementById('jc');
+const cv  = document.getElementById('jc');
 const ctx = cv.getContext('2d');
 const W = 620, H = 560, CX = 310, CY = 280;
 
-// --- States ---
+// Vivid palette — đậm hơn để nổi trên nền desktop trong suốt
 const STATES = [
-  { label: 'RESTING STATE — LOW FREQUENCY',  colA: [40,120,255],  colB: [80,50,200],  speed: .50, fire: .14, conn: 50,  axonSpd: .60, waveAmp: .55, driftMul: 1.2 },
-  { label: 'FOCUSED — PREFRONTAL ACTIVE',    colA: [30,190,255],  colB: [20,230,190], speed: 1.1, fire: .38, conn: 80,  axonSpd: 1.3, waveAmp: .75, driftMul: 1.8 },
-  { label: 'DEEP THINK — FULL CORTEX',       colA: [160,60,255],  colB: [255,80,200], speed: 2.4, fire: .68, conn: 115, axonSpd: 2.2, waveAmp: 1.05,driftMul: 2.8 },
-  { label: 'CREATIVE — DIFFUSE MODE',        colA: [255,150,20],  colB: [255,60,130], speed: 1.7, fire: .55, conn: 95,  axonSpd: 1.7, waveAmp: .92, driftMul: 2.2 },
-  { label: 'OVERLOAD — GAMMA BURST',         colA: [255,40,40],   colB: [255,210,20], speed: 4.0, fire: .98, conn: 150, axonSpd: 3.8, waveAmp: 1.50,driftMul: 4.0 },
+  { label:'RESTING STATE — LOW FREQUENCY', colA:[0,200,215],  colB:[30,90,255],  speed:.50, fire:.18, conn:55,  axonSpd:.65, waveAmp:.60, driftMul:1.2 },
+  { label:'FOCUSED — PREFRONTAL ACTIVE',   colA:[20,120,255], colB:[0,230,240],  speed:1.1, fire:.42, conn:85,  axonSpd:1.3, waveAmp:.78, driftMul:1.8 },
+  { label:'DEEP THINK — FULL CORTEX',      colA:[130,0,255],  colB:[230,0,190],  speed:2.4, fire:.72, conn:118, axonSpd:2.2, waveAmp:1.08,driftMul:2.8 },
+  { label:'CREATIVE — DIFFUSE MODE',       colA:[0,210,160],  colB:[240,175,0],  speed:1.7, fire:.58, conn:98,  axonSpd:1.7, waveAmp:.95, driftMul:2.2 },
+  { label:'OVERLOAD — GAMMA BURST',        colA:[255,30,30],  colB:[255,220,0],  speed:4.0, fire:.98, conn:150, axonSpd:3.8, waveAmp:1.50,driftMul:4.0 },
 ];
 
-let cur = 0, nxt = 0, bl = 1, t = 0;
+let cur=0, nxt=0, bl=1, t=0;
+let _autoCycle=null, _cycleIdx=0;
+const ss  = x => { x=Math.max(0,Math.min(1,x)); return x*x*(3-2*x); };
+const lrp = (a,b,f) => a+(b-a)*f;
+const lrpC= (a,b,f) => a.map((v,i)=>v+(b[i]-v)*f);
+const rnd = (n,s=1) => { let x=Math.sin(n*127.1+s*311.7)*43758.5453; return x-Math.floor(x); };
 
-function ss(x)        { x = Math.max(0, Math.min(1,x)); return x*x*(3-2*x); }
-function lrp(a,b,f)   { return a + (b-a)*f; }
-function lrpC(a,b,f)  { return a.map((v,i) => v + (b[i]-v)*f); }
-
-// Public — callable from PySide6
-function setS(i) {
-  cur = nxt; nxt = i; bl = 0;
-  document.querySelectorAll('.btn').forEach((b,j) => b.classList.toggle('active', j===i));
-  document.getElementById('lbl').textContent = STATES[i].label;
+function setS(i){
+  cur=nxt; nxt=i; bl=0;
+  document.querySelectorAll('.btn').forEach((b,j)=>b.classList.toggle('active',j===i));
+  document.getElementById('lbl').textContent=STATES[i].label;
 }
 
-// Seeded deterministic random
-const rnd = (n, s=1) => {
-  let x = Math.sin(n*127.1 + s*311.7) * 43758.5453;
-  return x - Math.floor(x);
-};
+// Auto-cycle: chuyển sang state tiếp theo mỗi ~8s, blend mượt
+function startAutoCycle(intervalMs){
+  if(_autoCycle) clearInterval(_autoCycle);
+  _autoCycle=setInterval(()=>{
+    _cycleIdx=(_cycleIdx+1)%STATES.length;
+    setS(_cycleIdx);
+  }, intervalMs||8000);
+}
+function stopAutoCycle(){ if(_autoCycle){ clearInterval(_autoCycle); _autoCycle=null; } }
 
-// --- Build neurons (320, spread ~270px) ---
-const NEURONS = [];
-const N_COUNT = 320;
-for (let i = 0; i < N_COUNT; i++) {
-  const a  = rnd(i,1) * Math.PI * 2;
-  const r  = 10 + rnd(i,2) * 265;
-  const px = CX + Math.cos(a) * r;
-  const py = CY + Math.sin(a) * r * (0.88 + rnd(i,11)*.24);
+// Wavy line — sinusoidal displacement perpendicular to direction, tapers at endpoints
+function wavyLine(x1,y1,x2,y2,amp,phase){
+  const dx=x2-x1, dy=y2-y1, len=Math.hypot(dx,dy);
+  if(len<1) return;
+  const nx=-dy/len, ny=dx/len;
+  const steps=Math.max(3,Math.floor(len/9));
+  ctx.beginPath();
+  for(let i=0;i<=steps;i++){
+    const s=i/steps;
+    const env=Math.sin(s*Math.PI); // taper to 0 at both ends
+    const w=Math.sin(s*Math.PI*2.5+phase)*amp*env;
+    const px=x1+dx*s+nx*w, py=y1+dy*s+ny*w;
+    i===0?ctx.moveTo(px,py):ctx.lineTo(px,py);
+  }
+  ctx.stroke();
+}
+
+// --- Neurons (320, same positions) ---
+const NEURONS=[];
+for(let i=0;i<320;i++){
+  const a=rnd(i,1)*Math.PI*2, r=10+rnd(i,2)*265;
+  const px=CX+Math.cos(a)*r, py=CY+Math.sin(a)*r*(.88+rnd(i,11)*.24);
   NEURONS.push({
-    px, py, ox: px, oy: py, x: px, y: py,
-    sz:      .7 + rnd(i,3)*3.0,
-    phase:   rnd(i,4)*Math.PI*2,
-    fireSpd: .3 + rnd(i,6)*3.2,
-    firing: 0, fireCooldown: 0,
-    driftA:    rnd(i,7)*Math.PI*2,
-    driftB:    rnd(i,12)*Math.PI*2,
-    driftC:    rnd(i,13)*Math.PI*2,
-    driftSpd:  .2 + rnd(i,8)*.9,
-    driftR:    12 + rnd(i,9)*32,
-    dendrites: [],
+    px,py,ox:px,oy:py,x:px,y:py,
+    sz:.8+rnd(i,3)*2.8, phase:rnd(i,4)*Math.PI*2, fireSpd:.3+rnd(i,6)*3.2,
+    firing:0, fireCooldown:0,
+    driftA:rnd(i,7)*Math.PI*2, driftB:rnd(i,12)*Math.PI*2, driftC:rnd(i,13)*Math.PI*2,
+    driftSpd:.2+rnd(i,8)*.9, driftR:12+rnd(i,9)*32,
+    dendrites:[],
   });
 }
 
-// Dendrites — longer, more sub-branches
-NEURONS.forEach((n, ni) => {
-  const bc = 4 + Math.floor(rnd(ni,50)*6);
-  for (let b = 0; b < bc; b++) {
-    const a   = rnd(ni*10+b, 51) * Math.PI*2;
-    const len = 8 + rnd(ni*10+b, 52) * 28;
-    const subs = [];
-    const sc = Math.floor(rnd(ni*10+b, 53)*4);
-    for (let s = 0; s < sc; s++) {
+// Dendrites — fewer branches, longer, wavy amplitude stored per branch
+NEURONS.forEach((n,ni)=>{
+  const bc=3+Math.floor(rnd(ni,50)*3); // 3-5 main branches (was 4-10)
+  for(let b=0;b<bc;b++){
+    // roughly evenly spread with jitter — avoids the uniform spoke look
+    const baseAngle=(b/bc)*Math.PI*2+(rnd(ni*10+b,56)-.5)*1.2;
+    const len=16+rnd(ni*10+b,52)*42; // longer: 16-58px
+    const wavAmp=2+rnd(ni*10+b,57)*7; // per-branch wave amplitude
+    const wavPhase=rnd(ni*10+b,58)*Math.PI*2;
+    const subs=[];
+    for(let s=0;s<Math.floor(rnd(ni*10+b,53)*3);s++){
       subs.push({
-        da: a + (rnd(ni*100+b*10+s, 54) - .5)*1.3,
-        dl: len*(.3 + rnd(ni*100+b*10+s, 55)*.6),
+        da:baseAngle+(rnd(ni*100+b*10+s,54)-.5)*.95,
+        dl:len*(.22+rnd(ni*100+b*10+s,55)*.45),
+        wavAmp:1.2+rnd(ni*100+b*10+s,59)*3.5,
+        wavPhase:rnd(ni*100+b*10+s,60)*Math.PI*2,
       });
     }
-    n.dendrites.push({ a, len, subs });
+    n.dendrites.push({a:baseAngle,len,subs,wavAmp,wavPhase});
   }
 });
 
-// Synapses — wider connection radius (155px)
-const SYNAPSES = [];
-for (let i = 0; i < NEURONS.length; i++) {
-  const ni = NEURONS[i];
-  const conns = 2 + Math.floor(rnd(i,30)*5);
-  const nearby = NEURONS
-    .map((n,j) => ({ j, d: Math.hypot(n.px-ni.px, n.py-ni.py) }))
-    .filter(x => x.j !== i && x.d < 155)
-    .sort((a,b) => a.d - b.d)
-    .slice(0, 16);
-  for (let c = 0; c < conns; c++) {
-    const pick = nearby[Math.floor(rnd(i*10+c, 32)*nearby.length)];
-    if (!pick) continue;
-    if (SYNAPSES.find(s => s.from===i && s.to===pick.j)) continue;
-    SYNAPSES.push({ from: i, to: pick.j, pulses: [], phase: rnd(i*10+c,35)*Math.PI*2, dist: pick.d });
+// --- Synapses — store individual curvature so connections vary naturally ---
+const SYNAPSES=[];
+for(let i=0;i<NEURONS.length;i++){
+  const ni=NEURONS[i], conns=2+Math.floor(rnd(i,30)*4);
+  const nearby=NEURONS.map((n,j)=>({j,d:Math.hypot(n.px-ni.px,n.py-ni.py)}))
+    .filter(x=>x.j!==i&&x.d<150).sort((a,b)=>a.d-b.d).slice(0,14);
+  for(let c=0;c<conns;c++){
+    const pick=nearby[Math.floor(rnd(i*10+c,32)*nearby.length)];
+    if(!pick) continue;
+    if(SYNAPSES.find(s=>s.from===i&&s.to===pick.j)) continue;
+    SYNAPSES.push({
+      from:i, to:pick.j, pulses:[], phase:rnd(i*10+c,35)*Math.PI*2, dist:pick.d,
+      // curvature varies: -0.18..+0.18, some nearly straight, some left/right curve
+      curv:(rnd(i*10+c,36)-.5)*.36,
+    });
   }
 }
 
-// Fire cascade
-function triggerFire(nIdx) {
-  const n = NEURONS[nIdx];
-  if (!n || n.firing > 0 || n.fireCooldown > 0) return;
-  n.firing = .01;
-  n.fireCooldown = 18 + Math.random()*45;
-  SYNAPSES.filter(s => s.from === nIdx).forEach(s => {
-    s.pulses.push({ prog: 0, spd: .012 + Math.random()*.026 });
+function triggerFire(nIdx){
+  const n=NEURONS[nIdx];
+  if(!n||n.firing>0||n.fireCooldown>0) return;
+  n.firing=.01; n.fireCooldown=18+Math.random()*45;
+  SYNAPSES.filter(s=>s.from===nIdx).forEach(s=>{
+    s.pulses.push({prog:0,spd:.012+Math.random()*.026});
   });
 }
 
-let fireTimer = 0;
+let fireTimer=0;
 
 // --- Main loop ---
-function frame() {
+function frame(){
   requestAnimationFrame(frame);
-  t += .016;
-  if (bl < 1) bl = Math.min(1, bl + .03);
-  const f = ss(bl);
-  const sA = STATES[cur], sB = STATES[nxt];
+  t+=.016;
+  if(bl<1) bl=Math.min(1,bl+.008);  // ~2.5s blend mượt giữa các state
+  const f=ss(bl);
+  const sA=STATES[cur], sB=STATES[nxt];
+  const colA    =lrpC(sA.colA,   sB.colA,   f);
+  const colB    =lrpC(sA.colB,   sB.colB,   f);
+  const spd     =lrp(sA.speed,   sB.speed,   f);
+  const fireRate=lrp(sA.fire,    sB.fire,    f);
+  const connC   =Math.round(lrp(sA.conn,    sB.conn,    f));
+  const axonSpd =lrp(sA.axonSpd, sB.axonSpd, f);
+  const waveAmp =lrp(sA.waveAmp, sB.waveAmp, f);
+  const driftMul=lrp(sA.driftMul,sB.driftMul,f);
+  const csA=colA.map(Math.round).join(',');
+  const csB=colB.map(Math.round).join(',');
+  // bright firing color: shift toward lighter/more saturated
+  const csFire=colA.map((v,i)=>{
+    const target=i===1?Math.min(255,colA[1]+80):i===2?Math.min(255,colA[2]+80):Math.min(255,colA[0]+60);
+    return Math.round(v+(target-v)*.6);
+  }).join(',');
 
-  const colA     = lrpC(sA.colA,    sB.colA,    f);
-  const colB     = lrpC(sA.colB,    sB.colB,    f);
-  const spd      = lrp(sA.speed,    sB.speed,    f);
-  const fireRate = lrp(sA.fire,     sB.fire,     f);
-  const connC    = Math.round(lrp(sA.conn,     sB.conn,     f));
-  const axonSpd  = lrp(sA.axonSpd,  sB.axonSpd, f);
-  const waveAmp  = lrp(sA.waveAmp,  sB.waveAmp, f);
-  const driftMul = lrp(sA.driftMul, sB.driftMul,f);
-  const csA = colA.map(Math.round).join(',');
-  const csB = colB.map(Math.round).join(',');
-
-  // Update neurons — 3 overlapping drift waves
-  NEURONS.forEach(n => {
-    if (n.firing > 0)       n.firing = Math.min(1, n.firing + .05*spd);
-    if (n.fireCooldown > 0) n.fireCooldown -= spd;
-
-    n.driftA += n.driftSpd * .008 * spd;
-    n.driftB += n.driftSpd * .005 * spd * 1.3;
-    n.driftC += n.driftSpd * .003 * spd * 1.7;
-
-    const dr = n.driftR * driftMul * .012;
-    const ox = Math.cos(n.driftA)*dr*n.driftR
-             + Math.cos(n.driftB)*dr*n.driftR*.55
-             + Math.cos(n.driftC)*dr*n.driftR*.30;
-    const oy = Math.sin(n.driftA)*dr*n.driftR
-             + Math.sin(n.driftB)*dr*n.driftR*.55
-             + Math.sin(n.driftC)*dr*n.driftR*.30;
-
-    n.x += (n.ox + ox - n.x) * .04;
-    n.y += (n.oy + oy - n.y) * .04;
+  // Update neurons
+  NEURONS.forEach(n=>{
+    if(n.firing>0)       n.firing=Math.min(1,n.firing+.05*spd);
+    if(n.fireCooldown>0) n.fireCooldown-=spd;
+    n.driftA+=n.driftSpd*.016*spd;
+    n.driftB+=n.driftSpd*.010*spd*1.3;
+    n.driftC+=n.driftSpd*.006*spd*1.7;
+    const dr=n.driftR*driftMul*.012;
+    const ox=Math.cos(n.driftA)*dr*n.driftR+Math.cos(n.driftB)*dr*n.driftR*.55+Math.cos(n.driftC)*dr*n.driftR*.30;
+    const oy=Math.sin(n.driftA)*dr*n.driftR+Math.sin(n.driftB)*dr*n.driftR*.55+Math.sin(n.driftC)*dr*n.driftR*.30;
+    n.x+=(n.ox+ox-n.x)*.04;
+    n.y+=(n.oy+oy-n.y)*.04;
   });
 
-  // Spontaneous multi-fire
-  fireTimer -= spd;
-  if (fireTimer <= 0) {
-    fireTimer = .8 + Math.random() * (4 / fireRate);
-    const eligible = NEURONS.filter(n => n.firing === 0 && n.fireCooldown <= 0);
-    const fireCnt = 1 + Math.floor(fireRate * 3);
-    for (let k = 0; k < fireCnt && eligible.length; k++) {
-      const idx = Math.floor(Math.random() * eligible.length);
-      triggerFire(NEURONS.indexOf(eligible[idx]));
-      eligible.splice(idx, 1);
+  fireTimer-=spd;
+  if(fireTimer<=0){
+    fireTimer=.8+Math.random()*(4/fireRate);
+    const eligible=NEURONS.filter(n=>n.firing===0&&n.fireCooldown<=0);
+    const fc=1+Math.floor(fireRate*3);
+    for(let k=0;k<fc&&eligible.length;k++){
+      const idx=Math.floor(Math.random()*eligible.length);
+      triggerFire(NEURONS.indexOf(eligible[idx])); eligible.splice(idx,1);
     }
   }
-
-  // Update pulses
-  SYNAPSES.forEach(s => {
-    s.pulses = s.pulses.filter(p => {
-      p.prog += p.spd * axonSpd;
-      if (p.prog >= 1) { triggerFire(s.to); return false; }
+  SYNAPSES.forEach(s=>{
+    s.pulses=s.pulses.filter(p=>{
+      p.prog+=p.spd*axonSpd;
+      if(p.prog>=1){triggerFire(s.to);return false;}
       return true;
     });
   });
 
-  // --- Draw ---
-  ctx.clearRect(0, 0, W, H);
+  // ── Draw ─────────────────────────────────────────────────
 
-  // Multi-layer ambient glow
-  [[300,.06],[200,.04],[120,.025],[60,.015]].forEach(([r,a]) => {
-    const g = ctx.createRadialGradient(CX,CY,0, CX,CY,r);
-    g.addColorStop(0,   `rgba(${csA},${a})`);
-    g.addColorStop(.5,  `rgba(${csB},${a*.4})`);
-    g.addColorStop(1,   'rgba(240,244,248,0)');
-    ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
-  });
+  // Transparent background + subtle center tint
+  ctx.clearRect(0,0,W,H);
+  const vtx=ctx.createRadialGradient(CX,CY,0,CX,CY,260);
+  vtx.addColorStop(0, `rgba(${csA},0.028)`);
+  vtx.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle=vtx; ctx.fillRect(0,0,W,H);
 
-  // Synapses + pulses
-  let drawn = 0;
-  SYNAPSES.forEach(s => {
-    if (drawn >= connC*3) return;
-    const na = NEURONS[s.from], nb = NEURONS[s.to];
-    const bright    = .12 + Math.sin(t*spd*.5 + s.phase) * waveAmp * .18;
-    const distFade  = Math.max(0, 1 - s.dist/160);
-    const alpha     = Math.min(.80, bright * distFade * 4);
-    if (alpha < .025) { drawn++; return; }
+  // ── Synapses — thin (0.5px), no shadowBlur (perf), varied curvature ──
+  let drawn=0;
+  SYNAPSES.forEach(s=>{
+    if(drawn>=connC*3) return;
+    const na=NEURONS[s.from], nb=NEURONS[s.to];
+    const bright  =.10+Math.sin(t*spd*.5+s.phase)*waveAmp*.14;
+    const distFade=Math.max(0,1-s.dist/155);
+    const alpha   =Math.min(.50,bright*distFade*5.0);
+    if(alpha<.018){drawn++;return;}
 
-    const mx = (na.x+nb.x)/2 + (na.y-nb.y)*.14;
-    const my = (na.y+nb.y)/2 + (nb.x-na.x)*.14;
-    ctx.beginPath();
-    ctx.moveTo(na.x, na.y);
-    ctx.quadraticCurveTo(mx, my, nb.x, nb.y);
-    ctx.strokeStyle = `rgba(${csA},${alpha})`;
-    ctx.lineWidth = 1.4; ctx.stroke();
+    const mx=(na.x+nb.x)/2+(na.y-nb.y)*s.curv;
+    const my=(na.y+nb.y)/2+(nb.x-na.x)*s.curv;
 
-    s.pulses.forEach(p => {
-      const mt = p.prog;
-      const px = na.x*(1-mt)*(1-mt) + mx*2*mt*(1-mt) + nb.x*mt*mt;
-      const py = na.y*(1-mt)*(1-mt) + my*2*mt*(1-mt) + nb.y*mt*mt;
-      const dc = Math.hypot(px-CX, py-CY);
-      const df = Math.max(0, 1 - dc/285);
-      const pr = 6 + waveAmp*3;
-      const pg = ctx.createRadialGradient(px,py,0, px,py,pr);
-      pg.addColorStop(0,   `rgba(255,255,255,${.92*df})`);
-      pg.addColorStop(.30, `rgba(${csA},${.75*df})`);
-      pg.addColorStop(1,   'rgba(240,244,248,0)');
-      ctx.fillStyle = pg; ctx.beginPath(); ctx.arc(px,py,pr,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle=`rgba(${csA},${alpha.toFixed(3)})`;
+    ctx.lineWidth=1.1;
+    ctx.beginPath(); ctx.moveTo(na.x,na.y);
+    ctx.quadraticCurveTo(mx,my,nb.x,nb.y);
+    ctx.stroke();
+
+    // Pulse dot — shadowBlur only here (few per frame, high impact)
+    s.pulses.forEach(p=>{
+      const mt=p.prog;
+      const px=na.x*(1-mt)*(1-mt)+mx*2*mt*(1-mt)+nb.x*mt*mt;
+      const py=na.y*(1-mt)*(1-mt)+my*2*mt*(1-mt)+nb.y*mt*mt;
+      const dc=Math.hypot(px-CX,py-CY), df=Math.max(0,1-dc/285);
+      ctx.save();
+      ctx.shadowColor=`rgba(${csFire},${.82*df})`;
+      ctx.shadowBlur=8+waveAmp*4;
+      ctx.fillStyle=`rgba(${csFire},${.90*df})`;
+      ctx.beginPath(); ctx.arc(px,py,2.2+waveAmp*.8,0,Math.PI*2); ctx.fill();
+      ctx.restore();
     });
     drawn++;
   });
 
-  // Dendrites with wobble
-  NEURONS.forEach(n => {
-    const distC = Math.hypot(n.x-CX, n.y-CY);
-    const fade  = Math.max(0, 1 - distC/285);
-    if (fade < .03) return;
-    const fireG = (n.firing>0 && n.firing<1) ? Math.sin(n.firing*Math.PI) : 0;
-    const alpha = (.22 + fireG*.55) * fade;
+  // ── Dendrites — wavy sinusoidal, no shadowBlur (perf) ──
+  NEURONS.forEach(n=>{
+    const distC=Math.hypot(n.x-CX,n.y-CY), fade=Math.max(0,1-distC/285);
+    if(fade<.05) return;
+    const fireG=(n.firing>0&&n.firing<1)?Math.sin(n.firing*Math.PI):0;
+    const alpha=(.32+fireG*.55)*fade;
 
-    n.dendrites.forEach(d => {
-      const wobble = Math.sin(t*spd*.7 + n.phase + d.a) * waveAmp * 2;
-      const ex = n.x + Math.cos(d.a + wobble*.04) * d.len;
-      const ey = n.y + Math.sin(d.a + wobble*.04) * d.len;
-      ctx.beginPath(); ctx.moveTo(n.x, n.y); ctx.lineTo(ex, ey);
-      ctx.strokeStyle = `rgba(${csA},${alpha})`; ctx.lineWidth = 1.1; ctx.stroke();
-      d.subs.forEach(sb => {
-        const smx = n.x + Math.cos(d.a)*d.len*.48;
-        const smy = n.y + Math.sin(d.a)*d.len*.48;
-        ctx.beginPath(); ctx.moveTo(smx, smy);
-        ctx.lineTo(smx + Math.cos(sb.da + wobble*.06)*sb.dl,
-                   smy + Math.sin(sb.da + wobble*.06)*sb.dl);
-        ctx.strokeStyle = `rgba(${csA},${alpha*.65})`; ctx.lineWidth = .55; ctx.stroke();
+    ctx.strokeStyle=`rgba(${csA},${alpha.toFixed(3)})`;
+    n.dendrites.forEach(d=>{
+      const wobble=Math.sin(t*spd*.7+n.phase+d.a)*waveAmp*.8;
+      const ex=n.x+Math.cos(d.a+wobble*.035)*d.len;
+      const ey=n.y+Math.sin(d.a+wobble*.035)*d.len;
+      ctx.lineWidth=1.3;
+      wavyLine(n.x,n.y,ex,ey, d.wavAmp*(0.5+waveAmp*.55), d.wavPhase+t*spd*.25);
+      d.subs.forEach(sb=>{
+        const smx=n.x+Math.cos(d.a)*d.len*.45, smy=n.y+Math.sin(d.a)*d.len*.45;
+        ctx.lineWidth=0.7;
+        wavyLine(smx,smy, smx+Math.cos(sb.da)*sb.dl, smy+Math.sin(sb.da)*sb.dl,
+          sb.wavAmp*(0.4+waveAmp*.45), sb.wavPhase+t*spd*.18);
       });
     });
   });
 
-  // Cell bodies — sorted back→front by firing
-  NEURONS
-    .slice()
-    .sort((a,b) => a.firing - b.firing)
-    .forEach(n => {
-      const distC = Math.hypot(n.x-CX, n.y-CY);
-      const fade  = Math.max(0, 1 - distC/280);
-      if (fade < .03) return;
-      const isFiring = n.firing > 0 && n.firing < 1;
-      const fireG    = isFiring ? Math.sin(n.firing*Math.PI) : 0;
-      const pulse    = .28 + Math.sin(t*spd*n.fireSpd + n.phase) * waveAmp * .32;
-      const sz       = n.sz * (.55 + pulse*.55 + fireG*.95);
-      const alpha    = Math.min(.98, (.45 + pulse*.45 + fireG*.9) * fade);
+  // ── Cell bodies — shadowBlur only when actually firing ──
+  NEURONS.slice().sort((a,b)=>a.firing-b.firing).forEach(n=>{
+    const distC=Math.hypot(n.x-CX,n.y-CY), fade=Math.max(0,1-distC/280);
+    if(fade<.05) return;
+    const isFiring=n.firing>0&&n.firing<1;
+    const fireG=isFiring?Math.sin(n.firing*Math.PI):0;
+    const pulse=.28+Math.sin(t*spd*n.fireSpd+n.phase)*waveAmp*.28;
+    const sz=n.sz*(.55+pulse*.50+fireG*.90);
+    const alpha=Math.min(.95,(.48+pulse*.42+fireG*.88)*fade);
 
-      if (fireG > .05) {
-        const r1 = sz * 7 * (1 + waveAmp*.3);
-        const fg = ctx.createRadialGradient(n.x,n.y,0, n.x,n.y,r1);
-        fg.addColorStop(0,   `rgba(255,255,255,${fireG*.50*fade})`);
-        fg.addColorStop(.25, `rgba(${csA},${fireG*.35*fade})`);
-        fg.addColorStop(.60, `rgba(${csB},${fireG*.10*fade})`);
-        fg.addColorStop(1,   'rgba(240,244,248,0)');
-        ctx.fillStyle = fg; ctx.beginPath(); ctx.arc(n.x,n.y,r1,0,Math.PI*2); ctx.fill();
-      }
-
-      ctx.beginPath(); ctx.arc(n.x, n.y, Math.max(.4, sz*.78), 0, Math.PI*2);
-      ctx.fillStyle = isFiring
-        ? `rgba(255,255,255,${alpha})`
-        : `rgba(${csA},${alpha})`;
+    if(fireG>.06){
+      ctx.save();
+      ctx.shadowColor=`rgba(${csFire},${(fireG*.88*fade).toFixed(3)})`;
+      ctx.shadowBlur=sz*12*(1+waveAmp*.25)*fireG;
+      ctx.beginPath(); ctx.arc(n.x,n.y,Math.max(.4,sz*.80),0,Math.PI*2);
+      ctx.fillStyle=`rgba(${csFire},${alpha})`;
       ctx.fill();
-    });
-
-  // Core glow — breathes
-  const corePulse = .7 + Math.sin(t*3.2) * waveAmp * .4;
-  [[80,.035],[50,.07],[28,.16],[14,.35],[6,.65],[2.5,.95]].forEach(([r,a]) => {
-    const g = ctx.createRadialGradient(CX,CY,0, CX,CY,r*corePulse);
-    g.addColorStop(0, `rgba(${csA},${a*corePulse})`);
-    g.addColorStop(1, 'rgba(240,244,248,0)');
-    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(CX,CY,r*corePulse,0,Math.PI*2); ctx.fill();
+      ctx.restore();
+    } else {
+      ctx.beginPath(); ctx.arc(n.x,n.y,Math.max(.4,sz*.80),0,Math.PI*2);
+      ctx.fillStyle=`rgba(${csA},${alpha})`;
+      ctx.fill();
+    }
   });
-  ctx.beginPath(); ctx.arc(CX,CY,2.4,0,Math.PI*2);
-  ctx.fillStyle = `rgba(255,255,255,${.82+Math.sin(t*4.5)*.18})`; ctx.fill();
+
+  // ── Core — pulsing depth focal point ──
+  const cp=.68+Math.sin(t*3.2)*waveAmp*.38;
+  [[88,.022],[58,.048],[32,.110],[16,.240],[7,.460],[3,.800]].forEach(([r,a])=>{
+    const g=ctx.createRadialGradient(CX,CY,0,CX,CY,r*cp);
+    g.addColorStop(0,`rgba(${csA},${Math.min(1,a*1.7*cp)})`);
+    g.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.fillStyle=g; ctx.beginPath(); ctx.arc(CX,CY,r*cp,0,Math.PI*2); ctx.fill();
+  });
+  ctx.save();
+  ctx.shadowColor=`rgba(${csA},0.85)`; ctx.shadowBlur=9;
+  ctx.beginPath(); ctx.arc(CX,CY,2.6,0,Math.PI*2);
+  ctx.fillStyle=`rgba(${csA},${.90+Math.sin(t*4.5)*.10})`; ctx.fill();
+  ctx.restore();
 }
 
 frame();
+startAutoCycle(8000);  // đổi màu mỗi 8 giây
 </script>
 </body>
 </html>

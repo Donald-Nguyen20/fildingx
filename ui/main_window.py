@@ -47,6 +47,7 @@ from ui.google_sheet_window import show_google_sheet_window
 from ui.pdf_preview import PdfPreviewWidget
 from ui.container_tree import ContainerOrgChartWidget, _fs_icon
 from ui.claude_assistant import ClaudeAssistantWidget
+from ui.desktop_orb import DesktopOrb
 from core.ai_grouper import GroupWorker
 
 
@@ -192,6 +193,36 @@ class FileSearchApp(QMainWindow):
         self._restore_last_folder()
 
         os.makedirs(paths.IMAGE_DIR, exist_ok=True)
+
+        # Orb được tạo lazy — chỉ khởi tạo lần đầu khi minimize
+        self._desktop_orb = None
+
+    def _get_orb(self):
+        if self._desktop_orb is None:
+            self._desktop_orb = DesktopOrb()
+            self._desktop_orb.open_main.connect(self._restore_from_orb)
+        return self._desktop_orb
+
+    def changeEvent(self, event):
+        from PySide6.QtCore import QEvent as _QEvent
+        if event.type() == _QEvent.Type.WindowStateChange:
+            if self.isMinimized():
+                from PySide6.QtCore import QTimer
+                QTimer.singleShot(80, self._show_orb)
+        super().changeEvent(event)
+
+    def _show_orb(self) -> None:
+        self.hide()
+        orb = self._get_orb()
+        orb.show()
+        orb.raise_()
+
+    def _restore_from_orb(self) -> None:
+        if self._desktop_orb:
+            self._desktop_orb.hide()
+        self.showMaximized()
+        self.raise_()
+        self.activateWindow()
 
     def _restore_last_folder(self):
         state = _load_ui_state()
