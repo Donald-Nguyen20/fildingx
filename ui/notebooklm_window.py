@@ -677,6 +677,81 @@ IMPORTANT RULES:
                         pass
 
 
+class BatchAddSourceWorker(QThread):
+    """Upload toàn bộ file trong folder lên NotebookLM.
+
+    Cứ 100 file tạo một notebook mới tên '<folder> (Part N)'.
+    """
+    BATCH_SIZE = 100
+    SUPPORTED  = {'.pdf', '.docx', '.doc', '.txt', '.xlsx', '.pptx', '.csv', '.md'}
+
+    progress          = Signal(int, int, str, str)  # idx, total, filename, nb_title
+    notebook_created  = Signal(str, str)             # nb_id, nb_title
+    file_error        = Signal(str, str)             # filename, error_msg
+    done              = Signal(int, int)             # success, fail
+
+    def __init__(self, folder_name: str, file_paths: list):
+        super().__init__()
+        self.folder_name = folder_name
+        self.file_paths  = file_paths
+
+    def run(self):
+        from notebooklm import NotebookLMClient
+        from pathlib import Path as _Path
+
+        success = fail = 0
+        total   = len(self.file_paths)
+        batches = [self.file_paths[i:i + self.BATCH_SIZE]
+                   for i in range(0, total, self.BATCH_SIZE)]
+
+        for batch_idx, batch in enumerate(batches):
+            nb_title = self.folder_name if batch_idx == 0 else f"{self.folder_name} (Part {batch_idx + 1})"
+            try:
+                async def _create(t=nb_title):
+                    async with await NotebookLMClient.from_storage() as client:
+                        nb = await client.notebooks.create(title=t)
+                        return getattr(nb, "id", None) or getattr(nb, "notebook_id", "")
+                nb_id = _run_async(_create())
+                self.notebook_created.emit(nb_id, nb_title)
+            except Exception as e:
+                self.file_error.emit(f"[Tạo notebook '{nb_title}']", str(e))
+                fail += len(batch)
+                continue
+
+            for fp in batch:
+                fname      = os.path.basename(fp)
+                global_idx = self.file_paths.index(fp) + 1
+                self.progress.emit(global_idx, total, fname, nb_title)
+
+                tmp_file    = None
+                upload_path = fp
+                try:
+                    if fp.lower().endswith(".doc"):
+                        try:
+                            tmp_file    = AddSourceWorker._doc_to_docx(fp)
+                            upload_path = tmp_file
+                        except Exception:
+                            pass
+
+                    async def _add(path=upload_path, nid=nb_id):
+                        async with await NotebookLMClient.from_storage() as client:
+                            await client.sources.add_file(nid, _Path(path), wait=True)
+                    _run_async(_add())
+                    _upsert_source_map(fname, fp, nb_id)
+                    success += 1
+                except Exception as e:
+                    self.file_error.emit(fname, str(e))
+                    fail += 1
+                finally:
+                    if tmp_file and os.path.exists(tmp_file):
+                        try:
+                            os.remove(tmp_file)
+                        except Exception:
+                            pass
+
+        self.done.emit(success, fail)
+
+
 _MINDMAP_PROMPT = """You are a technical document analyst. Read the ENTIRE document thoroughly and produce a COMPREHENSIVE mind map in strict JSON format.
 
 RULES:
@@ -1321,6 +1396,63 @@ class ChatWorker(QThread):
                     citations.append({"text": quote, "source": src_map.get(src_id, "")})
 
             self.done.emit(text, citations)
+        except Exception as e:
+            self.error.emit(str(e))
+
+
+class MultiChatWorker(QThread):
+    """Query nhiều notebook song song rồi gộp kết quả.
+
+    Signal done: list of (nb_title, answer_text, citations_list)
+    """
+    done  = Signal(list)   # [(nb_title, answer, citations), ...]
+    error = Signal(str)
+
+    def __init__(self, notebooks: list, question: str):
+        super().__init__()
+        self.notebooks = notebooks  # [(nb_id, nb_title), ...]
+        self.question  = question
+
+    def run(self):
+        try:
+            import asyncio
+            from notebooklm import NotebookLMClient
+
+            async def _ask_one(nb_id: str, nb_title: str):
+                try:
+                    async with await NotebookLMClient.from_storage() as client:
+                        result = await client.chat.ask(nb_id, self.question)
+                        src_map = {}
+                        try:
+                            sources = await client.sources.list(nb_id)
+                            for s in sources:
+                                sid   = getattr(s, "source_id", None) or getattr(s, "id", "")
+                                title = getattr(s, "title", None) or getattr(s, "name", "") or ""
+                                if sid:
+                                    src_map[sid] = title
+                        except Exception:
+                            pass
+                        text = (getattr(result, "answer", None)
+                                or getattr(result, "message", None)
+                                or getattr(result, "text", None)
+                                or str(result))
+                        seen, citations = set(), []
+                        for c in (getattr(result, "references", None) or []):
+                            quote  = (getattr(c, "cited_text", None) or "").strip()
+                            src_id = getattr(c, "source_id", "") or ""
+                            if quote and quote not in seen:
+                                seen.add(quote)
+                                citations.append({"text": quote, "source": src_map.get(src_id, "")})
+                        return nb_title, text, citations
+                except Exception as e:
+                    return nb_title, f"⚠ Lỗi: {e}", []
+
+            async def _run_all():
+                tasks = [_ask_one(nb_id, nb_title) for nb_id, nb_title in self.notebooks]
+                return await asyncio.gather(*tasks)
+
+            results = _run_async(_run_all())
+            self.done.emit(list(results))
         except Exception as e:
             self.error.emit(str(e))
 
@@ -1986,6 +2118,7 @@ class NotebookLMWidget(QWidget):
         self._last_answer: str = ""
 
         self._current_notebook_id = None
+        self._checked_notebook_ids: dict[str, str] = {}  # {nb_id: title}
         self._pasted_image_bytes: bytes | None = None
         self._workers = []
         self._thinking_step = 0
@@ -2225,10 +2358,25 @@ class NotebookLMWidget(QWidget):
             "\nRequires an API key (Groq/Gemini/OpenRouter) and Internet. Only applies to PDFs."
         )
 
+        self.btn_add_folder = QPushButton("📁 Folder")
+        self.btn_add_folder.setFixedHeight(30)
+        self.btn_add_folder.setEnabled(True)
+        self.btn_add_folder.setToolTip(
+            "Chọn folder → tự tạo notebook mới đặt tên theo folder.\n"
+            "Cứ 100 file sẽ tự tạo thêm notebook mới (Part 2, 3…)."
+        )
+        self.btn_add_folder.clicked.connect(self._add_folder)
+
         src_btn_row.addWidget(self.btn_add_file)
+        src_btn_row.addWidget(self.btn_add_folder)
         src_btn_row.addWidget(self.chk_vision)
         src_btn_row.addStretch()
         src_lay.addLayout(src_btn_row)
+
+        self.lbl_batch_progress = QLabel("")
+        self.lbl_batch_progress.setStyleSheet("font-size:12px; color:#89b4fa; padding:2px 0;")
+        self.lbl_batch_progress.setVisible(False)
+        src_lay.addWidget(self.lbl_batch_progress)
 
         right.addTab(src_widget, "📎 Sources")
 
@@ -2471,6 +2619,7 @@ class NotebookLMWidget(QWidget):
 
     def _render_notebooks(self, notebooks):
         self.lst_notebooks.clear()
+        self._checked_notebook_ids.clear()
         for nb in notebooks:
             title = getattr(nb, "title", None) or getattr(nb, "name", str(nb))
             nb_id = getattr(nb, "id", None) or getattr(nb, "notebook_id", "")
@@ -2478,6 +2627,8 @@ class NotebookLMWidget(QWidget):
             item  = QTreeWidgetItem([f"{emoji}  {title}"])
             item.setData(0, Qt.UserRole, nb_id)
             item.setData(0, Qt.UserRole + 1, "notebook")
+            item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+            item.setCheckState(0, Qt.Unchecked)
             font = item.font(0)
             font.setBold(True)
             item.setFont(0, font)
@@ -2580,11 +2731,23 @@ class NotebookLMWidget(QWidget):
         self._load_sources()
 
     def _on_tree_item_check_changed(self, item, col):
-        """Khi tick/untick item trong tree → xử lý Select All và sync sang lst_sources."""
+        """Khi tick/untick item trong tree → xử lý notebook multi-select, Select All, sync sources."""
         if col != 0:
             return
         kind = item.data(0, Qt.UserRole + 1) or ""
         parent = item.parent()
+
+        if kind == "notebook":
+            nb_id    = item.data(0, Qt.UserRole) or ""
+            nb_title = item.text(0)
+            if item.checkState(0) == Qt.Checked:
+                self._checked_notebook_ids[nb_id] = nb_title
+            else:
+                self._checked_notebook_ids.pop(nb_id, None)
+            # Enable Send nếu có ít nhất 1 sổ được check (kể cả chưa click sổ nào)
+            if self._checked_notebook_ids and not self._current_notebook_id:
+                self.btn_send.setEnabled(True)
+            return
 
         self.lst_notebooks.blockSignals(True)
         if kind == "select_all" and parent:
@@ -2994,7 +3157,7 @@ class NotebookLMWidget(QWidget):
         self.btn_clear_img.setVisible(False)
 
     def _send_chat(self):
-        if not self._current_notebook_id:
+        if not self._current_notebook_id and not self._checked_notebook_ids:
             return
         question = self.chat_input.text().strip()
         if not question and not self._pasted_image_bytes:
@@ -3035,13 +3198,22 @@ class NotebookLMWidget(QWidget):
         self.btn_save_note.setEnabled(False)
         self._start_thinking()
 
-        if img_bytes:
+        if self._checked_notebook_ids and not img_bytes:
+            # Multi-notebook mode: query tất cả sổ đã check song song
+            nb_list = list(self._checked_notebook_ids.items())  # [(id, title), ...]
+            sent_question = question + (_TABLE_FORMAT_HINT if _needs_table_hint(question) else "")
+            w = MultiChatWorker(nb_list, sent_question)
+            w.done.connect(self._on_multi_chat_done)
+            w.error.connect(self._on_chat_error)
+        elif img_bytes:
             w = ImageChatWorker(self._current_notebook_id, question, img_bytes)
+            w.done.connect(self._on_chat_done)
+            w.error.connect(self._on_chat_error)
         else:
             sent_question = question + (_TABLE_FORMAT_HINT if _needs_table_hint(question) else "")
             w = ChatWorker(self._current_notebook_id, sent_question)
-        w.done.connect(self._on_chat_done)
-        w.error.connect(self._on_chat_error)
+            w.done.connect(self._on_chat_done)
+            w.error.connect(self._on_chat_error)
         self._start_worker(w)
 
     def _on_chat_done(self, text: str, citations: list):
@@ -3083,6 +3255,42 @@ class NotebookLMWidget(QWidget):
         sw.error.connect(lambda _: None)   # fail silently
         sw.finished.connect(sw.deleteLater)
         self._start_worker(sw)
+
+    def _on_multi_chat_done(self, results: list):
+        """Hiển thị kết quả từ nhiều notebook, mỗi sổ 1 section."""
+        self._stop_thinking()
+        combined_text = []
+        for nb_title, text, citations in results:
+            combined_text.append(text)
+            self.chat_display.append(
+                f"<b style='color:#a6e3a1'>Mr Finder</b> <span style='color:#89b4fa'>[📓 {nb_title}]</span>:"
+            )
+            html = self._md_to_html(text)
+            self.chat_display.append(html)
+            if citations:
+                parts = []
+                for i, c in enumerate(citations, 1):
+                    quote  = c.get("text", "")
+                    source = c.get("source", "")
+                    short  = quote[:150] + ("…" if len(quote) > 150 else "")
+                    src_html = (
+                        f" <a href='nlm://{i-1}' style='color:#1d4ed8;text-decoration:underline'>{source}</a>"
+                        if source else ""
+                    )
+                    parts.append(
+                        f"<span style='color:#15803d'>[{i}]{src_html}</span>"
+                        f" <i style='color:#374151'>\"{short}\"</i>"
+                    )
+                self.chat_display.append(
+                    "<span style='font-size:15px;color:#b45309'>──────────────── Sources ────────────────</span><br>"
+                    + "<br>".join(parts)
+                )
+            self.chat_display.append("<br>")
+
+        self._last_answer = "\n\n---\n\n".join(combined_text)
+        self._citation_refs = []
+        self.btn_send.setEnabled(True)
+        self.btn_save_note.setEnabled(True)
 
     def _on_suggestions_done(self, questions: list[str]):
         if not questions:
@@ -4013,6 +4221,106 @@ class NotebookLMWidget(QWidget):
         self.btn_add_file.setEnabled(True)
         self.chk_vision.setEnabled(True)
         self._load_sources()  # reload danh sách thực tế
+
+    # ── Folder batch upload ──────────────────────────────────────
+
+    def _add_folder(self):
+        folder = QFileDialog.getExistingDirectory(self, "Chọn folder để upload")
+        if not folder:
+            return
+
+        SUPPORTED = BatchAddSourceWorker.SUPPORTED
+        reply_sub = QMessageBox.question(
+            self, "Bao gồm thư mục con?",
+            "Scan cả các thư mục con bên trong không?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        )
+        recursive = (reply_sub == QMessageBox.Yes)
+
+        files = []
+        if recursive:
+            for root, _dirs, fnames in os.walk(folder):
+                for f in sorted(fnames):
+                    if os.path.splitext(f)[1].lower() in SUPPORTED:
+                        files.append(os.path.join(root, f))
+        else:
+            for f in sorted(os.listdir(folder)):
+                fp = os.path.join(folder, f)
+                if os.path.isfile(fp) and os.path.splitext(f)[1].lower() in SUPPORTED:
+                    files.append(fp)
+
+        if not files:
+            QMessageBox.information(self, "Không tìm thấy file",
+                "Không có file được hỗ trợ nào trong folder này.\n"
+                f"Định dạng hỗ trợ: {', '.join(sorted(SUPPORTED))}")
+            return
+
+        folder_name = os.path.basename(folder)
+        nb_count    = (len(files) - 1) // BatchAddSourceWorker.BATCH_SIZE + 1
+        batch_size  = BatchAddSourceWorker.BATCH_SIZE
+
+        lines = [f"Tìm thấy <b>{len(files)}</b> file trong '<b>{folder_name}</b>'.<br><br>"]
+        lines.append(f"Sẽ upload lên <b>{nb_count}</b> notebook:<br>")
+        for i in range(nb_count):
+            start = i * batch_size + 1
+            end   = min((i + 1) * batch_size, len(files))
+            name  = folder_name if i == 0 else f"{folder_name} (Part {i + 1})"
+            lines.append(f"  &nbsp;• <b>{name}</b> — {end - start + 1} file ({start}–{end})<br>")
+        lines.append("<br>Bắt đầu upload?")
+
+        confirm = QMessageBox(self)
+        confirm.setWindowTitle("Xác nhận Batch Upload")
+        confirm.setTextFormat(Qt.RichText)
+        confirm.setText("".join(lines))
+        confirm.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        confirm.setDefaultButton(QMessageBox.Yes)
+        if confirm.exec() != QMessageBox.Yes:
+            return
+
+        self.btn_add_file.setEnabled(False)
+        self.btn_add_folder.setEnabled(False)
+        self.lbl_batch_progress.setVisible(True)
+        self.lbl_batch_progress.setText("⏳ Chuẩn bị upload…")
+
+        w = BatchAddSourceWorker(folder_name, files)
+        w.progress.connect(self._on_batch_progress)
+        w.notebook_created.connect(self._on_batch_notebook_created)
+        w.file_error.connect(self._on_batch_file_error)
+        w.done.connect(self._on_batch_done)
+        self._start_worker(w)
+
+    def _on_batch_progress(self, idx: int, total: int, fname: str, nb_title: str):
+        self.lbl_batch_progress.setText(
+            f"⬆ {idx}/{total} — <i>{fname}</i>  →  📓 {nb_title}"
+        )
+
+    def _on_batch_notebook_created(self, nb_id: str, nb_title: str):
+        """Thêm notebook mới vừa tạo vào danh sách bên trái."""
+        from PySide6.QtWidgets import QTreeWidgetItem
+        item = QTreeWidgetItem([f"📓  {nb_title}"])
+        item.setData(0, Qt.UserRole,     nb_id)
+        item.setData(0, Qt.UserRole + 1, "notebook")
+        font = item.font(0)
+        font.setBold(True)
+        item.setFont(0, font)
+        from PySide6.QtWidgets import QTreeWidgetItem as _TWI
+        placeholder = _TWI(["⏳"])
+        placeholder.setData(0, Qt.UserRole + 1, "placeholder")
+        item.addChild(placeholder)
+        self.lst_notebooks.addTopLevelItem(item)
+
+    def _on_batch_file_error(self, fname: str, msg: str):
+        self.lbl_batch_progress.setText(f"⚠ Lỗi: {fname} — {msg[:80]}")
+
+    def _on_batch_done(self, success: int, fail: int):
+        self.btn_add_file.setEnabled(True)
+        self.btn_add_folder.setEnabled(True)
+        self.lbl_batch_progress.setVisible(False)
+        self._reload_current_notebook_sources()
+        result = f"✅ Upload xong: {success} thành công"
+        if fail:
+            result += f", {fail} lỗi"
+        QMessageBox.information(self, "Batch Upload hoàn tất", result)
 
     # ── Source checkbox helpers ──────────────────────────────────
 
