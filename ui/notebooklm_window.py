@@ -688,7 +688,7 @@ class BatchAddSourceWorker(QThread):
     progress          = Signal(int, int, str, str)  # idx, total, filename, nb_title
     notebook_created  = Signal(str, str)             # nb_id, nb_title
     file_error        = Signal(str, str)             # filename, error_msg
-    done              = Signal(int, int)             # success, fail
+    done              = Signal(int, int, int)        # success, fail, skipped
 
     def __init__(self, folder_name: str, file_paths: list):
         super().__init__()
@@ -699,9 +699,26 @@ class BatchAddSourceWorker(QThread):
         from notebooklm import NotebookLMClient
         from pathlib import Path as _Path
 
+        # Lọc file đã upload vào bất kỳ notebook nào
+        src_map   = _load_source_map()
+        new_files = []
+        skipped   = 0
+        for fp in self.file_paths:
+            fname = os.path.basename(fp)
+            entry = src_map.get(fname, {})
+            if isinstance(entry, dict) and entry.get("notebooks"):
+                skipped += 1
+            else:
+                new_files.append(fp)
+
         success = fail = 0
-        total   = len(self.file_paths)
-        batches = [self.file_paths[i:i + self.BATCH_SIZE]
+        total   = len(new_files)
+
+        if not new_files:
+            self.done.emit(0, 0, skipped)
+            return
+
+        batches = [new_files[i:i + self.BATCH_SIZE]
                    for i in range(0, total, self.BATCH_SIZE)]
 
         for batch_idx, batch in enumerate(batches):
@@ -718,9 +735,9 @@ class BatchAddSourceWorker(QThread):
                 fail += len(batch)
                 continue
 
-            for fp in batch:
+            for local_idx, fp in enumerate(batch, 1):
                 fname      = os.path.basename(fp)
-                global_idx = self.file_paths.index(fp) + 1
+                global_idx = (batch_idx * self.BATCH_SIZE) + local_idx
                 self.progress.emit(global_idx, total, fname, nb_title)
 
                 tmp_file    = None
@@ -749,7 +766,7 @@ class BatchAddSourceWorker(QThread):
                         except Exception:
                             pass
 
-        self.done.emit(success, fail)
+        self.done.emit(success, fail, skipped)
 
 
 _MINDMAP_PROMPT = """You are a technical document analyst. Read the ENTIRE document thoroughly and produce a COMPREHENSIVE mind map in strict JSON format.
@@ -2202,6 +2219,22 @@ class NotebookLMWidget(QWidget):
         lbl_nb.setStyleSheet("font-weight: bold; font-size: 13px;")
         nb_header.addWidget(lbl_nb)
         nb_header.addStretch()
+        self.btn_check_all_nb = QPushButton("☑ Check all")
+        self.btn_check_all_nb.setFixedHeight(30)
+        self.btn_check_all_nb.setToolTip("Chọn / bỏ chọn tất cả sổ")
+        self.btn_check_all_nb.setEnabled(False)
+        self.btn_check_all_nb.setStyleSheet("""
+            QPushButton {
+                background: #1e3a5f; color: #93c5fd;
+                border: 1px solid #3b82f6; border-radius: 6px;
+                font-size: 12px; padding: 0 10px;
+            }
+            QPushButton:hover   { background: #2a4f80; color: #bfdbfe; }
+            QPushButton:pressed { background: #1a3050; }
+            QPushButton:disabled { background: #1a2535; color: #4a6080; border-color: #2a3a4a; }
+        """)
+        self.btn_check_all_nb.clicked.connect(self._toggle_check_all_notebooks)
+        nb_header.addWidget(self.btn_check_all_nb)
         self.cmb_nb_sort = QComboBox()
         self.cmb_nb_sort.addItem("A→Z",  "alpha_asc")
         self.cmb_nb_sort.addItem("Z→A",  "alpha_desc")
@@ -2620,6 +2653,8 @@ class NotebookLMWidget(QWidget):
     def _render_notebooks(self, notebooks):
         self.lst_notebooks.clear()
         self._checked_notebook_ids.clear()
+        self.btn_check_all_nb.setEnabled(bool(notebooks))
+        self.btn_check_all_nb.setText("☑ Check all")
         for nb in notebooks:
             title = getattr(nb, "title", None) or getattr(nb, "name", str(nb))
             nb_id = getattr(nb, "id", None) or getattr(nb, "notebook_id", "")
@@ -2729,6 +2764,32 @@ class NotebookLMWidget(QWidget):
         self._set_studio_btns_enabled(True)
         self.chat_display.clear()
         self._load_sources()
+
+    def _toggle_check_all_notebooks(self):
+        """Check All / Uncheck All cho toàn bộ notebook trong list."""
+        root = self.lst_notebooks.invisibleRootItem()
+        count = root.childCount()
+        if count == 0:
+            return
+        all_checked = all(
+            root.child(i).checkState(0) == Qt.Checked
+            for i in range(count)
+        )
+        new_state = Qt.Unchecked if all_checked else Qt.Checked
+        self.lst_notebooks.blockSignals(True)
+        self._checked_notebook_ids.clear()
+        for i in range(count):
+            item = root.child(i)
+            item.setCheckState(0, new_state)
+            if new_state == Qt.Checked:
+                nb_id    = item.data(0, Qt.UserRole) or ""
+                nb_title = item.text(0)
+                if nb_id:
+                    self._checked_notebook_ids[nb_id] = nb_title
+        self.lst_notebooks.blockSignals(False)
+        self.btn_check_all_nb.setText("☐ Uncheck all" if new_state == Qt.Checked else "☑ Check all")
+        if self._checked_notebook_ids and not self._current_notebook_id:
+            self.btn_send.setEnabled(True)
 
     def _on_tree_item_check_changed(self, item, col):
         """Khi tick/untick item trong tree → xử lý notebook multi-select, Select All, sync sources."""
@@ -4312,7 +4373,7 @@ class NotebookLMWidget(QWidget):
     def _on_batch_file_error(self, fname: str, msg: str):
         self.lbl_batch_progress.setText(f"⚠ Lỗi: {fname} — {msg[:80]}")
 
-    def _on_batch_done(self, success: int, fail: int):
+    def _on_batch_done(self, success: int, fail: int, skipped: int):
         self.btn_add_file.setEnabled(True)
         self.btn_add_folder.setEnabled(True)
         self.lbl_batch_progress.setVisible(False)
@@ -4320,6 +4381,8 @@ class NotebookLMWidget(QWidget):
         result = f"✅ Upload xong: {success} thành công"
         if fail:
             result += f", {fail} lỗi"
+        if skipped:
+            result += f"\n⏭ {skipped} file bỏ qua (đã upload trước đó)"
         QMessageBox.information(self, "Batch Upload hoàn tất", result)
 
     # ── Source checkbox helpers ──────────────────────────────────
