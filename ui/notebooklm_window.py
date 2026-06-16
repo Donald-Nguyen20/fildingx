@@ -677,6 +677,190 @@ IMPORTANT RULES:
                         pass
 
 
+class MergeNotebooksWorker(QThread):
+    """Gộp nội dung nhiều notebook thành 1 notebook mới.
+
+    Quy trình:
+    1. Lấy danh sách sources từ mỗi notebook đã check qua API
+    2. Tìm nội dung từ local DB (đã index sẵn)
+    3. Gộp tất cả thành file(s) .txt (~400k words/phần)
+    4. Tạo notebook mới và upload
+    """
+    progress         = Signal(str)      # status message
+    notebook_created = Signal(str, str) # nb_id, nb_title
+    done             = Signal(int, int) # n_files, n_parts
+    error            = Signal(str)
+
+    WORDS_PER_PART = 400_000  # dưới giới hạn ~500k words/source của NotebookLM
+
+    def __init__(self, nb_map: dict, new_title: str):
+        super().__init__()
+        self.nb_map    = nb_map      # {nb_id: nb_title}
+        self.new_title = new_title
+
+    def _db_paths(self) -> list:
+        import json
+        try:
+            p = os.path.join(os.path.dirname(os.path.dirname(__file__)), "db_list.json")
+            with open(p, "r", encoding="utf-8") as f:
+                return [x for x in json.load(f) if os.path.isfile(x)]
+        except Exception:
+            return []
+
+    def _content_from_db(self, title: str) -> str:
+        import sqlite3
+        tl  = title.lower()
+        tne = os.path.splitext(tl)[0]
+        for db in self._db_paths():
+            try:
+                conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+                cur  = conn.cursor()
+                cur.execute(
+                    "SELECT content FROM files WHERE lower(name)=? AND name!='BASE_PATH' LIMIT 1",
+                    (tl,)
+                )
+                row = cur.fetchone()
+                if not row:
+                    cur.execute(
+                        "SELECT content FROM files WHERE lower(name) LIKE ? AND name!='BASE_PATH' LIMIT 1",
+                        (tne + "%",)
+                    )
+                    row = cur.fetchone()
+                conn.close()
+                if row and row[0]:
+                    return row[0]
+            except Exception:
+                pass
+        return ""
+
+    def _content_from_file(self, path: str) -> str:
+        ext = os.path.splitext(path)[1].lower()
+        try:
+            if ext == ".txt":
+                with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                    return f.read()
+            if ext == ".pdf":
+                import pdfplumber
+                with pdfplumber.open(path) as pdf:
+                    return "\n".join(p.extract_text() or "" for p in pdf.pages)
+            if ext == ".docx":
+                from docx import Document
+                return "\n".join(p.text for p in Document(path).paragraphs)
+        except Exception:
+            pass
+        return ""
+
+    def run(self):
+        import tempfile
+        from pathlib import Path as _Path
+        from notebooklm import NotebookLMClient
+
+        try:
+            # ── Bước 1: Lấy sources từ tất cả notebook đã check ──────────
+            self.progress.emit("🔍 Đang lấy danh sách sources…")
+
+            async def _list_all_sources():
+                out = {}
+                async with await NotebookLMClient.from_storage() as client:
+                    for nb_id in self.nb_map:
+                        try:
+                            srcs = await client.sources.list(nb_id)
+                            out[nb_id] = [
+                                getattr(s, "title", None) or getattr(s, "name", "") or ""
+                                for s in srcs
+                            ]
+                        except Exception:
+                            out[nb_id] = []
+                return out
+
+            nb_sources = _run_async(_list_all_sources())
+            all_titles = {t for titles in nb_sources.values() for t in titles if t}
+
+            self.progress.emit(f"📚 {len(all_titles)} sources, đang tìm nội dung trong DB…")
+
+            # ── Bước 2: Lấy nội dung từ DB / file local ──────────────────
+            src_map   = _load_source_map()
+            name_path = {}
+            for fname, entry in src_map.items():
+                if isinstance(entry, dict):
+                    p = entry.get("path", "")
+                    if p:
+                        name_path[fname.lower()] = p
+                        name_path[os.path.splitext(fname)[0].lower()] = p
+
+            parts_data = []  # [(title, content), ...]
+            for title in sorted(all_titles):
+                content = self._content_from_db(title)
+                if not content:
+                    lp = (name_path.get(title.lower())
+                          or name_path.get(os.path.splitext(title)[0].lower()))
+                    if lp and os.path.isfile(lp):
+                        content = self._content_from_file(lp)
+                if content:
+                    parts_data.append((title, content))
+
+            if not parts_data:
+                self.error.emit(
+                    "Không tìm được nội dung từ DB hoặc file local.\n"
+                    "Hãy chắc chắn file đã được index vào DB."
+                )
+                return
+
+            self.progress.emit(f"✍️ Đang gộp {len(parts_data)} file…")
+
+            # ── Bước 3: Gộp và chia theo WORDS_PER_PART ──────────────────
+            full_text = ""
+            for fname, content in parts_data:
+                full_text += f"\n\n{'='*60}\n📄 {fname}\n{'='*60}\n\n{content}"
+
+            words    = full_text.split()
+            n_parts  = max(1, (len(words) + self.WORDS_PER_PART - 1) // self.WORDS_PER_PART)
+            chunks   = [
+                " ".join(words[i * self.WORDS_PER_PART:(i + 1) * self.WORDS_PER_PART])
+                for i in range(n_parts)
+            ]
+
+            self.progress.emit(
+                f"📤 Tạo notebook '{self.new_title}' và upload {n_parts} phần…"
+            )
+
+            # ── Bước 4: Tạo notebook và upload ───────────────────────────
+            async def _create_and_upload():
+                tmp_files = []
+                try:
+                    async with await NotebookLMClient.from_storage() as client:
+                        nb    = await client.notebooks.create(title=self.new_title)
+                        nb_id = getattr(nb, "id", None) or getattr(nb, "notebook_id", "")
+
+                        for i, chunk in enumerate(chunks, 1):
+                            label = (f"{self.new_title} - Part {i}.txt"
+                                     if n_parts > 1 else f"{self.new_title}.txt")
+                            tmp = tempfile.NamedTemporaryFile(
+                                mode="w", suffix=".txt", encoding="utf-8",
+                                delete=False, prefix="nlm_merge_"
+                            )
+                            tmp.write(chunk)
+                            tmp.close()
+                            tmp_files.append(tmp.name)
+                            self.progress.emit(f"⬆ Upload phần {i}/{n_parts}…")
+                            await client.sources.add_file(nb_id, _Path(tmp.name), wait=True)
+
+                        return nb_id
+                finally:
+                    for f in tmp_files:
+                        try:
+                            os.remove(f)
+                        except Exception:
+                            pass
+
+            nb_id = _run_async(_create_and_upload())
+            self.notebook_created.emit(nb_id, self.new_title)
+            self.done.emit(len(parts_data), n_parts)
+
+        except Exception as e:
+            self.error.emit(str(e))
+
+
 class BatchAddSourceWorker(QThread):
     """Upload toàn bộ file trong folder lên NotebookLM.
 
@@ -2452,8 +2636,17 @@ class NotebookLMWidget(QWidget):
         self.btn_del_nb.setFixedHeight(34)
         self.btn_del_nb.setEnabled(False)
         self.btn_del_nb.clicked.connect(self._delete_notebook)
+        self.btn_merge_nb = QPushButton("⊕ Merge")
+        self.btn_merge_nb.setFixedHeight(34)
+        self.btn_merge_nb.setEnabled(False)
+        self.btn_merge_nb.setToolTip(
+            "Gộp nội dung các notebook đã check thành 1 notebook mới.\n"
+            "Nội dung lấy từ DB đã index — không cần re-upload file."
+        )
+        self.btn_merge_nb.clicked.connect(self._merge_notebooks)
         nb_btn_row.addWidget(self.btn_new_nb)
         nb_btn_row.addWidget(self.btn_del_nb)
+        nb_btn_row.addWidget(self.btn_merge_nb)
         left_lay.addLayout(nb_btn_row)
 
 
@@ -2971,6 +3164,7 @@ class NotebookLMWidget(QWidget):
         self.btn_check_all_nb.setText("☐ Uncheck all" if new_state == Qt.Checked else "☑ Check all")
         if self._checked_notebook_ids and not self._current_notebook_id:
             self.btn_send.setEnabled(True)
+        self.btn_merge_nb.setEnabled(len(self._checked_notebook_ids) >= 2)
 
     def _on_tree_item_check_changed(self, item, col):
         """Khi tick/untick item trong tree → xử lý notebook multi-select, Select All, sync sources."""
@@ -2989,6 +3183,7 @@ class NotebookLMWidget(QWidget):
             # Enable Send nếu có ít nhất 1 sổ được check (kể cả chưa click sổ nào)
             if self._checked_notebook_ids and not self._current_notebook_id:
                 self.btn_send.setEnabled(True)
+            self.btn_merge_nb.setEnabled(len(self._checked_notebook_ids) >= 2)
             return
 
         self.lst_notebooks.blockSignals(True)
@@ -4579,6 +4774,44 @@ class NotebookLMWidget(QWidget):
         if skipped:
             result += f"\n⏭ {skipped} file bỏ qua (đã upload trước đó)"
         QMessageBox.information(self, "Batch Upload hoàn tất", result)
+
+    # ── Merge notebooks ──────────────────────────────────────────
+
+    def _merge_notebooks(self):
+        from PySide6.QtWidgets import QInputDialog
+        nb_titles = [t.split("  ", 1)[-1] for t in self._checked_notebook_ids.values()]
+        default_name = " + ".join(nb_titles[:3]) + (" + …" if len(nb_titles) > 3 else "")
+        new_title, ok = QInputDialog.getText(
+            self, "Tên notebook mới", "Đặt tên cho notebook gộp:",
+            text=default_name
+        )
+        if not ok or not new_title.strip():
+            return
+
+        self.btn_merge_nb.setEnabled(False)
+        self.lbl_batch_progress.setVisible(True)
+        self.lbl_batch_progress.setText("⏳ Đang chuẩn bị merge…")
+
+        w = MergeNotebooksWorker(dict(self._checked_notebook_ids), new_title.strip())
+        w.progress.connect(self.lbl_batch_progress.setText)
+        w.notebook_created.connect(self._on_batch_notebook_created)
+        w.done.connect(self._on_merge_done)
+        w.error.connect(self._on_merge_error)
+        self._start_worker(w)
+
+    def _on_merge_done(self, n_files: int, n_parts: int):
+        self.btn_merge_nb.setEnabled(len(self._checked_notebook_ids) >= 2)
+        self.lbl_batch_progress.setVisible(False)
+        self._load_notebooks()
+        QMessageBox.information(
+            self, "Merge hoàn tất",
+            f"✅ Đã gộp {n_files} file thành {n_parts} phần vào notebook mới."
+        )
+
+    def _on_merge_error(self, msg: str):
+        self.btn_merge_nb.setEnabled(len(self._checked_notebook_ids) >= 2)
+        self.lbl_batch_progress.setVisible(False)
+        QMessageBox.critical(self, "Merge thất bại", msg)
 
     # ── Source checkbox helpers ──────────────────────────────────
 
