@@ -1601,11 +1601,8 @@ class ChatWorker(QThread):
 
 
 class MultiChatWorker(QThread):
-    """Query nhiều notebook song song rồi gộp kết quả.
-
-    Signal done: list of (nb_title, answer_text, citations_list)
-    """
-    done  = Signal(list)   # [(nb_title, answer, citations), ...]
+    """Query nhiều notebook song song, tổng hợp thành 1 câu trả lời cô đọng qua LLM."""
+    done  = Signal(str, list)   # (synthesized_text, merged_citations)
     error = Signal(str)
 
     def __init__(self, notebooks: list, question: str):
@@ -1651,10 +1648,47 @@ class MultiChatWorker(QThread):
                 tasks = [_ask_one(nb_id, nb_title) for nb_id, nb_title in self.notebooks]
                 return await asyncio.gather(*tasks)
 
-            results = _run_async(_run_all())
-            self.done.emit(list(results))
+            raw_results = list(_run_async(_run_all()))
+
+            # Gộp citations (loại trùng)
+            merged_citations, seen_q = [], set()
+            for _, _, cits in raw_results:
+                for c in cits:
+                    q = c.get("text", "")
+                    if q and q not in seen_q:
+                        seen_q.add(q)
+                        merged_citations.append(c)
+
+            synthesized = self._synthesize(raw_results)
+            self.done.emit(synthesized, merged_citations)
         except Exception as e:
             self.error.emit(str(e))
+
+    def _synthesize(self, raw_results: list) -> str:
+        """Tổng hợp các câu trả lời từ nhiều notebook thành 1 câu trả lời cô đọng."""
+        valid = [(t, txt) for t, txt, _ in raw_results if not txt.startswith("⚠")]
+        if not valid:
+            return "\n\n".join(txt for _, txt, _ in raw_results)
+        if len(valid) == 1:
+            return valid[0][1]
+
+        combined = "\n\n".join(f"[{title}]:\n{txt}" for title, txt in valid)
+        prompt = (
+            f"Câu hỏi: {self.question}\n\n"
+            f"Dưới đây là câu trả lời từ {len(valid)} nguồn tài liệu:\n\n"
+            f"{combined}\n\n"
+            "Hãy tổng hợp thành 1 câu trả lời cô đọng, đầy đủ, không lặp thông tin. "
+            "Trả lời bằng ngôn ngữ của câu hỏi. Không đề cập tên nguồn."
+        )
+        try:
+            from core.llm_config import load_llm_config
+            from core.llm_client import create_llm_client
+            cfg      = load_llm_config()
+            provider = cfg.get("translate_provider", "gemini")
+            return create_llm_client(provider).generate(prompt)
+        except Exception:
+            # Fallback: nối các câu trả lời nếu LLM không có
+            return "\n\n---\n\n".join(txt for _, txt in valid)
 
 
 class ImageChatWorker(QThread):
@@ -3500,39 +3534,36 @@ class NotebookLMWidget(QWidget):
         sw.finished.connect(sw.deleteLater)
         self._start_worker(sw)
 
-    def _on_multi_chat_done(self, results: list):
-        """Hiển thị kết quả từ nhiều notebook, mỗi sổ 1 section."""
+    def _on_multi_chat_done(self, text: str, citations: list):
+        """Hiển thị câu trả lời tổng hợp từ nhiều notebook."""
         self._stop_thinking()
-        combined_text = []
-        for nb_title, text, citations in results:
-            combined_text.append(text)
-            self.chat_display.append(
-                f"<b style='color:#a6e3a1'>Mr Finder</b> <span style='color:#89b4fa'>[📓 {nb_title}]</span>:"
-            )
-            html = self._md_to_html(text)
-            self.chat_display.append(html)
-            if citations:
-                parts = []
-                for i, c in enumerate(citations, 1):
-                    quote  = c.get("text", "")
-                    source = c.get("source", "")
-                    short  = quote[:150] + ("…" if len(quote) > 150 else "")
-                    src_html = (
-                        f" <a href='nlm://{i-1}' style='color:#1d4ed8;text-decoration:underline'>{source}</a>"
-                        if source else ""
-                    )
-                    parts.append(
-                        f"<span style='color:#15803d'>[{i}]{src_html}</span>"
-                        f" <i style='color:#374151'>\"{short}\"</i>"
-                    )
-                self.chat_display.append(
-                    "<span style='font-size:15px;color:#b45309'>──────────────── Sources ────────────────</span><br>"
-                    + "<br>".join(parts)
+        nb_count = len(self._checked_notebook_ids)
+        self.chat_display.append(
+            f"<b style='color:#a6e3a1'>Mr Finder</b> "
+            f"<span style='color:#89b4fa'>[📓 {nb_count} notebook{'s' if nb_count != 1 else ''}]</span>:"
+        )
+        self.chat_display.append(self._md_to_html(text))
+        if citations:
+            parts = []
+            for i, c in enumerate(citations, 1):
+                quote  = c.get("text", "")
+                source = c.get("source", "")
+                short  = quote[:150] + ("…" if len(quote) > 150 else "")
+                src_html = (
+                    f" <a href='nlm://{i-1}' style='color:#1d4ed8;text-decoration:underline'>{source}</a>"
+                    if source else ""
                 )
-            self.chat_display.append("<br>")
-
-        self._last_answer = "\n\n---\n\n".join(combined_text)
-        self._citation_refs = []
+                parts.append(
+                    f"<span style='color:#15803d'>[{i}]{src_html}</span>"
+                    f" <i style='color:#374151'>\"{short}\"</i>"
+                )
+            self.chat_display.append(
+                "<span style='font-size:15px;color:#b45309'>──────────────── Sources ────────────────</span><br>"
+                + "<br>".join(parts)
+            )
+        self.chat_display.append("<br>")
+        self._last_answer  = text
+        self._citation_refs = citations
         self.btn_send.setEnabled(True)
         self.btn_save_note.setEnabled(True)
 
