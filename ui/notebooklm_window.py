@@ -3506,11 +3506,6 @@ class NotebookLMWidget(QWidget):
         relevant = [r for r in results if r[2] and not r[1].startswith("⚠")]
 
         if not relevant:
-            self.chat_display.append(
-                "<b style='color:#a6e3a1'>Mr Finder</b>: "
-                "<i style='color:#6c7086'>Không tìm thấy nội dung liên quan trong các notebook đã chọn.</i>"
-            )
-            self.chat_display.append("<br>")
             self._last_answer   = ""
             self._citation_refs = []
             self.btn_send.setEnabled(True)
