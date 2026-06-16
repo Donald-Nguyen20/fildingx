@@ -1650,32 +1650,47 @@ class MultiChatWorker(QThread):
 
             raw_results = list(_run_async(_run_all()))
 
-            # Gộp citations (loại trùng)
+            synthesized = self._synthesize(raw_results)
+
+            # Gộp citations chỉ từ notebook có citations (loại trùng)
+            relevant_results = (
+                [r for r in raw_results if r[2]]   # có citations
+                or [r for r in raw_results if not r[1].startswith("⚠")]
+            )
             merged_citations, seen_q = [], set()
-            for _, _, cits in raw_results:
+            for _, _, cits in relevant_results:
                 for c in cits:
                     q = c.get("text", "")
                     if q and q not in seen_q:
                         seen_q.add(q)
                         merged_citations.append(c)
 
-            synthesized = self._synthesize(raw_results)
             self.done.emit(synthesized, merged_citations)
         except Exception as e:
             self.error.emit(str(e))
 
     def _synthesize(self, raw_results: list) -> str:
-        """Tổng hợp các câu trả lời từ nhiều notebook thành 1 câu trả lời cô đọng."""
-        valid = [(t, txt) for t, txt, _ in raw_results if not txt.startswith("⚠")]
-        if not valid:
-            return "\n\n".join(txt for _, txt, _ in raw_results)
-        if len(valid) == 1:
-            return valid[0][1]
+        """Tổng hợp câu trả lời từ các notebook có nội dung liên quan (có citations).
 
-        combined = "\n\n".join(f"[{title}]:\n{txt}" for title, txt in valid)
+        Notebook nào không có citations bị bỏ qua — tức là NotebookLM không tìm
+        được thông tin liên quan trong đó.
+        """
+        # Ưu tiên notebook có citations (có nội dung thực sự liên quan)
+        relevant = [(t, txt, c) for t, txt, c in raw_results
+                    if c and not txt.startswith("⚠")]
+        # Fallback: nếu không có cái nào có citation, dùng tất cả câu trả lời không lỗi
+        if not relevant:
+            relevant = [(t, txt, c) for t, txt, c in raw_results
+                        if not txt.startswith("⚠")]
+        if not relevant:
+            return "\n\n".join(txt for _, txt, _ in raw_results)
+        if len(relevant) == 1:
+            return relevant[0][1]
+
+        combined = "\n\n".join(f"[{title}]:\n{txt}" for title, txt, _ in relevant)
         prompt = (
             f"Câu hỏi: {self.question}\n\n"
-            f"Dưới đây là câu trả lời từ {len(valid)} nguồn tài liệu:\n\n"
+            f"Dưới đây là câu trả lời từ {len(relevant)} nguồn tài liệu có liên quan:\n\n"
             f"{combined}\n\n"
             "Hãy tổng hợp thành 1 câu trả lời cô đọng, đầy đủ, không lặp thông tin. "
             "Trả lời bằng ngôn ngữ của câu hỏi. Không đề cập tên nguồn."
@@ -1687,8 +1702,7 @@ class MultiChatWorker(QThread):
             provider = cfg.get("translate_provider", "gemini")
             return create_llm_client(provider).generate(prompt)
         except Exception:
-            # Fallback: nối các câu trả lời nếu LLM không có
-            return "\n\n---\n\n".join(txt for _, txt in valid)
+            return "\n\n---\n\n".join(txt for _, txt, _ in relevant)
 
 
 class ImageChatWorker(QThread):
