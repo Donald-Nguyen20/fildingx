@@ -893,18 +893,23 @@ class BatchAddSourceWorker(QThread):
                 upload_items.append((fp, fname, upload_path, tmp_file))
 
             # ── Upload tuần tự trên 1 client (an toàn với mọi loại library) ──
-            completed = [0]
+            _b_idx   = batch_idx   # capture cho closure
+            _nb_ttl  = nb_title
+            _total   = total
 
             async def _upload_sequential(items, nid):
                 from notebooklm import NotebookLMClient as _NLC
                 results = []
                 async with await _NLC.from_storage() as client:
-                    for fp, fname, upload_path, _ in items:
+                    for i, (fp, fname, upload_path, _) in enumerate(items):
                         try:
                             await client.sources.add_file(nid, _Path(upload_path), wait=True)
                             results.append((fp, fname, None))
                         except Exception as e:
                             results.append((fp, fname, e))
+                        # Emit progress ngay sau mỗi file (không chờ cả batch xong)
+                        g_idx = (_b_idx * self.BATCH_SIZE) + i + 1
+                        self.progress.emit(g_idx, _total, fname, _nb_ttl)
                 return results
 
             raw_results = _run_async(_upload_sequential(upload_items, nb_id))
@@ -914,9 +919,6 @@ class BatchAddSourceWorker(QThread):
             up_map  = {fp: upload_path for fp, fname, upload_path, tmp_file in upload_items}
 
             for res_fp, res_fname, err in raw_results:
-                completed[0] += 1
-                global_idx = (batch_idx * self.BATCH_SIZE) + completed[0]
-                self.progress.emit(global_idx, total, res_fname, nb_title)
 
                 if err is not None:
                     err_msg = str(err)
