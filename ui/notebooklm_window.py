@@ -892,53 +892,55 @@ class BatchAddSourceWorker(QThread):
                         pass
                 upload_items.append((fp, fname, upload_path, tmp_file))
 
-            # ── Upload song song (CONCURRENCY file cùng lúc) ──
-            completed = [0]   # mutable counter dùng trong closure
+            # ── Upload tuần tự trên 1 client (an toàn với mọi loại library) ──
+            completed = [0]
 
-            async def _upload_concurrent(items, nid):
-                import asyncio as _aio
+            async def _upload_sequential(items, nid):
                 from notebooklm import NotebookLMClient as _NLC
-                sem = _aio.Semaphore(self.CONCURRENCY)
-
-                async def _one(fp, fname, upload_path):
-                    async with sem:
-                        async with await _NLC.from_storage() as client:
+                results = []
+                async with await _NLC.from_storage() as client:
+                    for fp, fname, upload_path, _ in items:
+                        try:
                             await client.sources.add_file(nid, _Path(upload_path), wait=True)
-                        return (fp, fname, None)   # None = no error
-                    # auth/general error propagates as exception
+                            results.append((fp, fname, None))
+                        except Exception as e:
+                            results.append((fp, fname, e))
+                return results
 
-                tasks = [_one(fp, fname, up) for fp, fname, up, _ in items]
-                return await _aio.gather(*tasks, return_exceptions=True)
+            raw_results = _run_async(_upload_sequential(upload_items, nb_id))
 
-            raw_results = _run_async(_upload_concurrent(upload_items, nb_id))
+            # raw_results: [(fp, fname, error_or_None), ...]
+            tmp_map = {fp: tmp_file for fp, fname, upload_path, tmp_file in upload_items}
+            up_map  = {fp: upload_path for fp, fname, upload_path, tmp_file in upload_items}
 
-            for (fp, fname, upload_path, tmp_file), result in zip(upload_items, raw_results):
+            for res_fp, res_fname, err in raw_results:
                 completed[0] += 1
                 global_idx = (batch_idx * self.BATCH_SIZE) + completed[0]
-                self.progress.emit(global_idx, total, fname, nb_title)
+                self.progress.emit(global_idx, total, res_fname, nb_title)
 
-                if isinstance(result, Exception):
-                    err_msg = str(result)
+                if err is not None:
+                    err_msg = str(err)
                     if self._is_auth_error(err_msg):
-                        self.relogin_status.emit(f"🔑 Auth expired khi upload '{fname}', đang refresh...")
+                        self.relogin_status.emit(f"🔑 Auth expired khi upload '{res_fname}', đang refresh...")
                         if self._auto_relogin():
                             try:
-                                _upload_file(upload_path, nb_id)
-                                _upsert_source_map(fname, fp, nb_id)
+                                _upload_file(up_map[res_fp], nb_id)
+                                _upsert_source_map(res_fname, res_fp, nb_id)
                                 success += 1
                             except Exception as e2:
-                                self.file_error.emit(fname, str(e2))
+                                self.file_error.emit(res_fname, str(e2))
                                 fail += 1
                         else:
-                            self.file_error.emit(fname, err_msg)
+                            self.file_error.emit(res_fname, err_msg)
                             fail += 1
                     else:
-                        self.file_error.emit(fname, err_msg)
+                        self.file_error.emit(res_fname, err_msg)
                         fail += 1
                 else:
-                    _upsert_source_map(fname, fp, nb_id)
+                    _upsert_source_map(res_fname, res_fp, nb_id)
                     success += 1
 
+                tmp_file = tmp_map.get(res_fp)
                 if tmp_file and os.path.exists(tmp_file):
                     try:
                         os.remove(tmp_file)
