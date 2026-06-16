@@ -1601,8 +1601,8 @@ class ChatWorker(QThread):
 
 
 class MultiChatWorker(QThread):
-    """Query nhiều notebook song song, tổng hợp thành 1 câu trả lời cô đọng qua LLM."""
-    done  = Signal(str, list)   # (synthesized_text, merged_citations)
+    """Query nhiều notebook song song, hiển thị từng cái có nội dung liên quan."""
+    done  = Signal(list)   # [(nb_title, answer_text, citations_list), ...]
     error = Signal(str)
 
     def __init__(self, notebooks: list, question: str):
@@ -1649,60 +1649,10 @@ class MultiChatWorker(QThread):
                 return await asyncio.gather(*tasks)
 
             raw_results = list(_run_async(_run_all()))
-
-            synthesized = self._synthesize(raw_results)
-
-            # Gộp citations chỉ từ notebook có citations (loại trùng)
-            relevant_results = (
-                [r for r in raw_results if r[2]]   # có citations
-                or [r for r in raw_results if not r[1].startswith("⚠")]
-            )
-            merged_citations, seen_q = [], set()
-            for _, _, cits in relevant_results:
-                for c in cits:
-                    q = c.get("text", "")
-                    if q and q not in seen_q:
-                        seen_q.add(q)
-                        merged_citations.append(c)
-
-            self.done.emit(synthesized, merged_citations)
+            self.done.emit(raw_results)
         except Exception as e:
             self.error.emit(str(e))
 
-    def _synthesize(self, raw_results: list) -> str:
-        """Tổng hợp câu trả lời từ các notebook có nội dung liên quan (có citations).
-
-        Notebook nào không có citations bị bỏ qua — tức là NotebookLM không tìm
-        được thông tin liên quan trong đó.
-        """
-        # Ưu tiên notebook có citations (có nội dung thực sự liên quan)
-        relevant = [(t, txt, c) for t, txt, c in raw_results
-                    if c and not txt.startswith("⚠")]
-        # Fallback: nếu không có cái nào có citation, dùng tất cả câu trả lời không lỗi
-        if not relevant:
-            relevant = [(t, txt, c) for t, txt, c in raw_results
-                        if not txt.startswith("⚠")]
-        if not relevant:
-            return "\n\n".join(txt for _, txt, _ in raw_results)
-        if len(relevant) == 1:
-            return relevant[0][1]
-
-        combined = "\n\n".join(f"[{title}]:\n{txt}" for title, txt, _ in relevant)
-        prompt = (
-            f"Câu hỏi: {self.question}\n\n"
-            f"Dưới đây là câu trả lời từ {len(relevant)} nguồn tài liệu có liên quan:\n\n"
-            f"{combined}\n\n"
-            "Hãy tổng hợp thành 1 câu trả lời cô đọng, đầy đủ, không lặp thông tin. "
-            "Trả lời bằng ngôn ngữ của câu hỏi. Không đề cập tên nguồn."
-        )
-        try:
-            from core.llm_config import load_llm_config
-            from core.llm_client import create_llm_client
-            cfg      = load_llm_config()
-            provider = cfg.get("translate_provider", "gemini")
-            return create_llm_client(provider).generate(prompt)
-        except Exception:
-            return "\n\n---\n\n".join(txt for _, txt, _ in relevant)
 
 
 class ImageChatWorker(QThread):
@@ -3548,36 +3498,44 @@ class NotebookLMWidget(QWidget):
         sw.finished.connect(sw.deleteLater)
         self._start_worker(sw)
 
-    def _on_multi_chat_done(self, text: str, citations: list):
-        """Hiển thị câu trả lời tổng hợp từ nhiều notebook."""
+    def _on_multi_chat_done(self, results: list):
+        """Hiển thị từng notebook có nội dung liên quan (có citations), bỏ qua các notebook không liên quan."""
         self._stop_thinking()
-        nb_count = len(self._checked_notebook_ids)
-        self.chat_display.append(
-            f"<b style='color:#a6e3a1'>Mr Finder</b> "
-            f"<span style='color:#89b4fa'>[📓 {nb_count} notebook{'s' if nb_count != 1 else ''}]</span>:"
-        )
-        self.chat_display.append(self._md_to_html(text))
-        if citations:
-            parts = []
-            for i, c in enumerate(citations, 1):
-                quote  = c.get("text", "")
-                source = c.get("source", "")
-                short  = quote[:150] + ("…" if len(quote) > 150 else "")
-                src_html = (
-                    f" <a href='nlm://{i-1}' style='color:#1d4ed8;text-decoration:underline'>{source}</a>"
-                    if source else ""
-                )
-                parts.append(
-                    f"<span style='color:#15803d'>[{i}]{src_html}</span>"
-                    f" <i style='color:#374151'>\"{short}\"</i>"
-                )
+
+        # Lọc: ưu tiên notebook có citations; fallback tất cả không lỗi nếu không cái nào có citations
+        relevant = [r for r in results if r[2] and not r[1].startswith("⚠")]
+        if not relevant:
+            relevant = [r for r in results if not r[1].startswith("⚠")]
+
+        combined_text = []
+        for nb_title, text, citations in relevant:
+            combined_text.append(text)
             self.chat_display.append(
-                "<span style='font-size:15px;color:#b45309'>──────────────── Sources ────────────────</span><br>"
-                + "<br>".join(parts)
+                f"<b style='color:#a6e3a1'>Mr Finder</b> <span style='color:#89b4fa'>[📓 {nb_title}]</span>:"
             )
-        self.chat_display.append("<br>")
-        self._last_answer  = text
-        self._citation_refs = citations
+            self.chat_display.append(self._md_to_html(text))
+            if citations:
+                parts = []
+                for i, c in enumerate(citations, 1):
+                    quote  = c.get("text", "")
+                    source = c.get("source", "")
+                    short  = quote[:150] + ("…" if len(quote) > 150 else "")
+                    src_html = (
+                        f" <a href='nlm://{i-1}' style='color:#1d4ed8;text-decoration:underline'>{source}</a>"
+                        if source else ""
+                    )
+                    parts.append(
+                        f"<span style='color:#15803d'>[{i}]{src_html}</span>"
+                        f" <i style='color:#374151'>\"{short}\"</i>"
+                    )
+                self.chat_display.append(
+                    "<span style='font-size:15px;color:#b45309'>──────────────── Sources ────────────────</span><br>"
+                    + "<br>".join(parts)
+                )
+            self.chat_display.append("<br>")
+
+        self._last_answer   = "\n\n---\n\n".join(combined_text)
+        self._citation_refs = []
         self.btn_send.setEnabled(True)
         self.btn_save_note.setEnabled(True)
 
