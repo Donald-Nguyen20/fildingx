@@ -3502,10 +3502,20 @@ class NotebookLMWidget(QWidget):
         """Hiển thị từng notebook có nội dung liên quan (có citations), bỏ qua các notebook không liên quan."""
         self._stop_thinking()
 
-        # Lọc: ưu tiên notebook có citations; fallback tất cả không lỗi nếu không cái nào có citations
+        # Chỉ hiển thị notebook có citations — bỏ qua hoàn toàn những cái không liên quan
         relevant = [r for r in results if r[2] and not r[1].startswith("⚠")]
+
         if not relevant:
-            relevant = [r for r in results if not r[1].startswith("⚠")]
+            self.chat_display.append(
+                "<b style='color:#a6e3a1'>Mr Finder</b>: "
+                "<i style='color:#6c7086'>Không tìm thấy nội dung liên quan trong các notebook đã chọn.</i>"
+            )
+            self.chat_display.append("<br>")
+            self._last_answer   = ""
+            self._citation_refs = []
+            self.btn_send.setEnabled(True)
+            self.btn_save_note.setEnabled(False)
+            return
 
         combined_text = []
         for nb_title, text, citations in relevant:
