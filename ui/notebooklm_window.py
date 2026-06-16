@@ -681,9 +681,9 @@ class MergeNotebooksWorker(QThread):
     """Gộp nội dung nhiều notebook thành 1 notebook mới.
 
     Quy trình:
-    1. Lấy danh sách sources từ mỗi notebook đã check qua API
-    2. Tìm nội dung từ local DB (đã index sẵn)
-    3. Gộp tất cả thành file(s) .txt (~400k words/phần)
+    1. Đọc nlm_source_map.json → tìm tất cả file thuộc các notebook đã check
+    2. Extract text từ file local (PDF/DOCX/TXT) — không cần DB, không cần API
+    3. Gộp thành file(s) .txt (~400k words/phần, dưới giới hạn NotebookLM)
     4. Tạo notebook mới và upload
     """
     progress         = Signal(str)      # status message
@@ -691,59 +691,24 @@ class MergeNotebooksWorker(QThread):
     done             = Signal(int, int) # n_files, n_parts
     error            = Signal(str)
 
-    WORDS_PER_PART = 400_000  # dưới giới hạn ~500k words/source của NotebookLM
+    WORDS_PER_PART = 400_000
 
     def __init__(self, nb_map: dict, new_title: str):
         super().__init__()
         self.nb_map    = nb_map      # {nb_id: nb_title}
         self.new_title = new_title
 
-    def _db_paths(self) -> list:
-        import json
-        try:
-            p = os.path.join(os.path.dirname(os.path.dirname(__file__)), "db_list.json")
-            with open(p, "r", encoding="utf-8") as f:
-                return [x for x in json.load(f) if os.path.isfile(x)]
-        except Exception:
-            return []
-
-    def _content_from_db(self, title: str) -> str:
-        import sqlite3
-        tl  = title.lower()
-        tne = os.path.splitext(tl)[0]
-        for db in self._db_paths():
-            try:
-                conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
-                cur  = conn.cursor()
-                cur.execute(
-                    "SELECT content FROM files WHERE lower(name)=? AND name!='BASE_PATH' LIMIT 1",
-                    (tl,)
-                )
-                row = cur.fetchone()
-                if not row:
-                    cur.execute(
-                        "SELECT content FROM files WHERE lower(name) LIKE ? AND name!='BASE_PATH' LIMIT 1",
-                        (tne + "%",)
-                    )
-                    row = cur.fetchone()
-                conn.close()
-                if row and row[0]:
-                    return row[0]
-            except Exception:
-                pass
-        return ""
-
-    def _content_from_file(self, path: str) -> str:
+    def _read_file(self, path: str) -> str:
         ext = os.path.splitext(path)[1].lower()
         try:
-            if ext == ".txt":
+            if ext in (".txt", ".md", ".csv"):
                 with open(path, "r", encoding="utf-8", errors="ignore") as f:
                     return f.read()
             if ext == ".pdf":
                 import pdfplumber
                 with pdfplumber.open(path) as pdf:
                     return "\n".join(p.extract_text() or "" for p in pdf.pages)
-            if ext == ".docx":
+            if ext in (".docx",):
                 from docx import Document
                 return "\n".join(p.text for p in Document(path).paragraphs)
         except Exception:
@@ -756,66 +721,55 @@ class MergeNotebooksWorker(QThread):
         from notebooklm import NotebookLMClient
 
         try:
-            # ── Bước 1: Lấy sources từ tất cả notebook đã check ──────────
-            self.progress.emit("🔍 Đang lấy danh sách sources…")
+            # ── Bước 1: Tìm file thuộc các notebook đã check qua source map ──
+            self.progress.emit("🔍 Đang tìm file từ source map…")
+            src_map = _load_source_map()
+            nb_ids  = set(self.nb_map.keys())
 
-            async def _list_all_sources():
-                out = {}
-                async with await NotebookLMClient.from_storage() as client:
-                    for nb_id in self.nb_map:
-                        try:
-                            srcs = await client.sources.list(nb_id)
-                            out[nb_id] = [
-                                getattr(s, "title", None) or getattr(s, "name", "") or ""
-                                for s in srcs
-                            ]
-                        except Exception:
-                            out[nb_id] = []
-                return out
-
-            nb_sources = _run_async(_list_all_sources())
-            all_titles = {t for titles in nb_sources.values() for t in titles if t}
-
-            self.progress.emit(f"📚 {len(all_titles)} sources, đang tìm nội dung trong DB…")
-
-            # ── Bước 2: Lấy nội dung từ DB / file local ──────────────────
-            src_map   = _load_source_map()
-            name_path = {}
+            # Lọc file có notebook_id khớp với danh sách đã check
+            files_to_merge = []  # [(fname, path), ...]
             for fname, entry in src_map.items():
-                if isinstance(entry, dict):
-                    p = entry.get("path", "")
-                    if p:
-                        name_path[fname.lower()] = p
-                        name_path[os.path.splitext(fname)[0].lower()] = p
+                if not isinstance(entry, dict):
+                    continue
+                nb_list = entry.get("notebooks", [])
+                if any(nid in nb_ids for nid in nb_list):
+                    path = entry.get("path", "")
+                    if path and os.path.isfile(path):
+                        files_to_merge.append((fname, path))
 
-            parts_data = []  # [(title, content), ...]
-            for title in sorted(all_titles):
-                content = self._content_from_db(title)
-                if not content:
-                    lp = (name_path.get(title.lower())
-                          or name_path.get(os.path.splitext(title)[0].lower()))
-                    if lp and os.path.isfile(lp):
-                        content = self._content_from_file(lp)
-                if content:
-                    parts_data.append((title, content))
-
-            if not parts_data:
+            if not files_to_merge:
                 self.error.emit(
-                    "Không tìm được nội dung từ DB hoặc file local.\n"
-                    "Hãy chắc chắn file đã được index vào DB."
+                    "Không tìm thấy file local nào thuộc các notebook đã check.\n"
+                    "Hãy đảm bảo file vẫn còn trên đĩa và đã upload qua app này."
                 )
                 return
 
-            self.progress.emit(f"✍️ Đang gộp {len(parts_data)} file…")
+            total = len(files_to_merge)
+            self.progress.emit(f"📄 Tìm thấy {total} file, đang đọc nội dung…")
+
+            # ── Bước 2: Đọc nội dung từng file ───────────────────────────
+            parts_data = []
+            for i, (fname, path) in enumerate(files_to_merge, 1):
+                if i % 50 == 0 or i == total:
+                    self.progress.emit(f"📖 Đọc file {i}/{total}…")
+                content = self._read_file(path)
+                if content.strip():
+                    parts_data.append((fname, content))
+
+            if not parts_data:
+                self.error.emit("Không đọc được nội dung từ bất kỳ file nào.")
+                return
+
+            self.progress.emit(f"✍️ Đang gộp {len(parts_data)} file thành text…")
 
             # ── Bước 3: Gộp và chia theo WORDS_PER_PART ──────────────────
             full_text = ""
             for fname, content in parts_data:
                 full_text += f"\n\n{'='*60}\n📄 {fname}\n{'='*60}\n\n{content}"
 
-            words    = full_text.split()
-            n_parts  = max(1, (len(words) + self.WORDS_PER_PART - 1) // self.WORDS_PER_PART)
-            chunks   = [
+            words   = full_text.split()
+            n_parts = max(1, (len(words) + self.WORDS_PER_PART - 1) // self.WORDS_PER_PART)
+            chunks  = [
                 " ".join(words[i * self.WORDS_PER_PART:(i + 1) * self.WORDS_PER_PART])
                 for i in range(n_parts)
             ]
@@ -831,10 +785,7 @@ class MergeNotebooksWorker(QThread):
                     async with await NotebookLMClient.from_storage() as client:
                         nb    = await client.notebooks.create(title=self.new_title)
                         nb_id = getattr(nb, "id", None) or getattr(nb, "notebook_id", "")
-
                         for i, chunk in enumerate(chunks, 1):
-                            label = (f"{self.new_title} - Part {i}.txt"
-                                     if n_parts > 1 else f"{self.new_title}.txt")
                             tmp = tempfile.NamedTemporaryFile(
                                 mode="w", suffix=".txt", encoding="utf-8",
                                 delete=False, prefix="nlm_merge_"
@@ -844,7 +795,6 @@ class MergeNotebooksWorker(QThread):
                             tmp_files.append(tmp.name)
                             self.progress.emit(f"⬆ Upload phần {i}/{n_parts}…")
                             await client.sources.add_file(nb_id, _Path(tmp.name), wait=True)
-
                         return nb_id
                 finally:
                     for f in tmp_files:
