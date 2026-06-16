@@ -681,13 +681,16 @@ class BatchAddSourceWorker(QThread):
     """Upload toàn bộ file trong folder lên NotebookLM.
 
     Cứ 100 file tạo một notebook mới tên '<folder> (Part N)'.
+    Tự động làm mới session giữa các batch và retry khi gặp lỗi auth.
     """
-    BATCH_SIZE = 100
-    SUPPORTED  = {'.pdf', '.docx', '.doc', '.txt', '.xlsx', '.pptx', '.csv', '.md'}
+    BATCH_SIZE   = 100
+    CONCURRENCY  = 5   # số file upload song song trong 1 batch
+    SUPPORTED    = {'.pdf', '.docx', '.doc', '.txt', '.xlsx', '.pptx', '.csv', '.md'}
 
     progress          = Signal(int, int, str, str)  # idx, total, filename, nb_title
     notebook_created  = Signal(str, str)             # nb_id, nb_title
     file_error        = Signal(str, str)             # filename, error_msg
+    relogin_status    = Signal(str)                  # status message khi tự relogin
     done              = Signal(int, int, int)        # success, fail, skipped
 
     def __init__(self, folder_name: str, file_paths: list):
@@ -695,21 +698,120 @@ class BatchAddSourceWorker(QThread):
         self.folder_name = folder_name
         self.file_paths  = file_paths
 
+    @staticmethod
+    def _is_auth_error(err_msg: str) -> bool:
+        """Kiểm tra xem lỗi có phải do session hết hạn / mất login không."""
+        keywords = [
+            "401", "403", "unauthorized", "authentication", "login",
+            "session", "expired", "cookie", "credential", "auth",
+            "not logged", "signed out", "access denied", "forbidden",
+            "unauthenticated", "token", "permission",
+        ]
+        msg_lower = err_msg.lower()
+        return any(kw in msg_lower for kw in keywords)
+
+    @staticmethod
+    def _auto_relogin() -> bool:
+        """Làm mới session NotebookLM tự động bằng persistent browser context.
+
+        Dùng user_data_dir đã lưu — Google cookies vẫn còn hiệu lực nên
+        không cần tương tác người dùng. Trả True nếu thành công.
+        """
+        import time
+        try:
+            if sys.platform == "win32":
+                asyncio.set_event_loop_policy(asyncio.DefaultEventLoopPolicy())
+
+            from playwright.sync_api import sync_playwright
+            from notebooklm.paths import get_storage_path, get_browser_profile_dir
+
+            storage_path    = get_storage_path()
+            browser_profile = get_browser_profile_dir()
+            storage_path.parent.mkdir(parents=True, exist_ok=True)
+            browser_profile.mkdir(parents=True, exist_ok=True)
+
+            with sync_playwright() as p:
+                context = p.chromium.launch_persistent_context(
+                    user_data_dir=str(browser_profile),
+                    headless=True,
+                    args=[
+                        "--disable-blink-features=AutomationControlled",
+                        "--password-store=basic",
+                        "--no-sandbox",
+                        "--disable-dev-shm-usage",
+                    ],
+                    ignore_default_args=["--enable-automation"],
+                )
+                page = context.pages[0] if context.pages else context.new_page()
+                try:
+                    page.goto(
+                        "https://notebooklm.google.com/",
+                        wait_until="networkidle",
+                        timeout=30_000,
+                    )
+                except Exception:
+                    page.goto("https://notebooklm.google.com/")
+                time.sleep(2)
+
+                # Nếu trang yêu cầu đăng nhập lại (headless không thể làm), dùng visible browser
+                if "accounts.google.com" in page.url or "signin" in page.url.lower():
+                    context.close()
+                    # Fallback: visible browser, tự động vì profile đã có session
+                    context2 = p.chromium.launch_persistent_context(
+                        user_data_dir=str(browser_profile),
+                        headless=False,
+                        args=[
+                            "--disable-blink-features=AutomationControlled",
+                            "--password-store=basic",
+                        ],
+                        ignore_default_args=["--enable-automation"],
+                    )
+                    page2 = context2.pages[0] if context2.pages else context2.new_page()
+                    page2.goto("https://notebooklm.google.com/", wait_until="load", timeout=60_000)
+                    time.sleep(3)
+                    context2.storage_state(path=str(storage_path))
+                    try:
+                        storage_path.chmod(0o600)
+                    except Exception:
+                        pass
+                    context2.close()
+                else:
+                    context.storage_state(path=str(storage_path))
+                    try:
+                        storage_path.chmod(0o600)
+                    except Exception:
+                        pass
+                    context.close()
+
+            return True
+        except Exception:
+            return False
+        finally:
+            if sys.platform == "win32":
+                asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
     def run(self):
         from notebooklm import NotebookLMClient
         from pathlib import Path as _Path
 
-        # Lọc file đã upload vào bất kỳ notebook nào
-        src_map   = _load_source_map()
-        new_files = []
-        skipped   = 0
+        # Lọc file đã upload — đồng thời đếm notebook hiện có để đánh số đúng
+        src_map          = _load_source_map()
+        new_files        = []
+        skipped          = 0
+        existing_nb_ids  = set()  # notebook đã chứa file của folder này
+
         for fp in self.file_paths:
             fname = os.path.basename(fp)
             entry = src_map.get(fname, {})
             if isinstance(entry, dict) and entry.get("notebooks"):
                 skipped += 1
+                for nb_id in entry.get("notebooks", []):
+                    existing_nb_ids.add(nb_id)
             else:
                 new_files.append(fp)
+
+        # Số notebook đã tạo trước → offset cho phần đánh số
+        part_offset = len(existing_nb_ids)
 
         success = fail = 0
         total   = len(new_files)
@@ -721,50 +823,127 @@ class BatchAddSourceWorker(QThread):
         batches = [new_files[i:i + self.BATCH_SIZE]
                    for i in range(0, total, self.BATCH_SIZE)]
 
+        def _nb_title_for(batch_idx: int) -> str:
+            part_num = part_offset + batch_idx
+            if part_num == 0:
+                return self.folder_name
+            return f"{self.folder_name} (Part {part_num + 1})"
+
+        def _create_notebook(title: str) -> str:
+            async def _c(t=title):
+                async with await NotebookLMClient.from_storage() as client:
+                    nb = await client.notebooks.create(title=t)
+                    return getattr(nb, "id", None) or getattr(nb, "notebook_id", "")
+            return _run_async(_c())
+
+        def _upload_file(path: str, nid: str):
+            async def _a(p=path, n=nid):
+                async with await NotebookLMClient.from_storage() as client:
+                    await client.sources.add_file(n, _Path(p), wait=True)
+            _run_async(_a())
+
         for batch_idx, batch in enumerate(batches):
-            nb_title = self.folder_name if batch_idx == 0 else f"{self.folder_name} (Part {batch_idx + 1})"
+            # ── Làm mới session trước khi bắt đầu batch (trừ batch đầu tiên) ──
+            if batch_idx > 0:
+                self.relogin_status.emit("🔄 Đang làm mới session Google...")
+                ok = self._auto_relogin()
+                self.relogin_status.emit(
+                    "✅ Session đã làm mới, tiếp tục upload..." if ok
+                    else "⚠ Không thể tự làm mới session, thử tiếp..."
+                )
+
+            nb_title = _nb_title_for(batch_idx)
+
+            # ── Tạo notebook (retry 1 lần nếu lỗi auth) ──
+            nb_id = None
             try:
-                async def _create(t=nb_title):
-                    async with await NotebookLMClient.from_storage() as client:
-                        nb = await client.notebooks.create(title=t)
-                        return getattr(nb, "id", None) or getattr(nb, "notebook_id", "")
-                nb_id = _run_async(_create())
+                nb_id = _create_notebook(nb_title)
                 self.notebook_created.emit(nb_id, nb_title)
             except Exception as e:
-                self.file_error.emit(f"[Tạo notebook '{nb_title}']", str(e))
-                fail += len(batch)
-                continue
+                if self._is_auth_error(str(e)):
+                    self.relogin_status.emit("🔑 Session hết hạn khi tạo notebook, đang đăng nhập lại...")
+                    if self._auto_relogin():
+                        try:
+                            nb_id = _create_notebook(nb_title)
+                            self.notebook_created.emit(nb_id, nb_title)
+                        except Exception as e2:
+                            self.file_error.emit(f"[Tạo notebook '{nb_title}']", str(e2))
+                            fail += len(batch)
+                            continue
+                    else:
+                        self.file_error.emit(f"[Tạo notebook '{nb_title}']", str(e))
+                        fail += len(batch)
+                        continue
+                else:
+                    self.file_error.emit(f"[Tạo notebook '{nb_title}']", str(e))
+                    fail += len(batch)
+                    continue
 
-            for local_idx, fp in enumerate(batch, 1):
-                fname      = os.path.basename(fp)
-                global_idx = (batch_idx * self.BATCH_SIZE) + local_idx
+            # ── Pre-process: convert .doc → .docx (sync, trước khi upload) ──
+            upload_items = []   # list of (fp, fname, upload_path, tmp_file)
+            for fp in batch:
+                fname = os.path.basename(fp)
+                tmp_file, upload_path = None, fp
+                if fp.lower().endswith(".doc"):
+                    try:
+                        tmp_file    = AddSourceWorker._doc_to_docx(fp)
+                        upload_path = tmp_file
+                    except Exception:
+                        pass
+                upload_items.append((fp, fname, upload_path, tmp_file))
+
+            # ── Upload song song (CONCURRENCY file cùng lúc) ──
+            completed = [0]   # mutable counter dùng trong closure
+
+            async def _upload_concurrent(items, nid):
+                import asyncio as _aio
+                from notebooklm import NotebookLMClient as _NLC
+                sem = _aio.Semaphore(self.CONCURRENCY)
+
+                async def _one(fp, fname, upload_path):
+                    async with sem:
+                        async with await _NLC.from_storage() as client:
+                            await client.sources.add_file(nid, _Path(upload_path), wait=True)
+                        return (fp, fname, None)   # None = no error
+                    # auth/general error propagates as exception
+
+                tasks = [_one(fp, fname, up) for fp, fname, up, _ in items]
+                return await _aio.gather(*tasks, return_exceptions=True)
+
+            raw_results = _run_async(_upload_concurrent(upload_items, nb_id))
+
+            for (fp, fname, upload_path, tmp_file), result in zip(upload_items, raw_results):
+                completed[0] += 1
+                global_idx = (batch_idx * self.BATCH_SIZE) + completed[0]
                 self.progress.emit(global_idx, total, fname, nb_title)
 
-                tmp_file    = None
-                upload_path = fp
-                try:
-                    if fp.lower().endswith(".doc"):
-                        try:
-                            tmp_file    = AddSourceWorker._doc_to_docx(fp)
-                            upload_path = tmp_file
-                        except Exception:
-                            pass
-
-                    async def _add(path=upload_path, nid=nb_id):
-                        async with await NotebookLMClient.from_storage() as client:
-                            await client.sources.add_file(nid, _Path(path), wait=True)
-                    _run_async(_add())
+                if isinstance(result, Exception):
+                    err_msg = str(result)
+                    if self._is_auth_error(err_msg):
+                        self.relogin_status.emit(f"🔑 Auth expired khi upload '{fname}', đang refresh...")
+                        if self._auto_relogin():
+                            try:
+                                _upload_file(upload_path, nb_id)
+                                _upsert_source_map(fname, fp, nb_id)
+                                success += 1
+                            except Exception as e2:
+                                self.file_error.emit(fname, str(e2))
+                                fail += 1
+                        else:
+                            self.file_error.emit(fname, err_msg)
+                            fail += 1
+                    else:
+                        self.file_error.emit(fname, err_msg)
+                        fail += 1
+                else:
                     _upsert_source_map(fname, fp, nb_id)
                     success += 1
-                except Exception as e:
-                    self.file_error.emit(fname, str(e))
-                    fail += 1
-                finally:
-                    if tmp_file and os.path.exists(tmp_file):
-                        try:
-                            os.remove(tmp_file)
-                        except Exception:
-                            pass
+
+                if tmp_file and os.path.exists(tmp_file):
+                    try:
+                        os.remove(tmp_file)
+                    except Exception:
+                        pass
 
         self.done.emit(success, fail, skipped)
 
@@ -4347,6 +4526,7 @@ class NotebookLMWidget(QWidget):
         w.progress.connect(self._on_batch_progress)
         w.notebook_created.connect(self._on_batch_notebook_created)
         w.file_error.connect(self._on_batch_file_error)
+        w.relogin_status.connect(self._on_batch_relogin_status)
         w.done.connect(self._on_batch_done)
         self._start_worker(w)
 
@@ -4372,6 +4552,9 @@ class NotebookLMWidget(QWidget):
 
     def _on_batch_file_error(self, fname: str, msg: str):
         self.lbl_batch_progress.setText(f"⚠ Lỗi: {fname} — {msg[:80]}")
+
+    def _on_batch_relogin_status(self, msg: str):
+        self.lbl_batch_progress.setText(msg)
 
     def _on_batch_done(self, success: int, fail: int, skipped: int):
         self.btn_add_file.setEnabled(True)
