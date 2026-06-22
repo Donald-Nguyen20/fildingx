@@ -1,4 +1,4 @@
-# vector_store_builder.py
+# core/rag/vector_store_builder.py
 import os
 import re
 import json
@@ -37,7 +37,6 @@ class ChunkMeta:
     text: str = ""
 
 
-
 def normalize_text(text: str) -> str:
     if not text:
         return ""
@@ -46,7 +45,7 @@ def normalize_text(text: str) -> str:
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
 
-import re
+
 from typing import Dict, Tuple
 
 HEADING_RE = re.compile(r"^\s*(\d+(\.\d+)*)\s*[.)-]?\s+(.+)$")  # 1. / 6.2 / 3) ...
@@ -151,7 +150,7 @@ def pack_blocks_to_chunks(blocks: list[dict], target_chars: int = 1400, hard_max
             cur["subsection"] = b.get("subsection", "")
             cur["text"] = btxt
 
-        # nếu đã đạt target -> chốt luôn để không “loãng”
+        # nếu đã đạt target -> chốt luôn để không "loãng"
         if len(cur["text"]) >= target_chars:
             push_cur()
 
@@ -183,223 +182,44 @@ def chunk_text(text: str, chunk_size: int = 900, overlap: int = 150) -> List[str
     return chunks
 
 
-def build_vector_store(
-    folder_path: str,
+# ── Private helpers (shared by build_vector_store & build_vector_store_from_files) ──
+
+_DEFAULT_EXT: Set[str] = {
+    ".pdf", ".docx", ".xlsx", ".pptx", ".txt",
+    ".csv", ".md", ".html", ".json", ".xml",
+}
+
+
+def _tune_cpu() -> int:
+    """Apply CPU thread tuning. Returns thread count used."""
+    n = int(os.environ.get("RAG_CPU_THREADS", "14"))
+    torch.set_num_threads(n)
+    os.environ["OMP_NUM_THREADS"] = str(n)
+    os.environ["MKL_NUM_THREADS"] = str(n)
+    return n
+
+
+def _build_metas(
+    files: List[str],
+    base_path: str,
+    source_folder: str,
     extract_content_fn: Callable[[str], str],
-    output_dir: str,
-    model_name: str = "sentence-transformers/all-MiniLM-L6-v2",
-    allowed_ext: Optional[Set[str]] = None,
-    chunk_size: int = 900,
-    overlap: int = 150,
-    progress_cb: Optional[Callable[[int], None]] = None,
-) -> str:
-    # ---- CPU tuning for i7-12700F (20 threads logical) ----
-    CPU_THREADS = int(os.environ.get("RAG_CPU_THREADS", "14"))
-    torch.set_num_threads(CPU_THREADS)
-    os.environ["OMP_NUM_THREADS"] = str(CPU_THREADS)
-    os.environ["MKL_NUM_THREADS"] = str(CPU_THREADS)
-
-    if allowed_ext is None:
-        allowed_ext = {
-            ".pdf", ".docx", ".xlsx", ".pptx", ".txt",
-            ".csv", ".md", ".html", ".json", ".xml"
-        }
-
-    files = []
-    for root, _, fnames in os.walk(folder_path):
-        for fn in fnames:
-            ext = os.path.splitext(fn)[1].lower()
-            if ext in allowed_ext:
-                files.append(os.path.join(root, fn))
-
-    if not files:
-        raise RuntimeError("No supported files found.")
-
-    os.makedirs(output_dir, exist_ok=True)
-
+    chunk_size: int,
+    created_at: float,
+    progress_cb: Optional[Callable[[int], None]],
+) -> List[ChunkMeta]:
+    """Extract + chunk each file into ChunkMeta objects."""
+    MIN_CHUNK_LEN = int(os.environ.get("RAG_MIN_CHUNK_LEN", "80"))
     metas: List[ChunkMeta] = []
     total = len(files)
     next_id = 0
-    created_at = time.time()
-    source_folder = os.path.basename(folder_path.rstrip(os.sep))
-
-    MIN_CHUNK_LEN = int(os.environ.get("RAG_MIN_CHUNK_LEN", "80"))
 
     for i, file_path in enumerate(files, start=1):
         stat = os.stat(file_path)
         name = os.path.basename(file_path)
-        ext = os.path.splitext(file_path)[1].lower()
-        rel_path = os.path.relpath(file_path, folder_path)
-
+        ext  = os.path.splitext(file_path)[1].lower()
         try:
-            raw = extract_content_fn(file_path)
-        except Exception:
-            raw = ""  # skip noisy error text
-
-        text = normalize_text(raw)
-        if not text:
-            continue
-
-        chunks = chunk_text_sop(text, target_chars=chunk_size, hard_max=chunk_size + 400)
-
-
-
-        for cid, obj in enumerate(chunks):
-            ch = (obj.get("text") or "").strip()
-            if len(ch) < MIN_CHUNK_LEN:
-                continue
-
-            metas.append(ChunkMeta(
-                id=next_id,
-                file_name=name,
-                rel_path=rel_path,
-                abs_path=file_path,
-                file_type=ext.lstrip("."),
-                source_folder=source_folder,
-                chunk_id=cid,
-                chunk_len=len(ch),
-                mtime=float(stat.st_mtime),
-                size_kb=int(stat.st_size / 1024),
-                created_at=float(created_at),
-                section=(obj.get("section") or ""),
-                subsection=(obj.get("subsection") or ""),
-                text=ch,
-            ))
-            next_id += 1
-
-
-
-        if progress_cb:
-            progress_cb(int(i * 60 / total))
-
-    if not metas:
-        raise RuntimeError("No chunks created.")
-
-    # ---- Embedding (use RTX 4060 if available) ----
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    model = SentenceTransformer(model_name, device=device)
-
-    print("cuda_available:", torch.cuda.is_available())
-    if torch.cuda.is_available():
-        print("gpu:", torch.cuda.get_device_name(0))
-    print("model_device:", getattr(model, "device", None))
-
-    texts = [m.text for m in metas]
-
-    batch_size = int(os.environ.get("RAG_BATCH_SIZE", "128"))  # 4060 + 32GB thường ok
-    vectors = model.encode(
-        texts,
-        batch_size=batch_size,
-        show_progress_bar=True,
-        normalize_embeddings=True
-    )
-    vectors = np.asarray(vectors, dtype="float32")
-    dim = vectors.shape[1]
-
-    # ---- FAISS index: HNSW by default (scale-friendly) ----
-    use_hnsw = os.environ.get("RAG_INDEX", "hnsw").lower() == "hnsw"
-    if use_hnsw:
-        M = int(os.environ.get("RAG_HNSW_M", "32"))
-        index = faiss.IndexHNSWFlat(dim, M)
-        index.hnsw.efConstruction = int(os.environ.get("RAG_EF_CONSTRUCT", "200"))
-        index.add(vectors)
-    else:
-        index = faiss.IndexFlatIP(dim)
-        index.add(vectors)
-
-    if progress_cb:
-        progress_cb(85)
-
-    # Save files
-    faiss.write_index(index, os.path.join(output_dir, "index.faiss"))
-
-    with open(os.path.join(output_dir, "metadata.json"), "w", encoding="utf-8") as f:
-        json.dump([m.__dict__ for m in metas], f, ensure_ascii=False, indent=2)
-
-    with open(os.path.join(output_dir, "base_path.txt"), "w", encoding="utf-8") as f:
-        f.write(folder_path)
-
-    # Save index contract (to avoid model mismatch later)
-    cfg = {
-        "model_name": model_name,
-        "normalize_embeddings": True,
-        "index_type": "HNSW" if use_hnsw else "FlatIP",
-        "dim": int(dim),
-        "chunk_size": int(chunk_size),
-        "overlap": int(overlap),
-        "batch_size": int(batch_size),
-        "cpu_threads": int(CPU_THREADS),
-        "created_at": created_at,
-        "min_chunk_len": int(MIN_CHUNK_LEN),
-    }
-    with open(os.path.join(output_dir, "index_config.json"), "w", encoding="utf-8") as f:
-        json.dump(cfg, f, ensure_ascii=False, indent=2)
-
-    if progress_cb:
-        progress_cb(100)
-
-    return output_dir
-def build_vector_store_from_files(
-    file_paths: List[str],
-    extract_content_fn: Callable[[str], str],
-    output_dir: str,
-    model_name: str = "sentence-transformers/all-MiniLM-L6-v2",
-    allowed_ext: Optional[Set[str]] = None,
-    chunk_size: int = 900,
-    overlap: int = 150,
-    progress_cb: Optional[Callable[[int], None]] = None,
-) -> str:
-    # ---- CPU tuning (giữ giống build_vector_store) ----
-    CPU_THREADS = int(os.environ.get("RAG_CPU_THREADS", "14"))
-    torch.set_num_threads(CPU_THREADS)
-    os.environ["OMP_NUM_THREADS"] = str(CPU_THREADS)
-    os.environ["MKL_NUM_THREADS"] = str(CPU_THREADS)
-
-    if allowed_ext is None:
-        allowed_ext = {
-            ".pdf", ".docx", ".xlsx", ".pptx", ".txt",
-            ".csv", ".md", ".html", ".json", ".xml"
-        }
-
-    # lọc + chuẩn hoá file
-    files: List[str] = []
-    for p in (file_paths or []):
-        if not p:
-            continue
-        p = os.path.abspath(p)
-        if os.path.isfile(p):
-            ext = os.path.splitext(p)[1].lower()
-            if ext in allowed_ext:
-                files.append(p)
-
-    files = sorted(set(files))
-    if not files:
-        raise RuntimeError("No supported files selected.")
-
-    os.makedirs(output_dir, exist_ok=True)
-
-    # base_path: dùng common root của các file (để validator + rel_path consistent)
-    try:
-        common_root = os.path.commonpath(files)
-    except Exception:
-        common_root = os.path.dirname(files[0])
-
-    metas: List[ChunkMeta] = []
-    total = len(files)
-    next_id = 0
-    created_at = time.time()
-    source_folder = os.path.basename(common_root.rstrip(os.sep)) or "picked_files"
-
-    MIN_CHUNK_LEN = int(os.environ.get("RAG_MIN_CHUNK_LEN", "80"))
-
-    for i, file_path in enumerate(files, start=1):
-        stat = os.stat(file_path)
-        name = os.path.basename(file_path)
-        ext = os.path.splitext(file_path)[1].lower()
-
-        # rel_path theo common_root
-        try:
-            rel_path = os.path.relpath(file_path, common_root)
+            rel_path = os.path.relpath(file_path, base_path)
         except Exception:
             rel_path = name
 
@@ -420,7 +240,6 @@ def build_vector_store_from_files(
             ch = (obj.get("text") or "").strip()
             if len(ch) < MIN_CHUNK_LEN:
                 continue
-
             metas.append(ChunkMeta(
                 id=next_id,
                 file_name=name,
@@ -442,25 +261,39 @@ def build_vector_store_from_files(
         if progress_cb:
             progress_cb(int(i * 60 / total))
 
-    if not metas:
-        raise RuntimeError("No chunks created.")
+    return metas
 
-    # ---- Embedding (giữ giống build_vector_store) ----
+
+def _embed_and_save(
+    metas: List[ChunkMeta],
+    output_dir: str,
+    model_name: str,
+    chunk_size: int,
+    overlap: int,
+    cpu_threads: int,
+    created_at: float,
+    base_path: str,
+    progress_cb: Optional[Callable[[int], None]],
+) -> None:
+    """Embed chunks, build FAISS index, and persist all store files."""
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = SentenceTransformer(model_name, device=device)
 
-    texts = [m.text for m in metas]
+    print("cuda_available:", torch.cuda.is_available())
+    if torch.cuda.is_available():
+        print("gpu:", torch.cuda.get_device_name(0))
+    print("model_device:", getattr(model, "device", None))
+
     batch_size = int(os.environ.get("RAG_BATCH_SIZE", "128"))
     vectors = model.encode(
-        texts,
+        [m.text for m in metas],
         batch_size=batch_size,
         show_progress_bar=True,
-        normalize_embeddings=True
+        normalize_embeddings=True,
     )
     vectors = np.asarray(vectors, dtype="float32")
     dim = vectors.shape[1]
 
-    # ---- FAISS index (giữ giống build_vector_store) ----
     use_hnsw = os.environ.get("RAG_INDEX", "hnsw").lower() == "hnsw"
     if use_hnsw:
         M = int(os.environ.get("RAG_HNSW_M", "32"))
@@ -474,27 +307,25 @@ def build_vector_store_from_files(
     if progress_cb:
         progress_cb(85)
 
-    # ---- Save files: index.faiss, metadata.json, base_path.txt, index_config.json ----
     faiss.write_index(index, os.path.join(output_dir, "index.faiss"))
 
     with open(os.path.join(output_dir, "metadata.json"), "w", encoding="utf-8") as f:
         json.dump([m.__dict__ for m in metas], f, ensure_ascii=False, indent=2)
 
-    # ✅ cái này để validator của anh không báo lỗi
     with open(os.path.join(output_dir, "base_path.txt"), "w", encoding="utf-8") as f:
-        f.write(common_root)
+        f.write(base_path)
 
     cfg = {
-        "model_name": model_name,
+        "model_name":           model_name,
         "normalize_embeddings": True,
-        "index_type": "HNSW" if use_hnsw else "FlatIP",
-        "dim": int(dim),
-        "chunk_size": int(chunk_size),
-        "overlap": int(overlap),
-        "batch_size": int(batch_size),
-        "cpu_threads": int(CPU_THREADS),
-        "created_at": created_at,
-        "min_chunk_len": int(MIN_CHUNK_LEN),
+        "index_type":           "HNSW" if use_hnsw else "FlatIP",
+        "dim":                  int(dim),
+        "chunk_size":           int(chunk_size),
+        "overlap":              int(overlap),
+        "batch_size":           int(batch_size),
+        "cpu_threads":          int(cpu_threads),
+        "created_at":           created_at,
+        "min_chunk_len":        int(os.environ.get("RAG_MIN_CHUNK_LEN", "80")),
     }
     with open(os.path.join(output_dir, "index_config.json"), "w", encoding="utf-8") as f:
         json.dump(cfg, f, ensure_ascii=False, indent=2)
@@ -502,7 +333,101 @@ def build_vector_store_from_files(
     if progress_cb:
         progress_cb(100)
 
+
+# ── Public build functions ────────────────────────────────────────
+
+def build_vector_store(
+    folder_path: str,
+    extract_content_fn: Callable[[str], str],
+    output_dir: str,
+    model_name: str = "sentence-transformers/all-MiniLM-L6-v2",
+    allowed_ext: Optional[Set[str]] = None,
+    chunk_size: int = 900,
+    overlap: int = 150,
+    progress_cb: Optional[Callable[[int], None]] = None,
+) -> str:
+    cpu_threads = _tune_cpu()
+    if allowed_ext is None:
+        allowed_ext = _DEFAULT_EXT
+
+    files = [
+        os.path.join(root, fn)
+        for root, _, fnames in os.walk(folder_path)
+        for fn in fnames
+        if os.path.splitext(fn)[1].lower() in allowed_ext
+    ]
+    if not files:
+        raise RuntimeError("No supported files found.")
+
+    os.makedirs(output_dir, exist_ok=True)
+    created_at = time.time()
+    metas = _build_metas(
+        files,
+        base_path=folder_path,
+        source_folder=os.path.basename(folder_path.rstrip(os.sep)),
+        extract_content_fn=extract_content_fn,
+        chunk_size=chunk_size,
+        created_at=created_at,
+        progress_cb=progress_cb,
+    )
+    if not metas:
+        raise RuntimeError("No chunks created.")
+
+    _embed_and_save(metas, output_dir, model_name, chunk_size, overlap,
+                    cpu_threads, created_at, folder_path, progress_cb)
     return output_dir
+
+
+def build_vector_store_from_files(
+    file_paths: List[str],
+    extract_content_fn: Callable[[str], str],
+    output_dir: str,
+    model_name: str = "sentence-transformers/all-MiniLM-L6-v2",
+    allowed_ext: Optional[Set[str]] = None,
+    chunk_size: int = 900,
+    overlap: int = 150,
+    progress_cb: Optional[Callable[[int], None]] = None,
+) -> str:
+    cpu_threads = _tune_cpu()
+    if allowed_ext is None:
+        allowed_ext = _DEFAULT_EXT
+
+    # lọc + chuẩn hoá file
+    files = sorted({
+        os.path.abspath(p)
+        for p in (file_paths or [])
+        if p and os.path.isfile(p)
+        and os.path.splitext(p)[1].lower() in allowed_ext
+    })
+    if not files:
+        raise RuntimeError("No supported files selected.")
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    # base_path: dùng common root của các file (để validator + rel_path consistent)
+    try:
+        common_root = os.path.commonpath(files)
+    except Exception:
+        common_root = os.path.dirname(files[0])
+
+    created_at = time.time()
+    metas = _build_metas(
+        files,
+        base_path=common_root,
+        source_folder=os.path.basename(common_root.rstrip(os.sep)) or "picked_files",
+        extract_content_fn=extract_content_fn,
+        chunk_size=chunk_size,
+        created_at=created_at,
+        progress_cb=progress_cb,
+    )
+    if not metas:
+        raise RuntimeError("No chunks created.")
+
+    # ✅ base_path.txt dùng common_root để validator không báo lỗi
+    _embed_and_save(metas, output_dir, model_name, chunk_size, overlap,
+                    cpu_threads, created_at, common_root, progress_cb)
+    return output_dir
+
 
 def _load_manifest(store_dir: str) -> dict:
     p = os.path.join(store_dir, "manifest.json")
