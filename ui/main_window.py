@@ -39,7 +39,7 @@ from core.workers import DuplicateSearchWorker
 from ui.hud_widgets import qss_hud_metal_header_feel, qss_white_results
 from ui.tree_sorter import TreeSortHelper
 from ui.help_dialog import HelpDialog
-from ui.index_search_window import IndexSearchWindow
+from ui.index_search_window import IndexSearchWindow, IndexSearchWidget
 from ui.notebooklm_window import NotebookLMWidget
 from ui.list_files_window import show_list_files_window
 from ui.sync_folder_window import show_sync_folder_window
@@ -314,18 +314,6 @@ class FileSearchApp(QMainWindow):
         self.btn_group.clicked.connect(self._run_group)
         h.addWidget(self.btn_group)
 
-        sep_db = QFrame(); sep_db.setFrameShape(QFrame.VLine)
-        sep_db.setFixedHeight(28)
-        sep_db.setStyleSheet("color: rgba(255,255,255,40);")
-        h.addWidget(sep_db)
-
-        self.btn_db_search = QPushButton("🗄 DB")
-        self.btn_db_search.setMinimumWidth(70)
-        self.btn_db_search.setMinimumHeight(40)
-        self.btn_db_search.setToolTip("Search indexed databases")
-        self.btn_db_search.clicked.connect(lambda: IndexSearchWindow(self).exec())
-        h.addWidget(self.btn_db_search)
-
         h.addStretch(1)
 
         return toolbar
@@ -456,7 +444,7 @@ class FileSearchApp(QMainWindow):
         self.pdf_preview = PdfPreviewWidget()
         self.pdf_preview.hide()
 
-        # ── Tabs: File Search | NotebookLM | Claude ──────────────
+        # ── Tab: File Search | DB Search ─────────────────────────
         self._search_tabs = QTabWidget()
         self._search_tabs.setStyleSheet("""
             QTabWidget::pane { border: none; }
@@ -491,6 +479,8 @@ class FileSearchApp(QMainWindow):
         fs_lay.addWidget(self._splitter, 1)
 
         self._search_tabs.addTab(file_search_page,       "🔍 File Search")
+        self.db_search_widget = IndexSearchWidget()
+        self._search_tabs.addTab(self.db_search_widget,  "🗄 DB Search")
         self.notebooklm_widget = NotebookLMWidget()
         self._search_tabs.addTab(self.notebooklm_widget, "📓 NotebookLM")
         self.claude_assistant_widget = ClaudeAssistantWidget()
