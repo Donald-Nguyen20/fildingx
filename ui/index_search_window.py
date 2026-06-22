@@ -141,7 +141,7 @@ class IndexSearchWidget(QWidget):
 
         self.result_table.clear()
         if rows:
-            for name, path, _content, db_path in rows:
+            for name, path, _doc_number, db_path in rows:
                 item = QTreeWidgetItem([name, path])
                 item.setData(0, Qt.UserRole, db_path)
                 self.result_table.addTopLevelItem(item)
@@ -153,10 +153,30 @@ class IndexSearchWidget(QWidget):
         try:
             conn = sqlite3.connect(db_path)
             cur = conn.cursor()
-            cur.execute(
-                "SELECT name, path, content FROM files WHERE name LIKE ? OR content LIKE ?",
-                (f"%{keyword}%", f"%{keyword}%"),
-            )
+            try:
+                # FTS5 — nhanh, đã index
+                fts_q = " OR ".join(f'{w}*' for w in keyword.split() if w)
+                cur.execute(
+                    """
+                    SELECT name, path, COALESCE(doc_number,'') FROM files
+                    WHERE id IN (SELECT rowid FROM files_fts WHERE files_fts MATCH ?)
+                      AND name != 'BASE_PATH'
+                    ORDER BY name LIMIT 200
+                    """,
+                    (fts_q,),
+                )
+            except Exception:
+                # fallback: LIKE trên name + doc_number (không scan content)
+                like = f"%{keyword}%"
+                cur.execute(
+                    """
+                    SELECT name, path, COALESCE(doc_number,'') FROM files
+                    WHERE (name LIKE ? OR doc_number LIKE ?)
+                      AND name != 'BASE_PATH'
+                    LIMIT 200
+                    """,
+                    (like, like),
+                )
             rows = cur.fetchall()
             conn.close()
             return rows
