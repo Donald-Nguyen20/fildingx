@@ -18,6 +18,8 @@ from PySide6.QtWebEngineWidgets import QWebEngineView
 from ui.claude_assistant.agent import make_options
 from ui.claude_assistant.worker import AgentWorker
 from ui.claude_assistant.animations import PulsingOrb
+from ui.claude_assistant.diagnosis_panel import DiagnosisPanel
+from ui.claude_assistant import copilot
 
 _MAX_RESULTS   = 5    # số file lấy từ DB
 _MAX_CONTENT   = 800  # ký tự content mỗi file
@@ -125,6 +127,8 @@ class ClaudeAssistantWidget(QWidget):
         self._response_started = False
         self._db_path: str = ""
         self._orb_view: QWebEngineView | None = None
+        self._mode: str = "chat"          # "chat" | "diagnose" | "report"
+        self._resp_buffer: str = ""       # gom full text để parse JSON chẩn đoán
         self._build_ui()
 
     # ── Build UI ──────────────────────────────────────────────────────
@@ -203,10 +207,10 @@ class ClaudeAssistantWidget(QWidget):
         btn_grid.setSpacing(6)
 
         _ACTIONS = [
-            ("🔍", "Tìm tài liệu", "Tìm trong DB tài liệu về: ", 1),
-            ("📝", "Tạo báo cáo",  "Tạo báo cáo vận hành về: ", 3),
-            ("🔬", "Phân tích",    "Phân tích chi tiết: ",       2),
-            ("💬", "Hỏi đáp",      "",                           0),
+            ("🔍", "Tìm tài liệu", "Tìm trong DB tài liệu về: ", 1, "chat"),
+            ("📝", "Tạo báo cáo",  "Tạo báo cáo vận hành về: ", 3, "chat"),
+            ("🔬", "Chẩn đoán",    "",                           2, "diagnose"),
+            ("💬", "Hỏi đáp",      "",                           0, "chat"),
         ]
         _btn_style = """
             QPushButton {
@@ -217,12 +221,12 @@ class ClaudeAssistantWidget(QWidget):
             QPushButton:hover   { background: #1a2f45; border-color: #4488cc; color: #aaddff; }
             QPushButton:pressed { background: #0a1520; }
         """
-        for idx, (icon, label, prefix, state) in enumerate(_ACTIONS):
+        for idx, (icon, label, prefix, state, mode) in enumerate(_ACTIONS):
             btn = QPushButton(f"{icon}\n{label}")
             btn.setStyleSheet(_btn_style)
             btn.setFixedHeight(52)
             btn.clicked.connect(
-                lambda _checked, p=prefix, s=state: self._on_action(p, s)
+                lambda _checked, p=prefix, s=state, m=mode: self._on_action(p, s, m)
             )
             btn_grid.addWidget(btn, idx // 2, idx % 2)
 
@@ -357,6 +361,15 @@ class ClaudeAssistantWidget(QWidget):
         r_lay.addLayout(input_row)
 
         splitter.addWidget(right)
+
+        # Panel chẩn đoán (Co-Pilot Sự Cố) — ẩn cho tới khi vào chế độ chẩn đoán
+        self._diag_panel = DiagnosisPanel()
+        self._diag_panel.set_db_path(self._db_path)
+        self._diag_panel.generate_report.connect(self._on_generate_report)
+        self._diag_panel.hide()
+        splitter.addWidget(self._diag_panel)
+
+        self._splitter = splitter
         splitter.setSizes([340, 660])
         root.addWidget(splitter, 1)
 
@@ -394,12 +407,36 @@ class ClaudeAssistantWidget(QWidget):
             self._orb_view.page().runJavaScript(f"setS({state})")
 
     # ── Helpers ───────────────────────────────────────────────────────
-    def _on_action(self, prefix: str, state: int):
-        """Bấm action button: đổi orb state + pre-fill input."""
+    def _on_action(self, prefix: str, state: int, mode: str = "chat"):
+        """Bấm action button: đổi orb state + chế độ + pre-fill input."""
         self._set_jarvis(state)
-        self._inp_msg.setText(prefix)
+        self._mode = mode
+
+        if mode == "diagnose":
+            if not self._db_path:
+                self._append(
+                    '<p style="color:#dc2626;margin:4px 0">'
+                    '⚠️ Hãy chọn file DB trước khi chẩn đoán.</p>'
+                )
+            self._show_diag_panel(True)
+            self._diag_panel.reset()
+            self._inp_msg.clear()
+            self._inp_msg.setPlaceholderText("Mô tả triệu chứng sự cố… (Enter để chẩn đoán)")
+        else:
+            self._show_diag_panel(False)
+            self._inp_msg.setPlaceholderText("Nhập câu hỏi… (Enter để gửi)")
+            self._inp_msg.setText(prefix)
+            self._inp_msg.setCursorPosition(len(prefix))
+
         self._inp_msg.setFocus()
-        self._inp_msg.setCursorPosition(len(prefix))
+
+    def _show_diag_panel(self, show: bool):
+        if show:
+            self._diag_panel.show()
+            self._splitter.setSizes([260, 420, 400])
+        else:
+            self._diag_panel.hide()
+            self._splitter.setSizes([340, 660])
 
     def _pick_db(self):
         path, _ = QFileDialog.getOpenFileName(
@@ -407,6 +444,7 @@ class ClaudeAssistantWidget(QWidget):
         )
         if path:
             self._db_path = path
+            self._diag_panel.set_db_path(path)
             self._lbl_db.setText(os.path.basename(path))
             self._lbl_db.setStyleSheet("""
                 color: #334155; font-size: 11px;
@@ -417,6 +455,7 @@ class ClaudeAssistantWidget(QWidget):
 
     def _clear_db(self):
         self._db_path = ""
+        self._diag_panel.set_db_path("")
         self._lbl_db.setText("Chưa chọn file DB")
         self._lbl_db.setStyleSheet("""
             color: #94a3b8; font-size: 11px;
@@ -483,26 +522,27 @@ class ClaudeAssistantWidget(QWidget):
         if not msg:
             return
 
-        self._inp_msg.clear()
-        self._set_busy(True)
-        self._orb.set_active(True)
-        self._set_jarvis(2)          # THINK — đang xử lý
-        self._response_started = False
+        # Chế độ chẩn đoán cần DB
+        if self._mode == "diagnose" and not self._db_path:
+            self._append(
+                '<p style="color:#dc2626;margin:4px 0">'
+                '⚠️ Hãy chọn file DB trước khi chẩn đoán.</p>'
+            )
+            return
 
-        safe_msg = msg.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-        self._append(
-            f'<p style="color:#4f46e5;margin:8px 0 2px 0">'
-            f'<b>Bạn:</b> {safe_msg}</p>'
-            f'<br>'
-        )
-        self._append(
-            '<p style="color:#166534;margin:2px 0"><b>Claude:</b> '
-        )
+        self._inp_msg.clear()
+        self._echo_user(msg)
 
         system = self._inp_system.text().strip()
+        claude_md = self._load_claude_md()
 
-        if self._db_path:
-            claude_md = self._load_claude_md()
+        if self._mode == "diagnose":
+            self._diag_panel.set_analyzing(msg)
+            diag_system = copilot.build_diagnosis_system_prompt(self._db_path, claude_md)
+            merged_system = (diag_system + "\n" + system).strip()
+            options = make_options(system_prompt=merged_system, db_path=self._db_path)
+            prompt = copilot.build_diagnosis_prompt(msg)
+        elif self._db_path:
             db_system = (
                 f'Bạn là trợ lý kỹ thuật Nhà máy Nhiệt điện Van Phong 1 BOT.\n'
                 f'File DB tài liệu: "{self._db_path}"\n\n'
@@ -529,6 +569,39 @@ class ClaudeAssistantWidget(QWidget):
             options = make_options(system_prompt=merged_system)
             prompt = msg
 
+        self._run_agent(prompt, options)
+
+    def _on_generate_report(self, diagnosis: dict):
+        """Panel yêu cầu sinh báo cáo KV-OP từ cây nguyên nhân."""
+        if not self._db_path:
+            return
+        self._mode = "report"
+        self._echo_user("📝 Sinh báo cáo KV-OP từ kết quả chẩn đoán")
+        self._set_jarvis(3)
+
+        claude_md = self._load_claude_md()
+        prompt = copilot.build_report_prompt(diagnosis, self._db_path)
+        system = (claude_md + "\n\n" if claude_md else "") + (
+            "Bạn là kỹ sư lập báo cáo vận hành Nhà máy Nhiệt điện Van Phong 1 BOT."
+        )
+        options = make_options(system_prompt=system, db_path=self._db_path)
+        self._run_agent(prompt, options)
+
+    def _echo_user(self, msg: str):
+        """In dòng người dùng + mở đoạn trả lời của Claude vào khung chat."""
+        self._set_busy(True)
+        self._orb.set_active(True)
+        self._set_jarvis(2)          # THINK — đang xử lý
+        self._response_started = False
+        self._resp_buffer = ""
+        safe_msg = msg.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        self._append(
+            f'<p style="color:#4f46e5;margin:8px 0 2px 0">'
+            f'<b>Bạn:</b> {safe_msg}</p><br>'
+        )
+        self._append('<p style="color:#166534;margin:2px 0"><b>Claude:</b> ')
+
+    def _run_agent(self, prompt: str, options):
         self._worker = AgentWorker(prompt, options)
         self._worker.text_chunk.connect(self._on_text_chunk)
         self._worker.tool_used.connect(self._on_tool_used)
@@ -537,6 +610,7 @@ class ClaudeAssistantWidget(QWidget):
         self._worker.start()
 
     def _on_text_chunk(self, text: str):
+        self._resp_buffer += text
         safe = (text.replace("&", "&amp;")
                     .replace("<", "&lt;")
                     .replace(">", "&gt;")
@@ -554,6 +628,13 @@ class ClaudeAssistantWidget(QWidget):
         self._orb.set_active(False)
         self._set_jarvis(1)          # FOCUS — hoàn thành
         self._inp_msg.setFocus()
+
+        # Chẩn đoán: parse khối JSON cây nguyên nhân → đổ vào panel
+        if self._mode == "diagnose":
+            data = copilot.extract_diagnosis_json(self._resp_buffer)
+            self._diag_panel.set_diagnosis(data or {})
+        elif self._mode == "report":
+            self._mode = "chat"
 
     def _on_error(self, msg: str):
         safe = msg.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
