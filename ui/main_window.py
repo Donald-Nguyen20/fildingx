@@ -12,15 +12,14 @@ Bugs đã fix so với Finding7.1.py gốc:
 """
 import os
 import json
-import sqlite3
 import webbrowser
 from datetime import datetime
 from functools import partial
 
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QFrame,
-    QLabel, QLineEdit, QPushButton, QFileDialog, QComboBox,
-    QTreeWidget, QTreeWidgetItem, QListWidget, QListWidgetItem, QMessageBox,
+    QLabel, QLineEdit, QPushButton, QFileDialog,
+    QTreeWidget, QListWidget, QListWidgetItem, QMessageBox,
     QTextEdit, QDialog, QMenu, QLCDNumber, QApplication,
     QStackedWidget, QSplitter, QTabWidget,
 )
@@ -40,7 +39,7 @@ from core.workers import DuplicateSearchWorker
 from ui.hud_widgets import qss_hud_metal_header_feel, qss_white_results
 from ui.tree_sorter import TreeSortHelper
 from ui.help_dialog import HelpDialog
-from ui.index_search_window import IndexSearchWindow
+from ui.index_search_window import IndexSearchWindow, IndexSearchWidget
 from ui.notebooklm_window import NotebookLMWidget
 from ui.list_files_window import show_list_files_window
 from ui.sync_folder_window import show_sync_folder_window
@@ -243,7 +242,7 @@ class FileSearchApp(QMainWindow):
     # ══════════════════════════════════════════════════════════════
 
     def _setup_toolbar(self):
-        """Compact toolbar: mode selector + folder/DB controls + keyword + search."""
+        """Compact toolbar: folder + keyword + search + AI button."""
         toolbar = QFrame()
         toolbar.setObjectName("toolbarFrame")
         toolbar.setFixedHeight(62)
@@ -261,72 +260,28 @@ class FileSearchApp(QMainWindow):
         self._multi_folder_mode = False
         self._multi_folders: list[str] = []
 
-        # ── Mode selector ─────────────────────────────────────────
-        self.cmb_search_mode = QComboBox()
-        self.cmb_search_mode.addItems(["File local", "DB"])
-        self.cmb_search_mode.setFixedHeight(40)
-        self.cmb_search_mode.setMinimumWidth(100)
-        self.cmb_search_mode.setToolTip("Search mode: local files or indexed database")
-        h.addWidget(self.cmb_search_mode)
-
-        sep0 = QFrame(); sep0.setFrameShape(QFrame.VLine)
-        sep0.setFixedHeight(28); sep0.setStyleSheet("color: rgba(255,255,255,40);")
-        h.addWidget(sep0)
-
-        # ── Folder controls (File local mode) ─────────────────────
-        self._folder_controls = QWidget()
-        fc_h = QHBoxLayout(self._folder_controls)
-        fc_h.setContentsMargins(0, 0, 0, 0)
-        fc_h.setSpacing(8)
-
         self.btn_folder_toggle = QPushButton("Folder:")
         self.btn_folder_toggle.setFixedWidth(82)
         self.btn_folder_toggle.setMinimumHeight(40)
         self.btn_folder_toggle.setToolTip("Click to switch to multi-folder mode")
         self.btn_folder_toggle.clicked.connect(self._toggle_folder_mode)
-        fc_h.addWidget(self.btn_folder_toggle)
+        h.addWidget(self.btn_folder_toggle)
 
         self.folder_entry = QLineEdit()
         self.folder_entry.setPlaceholderText("Select folder…")
-        fc_h.addWidget(self.folder_entry, 1)
+        h.addWidget(self.folder_entry, 2)
 
         self.browse_btn = QPushButton("Browse")
         self.browse_btn.setMinimumWidth(90)
         self.browse_btn.setMinimumHeight(40)
         self.browse_btn.clicked.connect(self.browse_folder)
-        fc_h.addWidget(self.browse_btn)
+        h.addWidget(self.browse_btn)
 
-        sep1 = QFrame(); sep1.setFrameShape(QFrame.VLine)
-        sep1.setFixedHeight(28); sep1.setStyleSheet("color: rgba(255,255,255,40);")
-        fc_h.addWidget(sep1)
+        sep = QFrame(); sep.setFrameShape(QFrame.VLine)
+        sep.setFixedHeight(28)
+        sep.setStyleSheet("color: rgba(255,255,255,40);")
+        h.addWidget(sep)
 
-        h.addWidget(self._folder_controls, 2)
-
-        # ── DB controls (DB mode, hidden by default) ───────────────
-        self._db_toolbar_controls = QWidget()
-        self._db_toolbar_controls.setVisible(False)
-        dbt_h = QHBoxLayout(self._db_toolbar_controls)
-        dbt_h.setContentsMargins(0, 0, 0, 0)
-        dbt_h.setSpacing(8)
-
-        self.db_import_btn = QPushButton("📂 Import DB")
-        self.db_import_btn.setFixedHeight(40)
-        self.db_import_btn.setMinimumWidth(110)
-        self.db_import_btn.clicked.connect(self._db_import)
-        dbt_h.addWidget(self.db_import_btn)
-
-        self.db_selector = QComboBox()
-        self.db_selector.setFixedHeight(40)
-        self.db_selector.setMinimumWidth(160)
-        dbt_h.addWidget(self.db_selector)
-
-        sep2 = QFrame(); sep2.setFrameShape(QFrame.VLine)
-        sep2.setFixedHeight(28); sep2.setStyleSheet("color: rgba(255,255,255,40);")
-        dbt_h.addWidget(sep2)
-
-        h.addWidget(self._db_toolbar_controls, 2)
-
-        # ── Shared keyword + search ────────────────────────────────
         lbl_k = QLabel("Keyword:")
         lbl_k.setFixedWidth(60)
         h.addWidget(lbl_k)
@@ -359,10 +314,19 @@ class FileSearchApp(QMainWindow):
         self.btn_group.clicked.connect(self._run_group)
         h.addWidget(self.btn_group)
 
-        h.addStretch(1)
+        sep_db = QFrame(); sep_db.setFrameShape(QFrame.VLine)
+        sep_db.setFixedHeight(28)
+        sep_db.setStyleSheet("color: rgba(255,255,255,40);")
+        h.addWidget(sep_db)
 
-        self.cmb_search_mode.currentIndexChanged.connect(self._on_search_mode_changed)
-        self._db_refresh_selector()
+        self.btn_db_search = QPushButton("🗄 DB")
+        self.btn_db_search.setMinimumWidth(70)
+        self.btn_db_search.setMinimumHeight(40)
+        self.btn_db_search.setToolTip("Search indexed databases")
+        self.btn_db_search.clicked.connect(lambda: IndexSearchWindow(self).exec())
+        h.addWidget(self.btn_db_search)
+
+        h.addStretch(1)
 
         return toolbar
 
@@ -492,23 +456,7 @@ class FileSearchApp(QMainWindow):
         self.pdf_preview = PdfPreviewWidget()
         self.pdf_preview.hide()
 
-        # ── DB result table ───────────────────────────────────────
-        self.db_result_table = QTreeWidget()
-        self.db_result_table.setObjectName("resultsTree")
-        self.db_result_table.setAlternatingRowColors(True)
-        self.db_result_table.setUniformRowHeights(True)
-        self.db_result_table.setRootIsDecorated(False)
-        self.db_result_table.setColumnCount(2)
-        self.db_result_table.setHeaderLabels(["File Name", "Path"])
-        self.db_result_table.header().setSectionResizeMode(
-            0, self.db_result_table.header().ResizeMode.Stretch)
-        self.db_result_table.header().setSectionResizeMode(
-            1, self.db_result_table.header().ResizeMode.Stretch)
-        self.db_result_table.itemDoubleClicked.connect(self._db_open_file)
-        self.db_lbl_count = QLabel("")
-        self.db_lbl_count.setStyleSheet("color: #888; font-size: 12px; padding: 2px 4px;")
-
-        # ── Tab: Search | NotebookLM | Claude ─────────────────────
+        # ── Tab: File Search | DB Search ─────────────────────────
         self._search_tabs = QTabWidget()
         self._search_tabs.setStyleSheet("""
             QTabWidget::pane { border: none; }
@@ -527,7 +475,7 @@ class FileSearchApp(QMainWindow):
             }
             QTabBar::tab:hover { background: rgba(255,255,255,20); }
         """)
-        # ── Search page: toolbar + stacked results ────────────────
+        # ── File Search page (toolbar + tree + pdf preview) ──────
         file_search_page = QWidget()
         fs_lay = QVBoxLayout(file_search_page)
         fs_lay.setContentsMargins(0, 0, 0, 0)
@@ -540,21 +488,11 @@ class FileSearchApp(QMainWindow):
         self._splitter.setSizes([10000, 0])
         self._splitter.setHandleWidth(4)
         self._splitter.setStyleSheet("QSplitter::handle { background: rgba(255,255,255,15); border-radius: 2px; }")
+        fs_lay.addWidget(self._splitter, 1)
 
-        db_results_page = QWidget()
-        db_rp_lay = QVBoxLayout(db_results_page)
-        db_rp_lay.setContentsMargins(0, 4, 0, 0)
-        db_rp_lay.setSpacing(4)
-        db_rp_lay.addWidget(self.db_lbl_count)
-        db_rp_lay.addWidget(self.db_result_table, 1)
-
-        self._results_stack = QStackedWidget()
-        self._results_stack.addWidget(self._splitter)     # page 0: file
-        self._results_stack.addWidget(db_results_page)    # page 1: DB
-
-        fs_lay.addWidget(self._results_stack, 1)
-
-        self._search_tabs.addTab(file_search_page, "🔍 Search")
+        self._search_tabs.addTab(file_search_page,       "🔍 File Search")
+        self.db_search_widget = IndexSearchWidget()
+        self._search_tabs.addTab(self.db_search_widget,  "🗄 DB Search")
         self.notebooklm_widget = NotebookLMWidget()
         self._search_tabs.addTab(self.notebooklm_widget, "📓 NotebookLM")
         self.claude_assistant_widget = ClaudeAssistantWidget()
@@ -807,128 +745,7 @@ class FileSearchApp(QMainWindow):
         folder = self.folder_entry.text().strip()
         return [folder] if folder else []
 
-    # ══════════════════════════════════════════════════════════════
-    #  SEARCH MODE SWITCH + DB SEARCH
-    # ══════════════════════════════════════════════════════════════
-
-    def _on_search_mode_changed(self, idx: int):
-        is_db = idx == 1
-        self._folder_controls.setVisible(not is_db)
-        self._db_toolbar_controls.setVisible(is_db)
-        self._results_stack.setCurrentIndex(idx)
-        self.lcd_number.setVisible(not is_db)
-        self.btn_group.setVisible(not is_db)
-        if is_db:
-            self.filename_entry.setPlaceholderText("Keyword to search in indexed DB…")
-            self.db_lbl_count.setText("")
-        else:
-            self.filename_entry.setPlaceholderText(
-                "Search by name… ($stats, @fuzzy, A%B, A*B, folder:name)")
-
-    def _db_refresh_selector(self):
-        from ui.index_search_window import _load_db_list
-        db_paths = _load_db_list()
-        self.db_selector.clear()
-        self.db_selector.addItem("All DBs")
-        for p in db_paths:
-            self.db_selector.addItem(os.path.basename(p), p)
-
-    def _db_import(self):
-        from ui.index_search_window import _load_db_list, _save_db_list
-        db_paths = _load_db_list()
-        selected, _ = QFileDialog.getOpenFileNames(
-            self, "Select SQLite Databases", "", "SQLite Files (*.db *.sqlite)"
-        )
-        if selected:
-            added = [p for p in selected if p not in db_paths]
-            db_paths.extend(added)
-            _save_db_list(db_paths)
-            self._db_refresh_selector()
-            self.db_lbl_count.setText(
-                f"Imported {len(added)} database(s). Total: {len(db_paths)}")
-
-    def _db_search(self):
-        from ui.index_search_window import _load_db_list
-        db_paths = _load_db_list()
-        if not db_paths:
-            QMessageBox.warning(self, "No Database",
-                                "Please import a SQLite database first.")
-            return
-        keyword = self.filename_entry.text().strip()
-        if not keyword:
-            return
-
-        self.search_btn.setText("⏳  Searching…")
-        self.search_btn.setEnabled(False)
-        QApplication.setOverrideCursor(Qt.WaitCursor)
-        QApplication.processEvents()
-        try:
-            selected_data = self.db_selector.currentData()
-            rows = []
-            if selected_data is None:
-                for db in db_paths:
-                    for row in self._db_search_single(db, keyword):
-                        rows.append((*row, db))
-            else:
-                for row in self._db_search_single(selected_data, keyword):
-                    rows.append((*row, selected_data))
-
-            self.db_result_table.clear()
-            if rows:
-                for name, path, _content, db_path in rows:
-                    item = QTreeWidgetItem([name, path])
-                    item.setData(0, Qt.UserRole, db_path)
-                    self.db_result_table.addTopLevelItem(item)
-                self.db_lbl_count.setText(
-                    f'Found {len(rows)} result(s) for "{keyword}"')
-            else:
-                self.db_lbl_count.setText(f'No results for "{keyword}"')
-        finally:
-            QApplication.restoreOverrideCursor()
-            self.search_btn.setEnabled(True)
-            self.search_btn.setText("🔍  Search")
-
-    def _db_search_single(self, db_path: str, keyword: str) -> list:
-        try:
-            conn = sqlite3.connect(db_path)
-            cur = conn.cursor()
-            cur.execute(
-                "SELECT name, path, content FROM files "
-                "WHERE name LIKE ? OR content LIKE ?",
-                (f"%{keyword}%", f"%{keyword}%"),
-            )
-            rows = cur.fetchall()
-            conn.close()
-            return rows
-        except Exception as e:
-            QMessageBox.warning(self, "DB Error", f"Failed to search {db_path}: {e}")
-            return []
-
-    def _db_open_file(self, item: QTreeWidgetItem, _column: int):
-        try:
-            relative_path = item.text(1)
-            db_path = item.data(0, Qt.UserRole)
-            conn = sqlite3.connect(db_path)
-            cur = conn.cursor()
-            cur.execute("SELECT path FROM files WHERE name = 'BASE_PATH'")
-            row = cur.fetchone()
-            conn.close()
-            if row:
-                abs_path = os.path.join(row[0], relative_path)
-                if os.path.exists(abs_path):
-                    os.startfile(abs_path)
-                else:
-                    QMessageBox.warning(self, "Not Found", f"File not found:\n{abs_path}")
-            else:
-                QMessageBox.warning(self, "Error", "BASE_PATH not found in database.")
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to open file: {e}")
-
     def search_files(self):
-        if self.cmb_search_mode.currentIndex() == 1:
-            self._db_search()
-            return
-
         folders = self._get_search_folders()
         keyword = self.filename_entry.text().strip()
         if not folders or not keyword:
