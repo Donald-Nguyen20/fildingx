@@ -186,3 +186,4 @@ images/
 mindmaps/
 test/
 last_diagnosis.json
+diagnosis_history.json

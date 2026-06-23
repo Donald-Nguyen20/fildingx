@@ -8,15 +8,18 @@ Module thuần logic, KHÔNG phụ thuộc Qt — dễ test và tái dùng.
 """
 from __future__ import annotations
 
+import datetime
 import json
 import os
 import re
 import sqlite3
+import time
 from typing import Optional
 
 from paths import APP_DIR
 
-_LAST_DIAGNOSIS_FILE = os.path.join(APP_DIR, "last_diagnosis.json")
+_HISTORY_FILE = os.path.join(APP_DIR, "diagnosis_history.json")
+_HISTORY_MAX = 50
 
 
 # ── System prompt: hướng dẫn Claude chạy quy trình chẩn đoán ──────────────
@@ -84,12 +87,13 @@ Khối JSON là BẮT BUỘC và phải nằm ở CUỐI câu trả lời. CHỈ
     return instr
 
 
-def build_diagnosis_prompt(symptom: str) -> str:
-    """Prompt người dùng cho 1 lượt chẩn đoán."""
-    return (
-        f"Triệu chứng sự cố cần chẩn đoán:\n\"{symptom.strip()}\"\n\n"
-        "Hãy chạy quy trình suy luận đa tầng rồi trả về tóm tắt + khối JSON cây nguyên nhân."
-    )
+def build_diagnosis_prompt(symptom: str, precedent_block: str = "") -> str:
+    """Prompt người dùng cho 1 lượt chẩn đoán (kèm tiền lệ nếu có)."""
+    base = f"Triệu chứng sự cố cần chẩn đoán:\n\"{symptom.strip()}\"\n\n"
+    if precedent_block:
+        base += precedent_block + "\n\n"
+    base += "Hãy chạy quy trình suy luận đa tầng rồi trả về tóm tắt + khối JSON cây nguyên nhân."
+    return base
 
 
 # ── Parse khối JSON kết quả từ stream text của Claude ─────────────────────
@@ -296,25 +300,102 @@ def build_retry_json_prompt(previous_answer: str) -> str:
     )
 
 
-# ── #5 Lưu / khôi phục kết quả chẩn đoán gần nhất ────────────────────────
+# ── #5 Lịch sử chẩn đoán: lưu nhiều ca + khôi phục ───────────────────────
 
-def save_last_diagnosis(data: dict) -> None:
+def load_history() -> list:
+    """Danh sách ca chẩn đoán, mới nhất trước."""
+    try:
+        if os.path.exists(_HISTORY_FILE):
+            with open(_HISTORY_FILE, "r", encoding="utf-8") as f:
+                h = json.load(f)
+                if isinstance(h, list):
+                    return h
+    except Exception:
+        pass
+    return []
+
+
+def append_history(data: dict) -> None:
+    """Thêm 1 ca vào lịch sử (giới hạn _HISTORY_MAX ca gần nhất)."""
     if not data or not data.get("causes"):
         return
+    now = time.time()
+    rec = {
+        "timestamp": now,
+        "time_label": datetime.datetime.fromtimestamp(now).strftime("%m-%d %H:%M"),
+        "symptom": data.get("symptom", ""),
+        "diagnosis": data,
+    }
+    hist = load_history()
+    hist.insert(0, rec)
+    hist = hist[:_HISTORY_MAX]
     try:
-        tmp = _LAST_DIAGNOSIS_FILE + ".tmp"
+        tmp = _HISTORY_FILE + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-        os.replace(tmp, _LAST_DIAGNOSIS_FILE)
+            json.dump(hist, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, _HISTORY_FILE)
     except Exception:
         pass
 
 
 def load_last_diagnosis() -> Optional[dict]:
-    try:
-        if os.path.exists(_LAST_DIAGNOSIS_FILE):
-            with open(_LAST_DIAGNOSIS_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-    except Exception:
-        pass
-    return None
+    """Ca chẩn đoán gần nhất (để tự khôi phục vào panel)."""
+    hist = load_history()
+    return hist[0]["diagnosis"] if hist else None
+
+
+# ── Hop ⑤: dựng khối tiền lệ để Claude đối chiếu khi chẩn đoán ────────────
+
+_PRECEDENT_STOP = {
+    "bi", "va", "cua", "khong", "co", "cao", "tang", "giam", "dan", "the",
+    "and", "the", "for", "with", "rung", "loi", "tren", "duoi", "khi",
+}
+
+
+def _tokens(s: str) -> set:
+    return {
+        w for w in re.split(r"[^0-9a-zA-ZÀ-ỹ]+", (s or "").lower())
+        if len(w) >= 3 and w not in _PRECEDENT_STOP
+    }
+
+
+def build_precedent_block(symptom: str, max_cases: int = 5) -> str:
+    """Chọn các ca cũ có từ khóa trùng triệu chứng hiện tại → khối text cho prompt."""
+    hist = load_history()
+    if not hist:
+        return ""
+    cur = _tokens(symptom)
+    if not cur:
+        return ""
+
+    scored = []
+    for rec in hist:
+        d = rec.get("diagnosis", {})
+        toks = _tokens(
+            (d.get("symptom") or rec.get("symptom", "")) + " " + d.get("equipment", "")
+        )
+        score = len(cur & toks)
+        if score > 0:
+            scored.append((score, rec))
+    if not scored:
+        return ""
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    lines = ["[Tiền lệ — các ca chẩn đoán cũ có thể liên quan]"]
+    for _, rec in scored[:max_cases]:
+        d = rec.get("diagnosis", {})
+        sym = (d.get("symptom") or rec.get("symptom", ""))[:80]
+        eq = d.get("equipment", "")
+        causes = d.get("causes") or []
+        top = causes[0] if causes else {}
+        topline = (
+            f'{top.get("title", "")} ({top.get("confidence", "")}%)' if top else "—"
+        )
+        lines.append(
+            f'- ({rec.get("time_label", "")}) "{sym}" → {eq}: nguyên nhân hàng đầu {topline}'
+        )
+    lines.append(
+        "Đối chiếu (hop ⑤): nếu ca hiện tại tương tự, tham chiếu trong 'rationale' "
+        "và điều chỉnh confidence cho sát tiền lệ thực tế nhà máy."
+    )
+    return "\n".join(lines)

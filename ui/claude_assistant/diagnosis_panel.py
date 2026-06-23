@@ -12,7 +12,7 @@ from PySide6.QtCore import Qt, Signal, QUrl
 from PySide6.QtGui import QFont, QColor, QBrush
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QLabel, QPushButton,
-    QTreeWidget, QTreeWidgetItem, QTextBrowser, QMessageBox,
+    QTreeWidget, QTreeWidgetItem, QTextBrowser, QMessageBox, QComboBox,
 )
 
 from ui.claude_assistant import copilot
@@ -38,6 +38,7 @@ class DiagnosisPanel(QWidget):
         self._diagnosis: dict = {}
         self._cur_evidence: list = []     # evidence của nguyên nhân đang chọn
         self._build_ui()
+        self.refresh_history()
 
     # ── Build UI ──────────────────────────────────────────────────────
     def _build_ui(self):
@@ -46,11 +47,32 @@ class DiagnosisPanel(QWidget):
         root.setContentsMargins(8, 8, 8, 8)
         root.setSpacing(6)
 
-        # Header
+        # Header: tiêu đề + combo lịch sử
+        hdr = QHBoxLayout()
         self._lbl_title = QLabel("🔬  Chẩn đoán sự cố")
         self._lbl_title.setFont(QFont("Segoe UI", 12, QFont.Bold))
         self._lbl_title.setStyleSheet("color: #4f46e5; background: transparent;")
-        root.addWidget(self._lbl_title)
+        hdr.addWidget(self._lbl_title)
+        hdr.addStretch()
+
+        self._history_combo = QComboBox()
+        self._history_combo.setFixedHeight(26)
+        self._history_combo.setMinimumWidth(150)
+        self._history_combo.setToolTip("Tra lại các ca chẩn đoán cũ")
+        self._history_combo.setStyleSheet("""
+            QComboBox {
+                background: #f1f5f9; border: 1px solid #e2e8f0;
+                border-radius: 5px; color: #475569; font-size: 11px; padding: 0 6px;
+            }
+            QComboBox:hover { background: #e0e7ff; }
+            QComboBox QAbstractItemView {
+                background: #ffffff; color: #1e293b;
+                selection-background-color: #e0e7ff;
+            }
+        """)
+        self._history_combo.activated.connect(self._on_pick_history)
+        hdr.addWidget(self._history_combo)
+        root.addLayout(hdr)
 
         self._lbl_sub = QLabel("Chọn DB và mô tả triệu chứng để bắt đầu.")
         self._lbl_sub.setWordWrap(True)
@@ -119,6 +141,29 @@ class DiagnosisPanel(QWidget):
     # ── Public API ────────────────────────────────────────────────────
     def set_db_path(self, path: str):
         self._db_path = path or ""
+
+    def refresh_history(self):
+        """Nạp lại danh sách ca cũ vào combo lịch sử."""
+        hist = copilot.load_history()
+        self._history_combo.blockSignals(True)
+        self._history_combo.clear()
+        self._history_combo.addItem(f"🕘 Lịch sử ({len(hist)})")
+        for rec in hist:
+            d = rec.get("diagnosis", {}) or {}
+            sym = (d.get("symptom") or rec.get("symptom") or "")[:40]
+            eq = d.get("equipment", "")
+            ts = rec.get("time_label", "")
+            label = f"{ts} • {sym}" + (f"  ({eq})" if eq else "")
+            self._history_combo.addItem(label, d)
+        self._history_combo.setCurrentIndex(0)
+        self._history_combo.blockSignals(False)
+
+    def _on_pick_history(self, idx: int):
+        if idx <= 0:
+            return
+        d = self._history_combo.itemData(idx)
+        if d:
+            self.set_diagnosis(d, restored=True)
 
     def set_analyzing(self, symptom: str = ""):
         """Trạng thái đang phân tích."""

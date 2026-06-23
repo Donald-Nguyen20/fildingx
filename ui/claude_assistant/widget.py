@@ -130,6 +130,7 @@ class ClaudeAssistantWidget(QWidget):
         self._mode: str = "chat"          # "chat" | "diagnose" | "report"
         self._resp_buffer: str = ""       # gom full text để parse JSON chẩn đoán
         self._diag_retried: bool = False  # đã thử retry JSON 1 lần chưa
+        self._cur_symptom: str = ""       # triệu chứng của lượt chẩn đoán hiện tại
         self._build_ui()
 
     # ── Build UI ──────────────────────────────────────────────────────
@@ -543,11 +544,13 @@ class ClaudeAssistantWidget(QWidget):
 
         if self._mode == "diagnose":
             self._diag_retried = False
+            self._cur_symptom = msg
             self._diag_panel.set_analyzing(msg)
             diag_system = copilot.build_diagnosis_system_prompt(self._db_path, claude_md)
             merged_system = (diag_system + "\n" + system).strip()
             options = make_options(system_prompt=merged_system, db_path=self._db_path)
-            prompt = copilot.build_diagnosis_prompt(msg)
+            precedent = copilot.build_precedent_block(msg)   # hop ⑤ — đối chiếu ca cũ
+            prompt = copilot.build_diagnosis_prompt(msg, precedent)
         elif self._db_path:
             db_system = (
                 f'Bạn là trợ lý kỹ thuật Nhà máy Nhiệt điện Van Phong 1 BOT.\n'
@@ -644,8 +647,11 @@ class ClaudeAssistantWidget(QWidget):
                 self._retry_diagnosis_json()
                 return
             if data:
+                if not data.get("symptom"):
+                    data["symptom"] = self._cur_symptom
                 data = copilot.verify_diagnosis(self._db_path, data)  # #1
-                copilot.save_last_diagnosis(data)                     # #5
+                copilot.append_history(data)                          # #5 lưu lịch sử
+                self._diag_panel.refresh_history()
             self._diag_panel.set_diagnosis(data or {})
         elif self._mode == "report":
             self._mode = "chat"
