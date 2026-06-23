@@ -581,19 +581,21 @@ class ClaudeAssistantWidget(QWidget):
         self._run_agent(prompt, options)
 
     def _on_generate_report(self, diagnosis: dict):
-        """Panel yêu cầu sinh báo cáo KV-OP từ cây nguyên nhân."""
-        if not self._db_path:
-            return
+        """Panel yêu cầu sinh báo cáo KV-OP từ cây nguyên nhân.
+
+        Cách C: Claude chỉ trả JSON nội dung (KHÔNG Bash, không sinh script) →
+        app tự render .docx bằng report_helper trong _on_done.
+        """
         self._mode = "report"
         self._echo_user("📝 Sinh báo cáo KV-OP từ kết quả chẩn đoán")
         self._set_jarvis(3)
 
-        claude_md = self._load_claude_md()
-        prompt = copilot.build_report_prompt(diagnosis, self._db_path)
-        system = (claude_md + "\n\n" if claude_md else "") + (
-            "Bạn là kỹ sư lập báo cáo vận hành Nhà máy Nhiệt điện Van Phong 1 BOT."
+        prompt = copilot.build_report_content_prompt(diagnosis)
+        system = (
+            "Bạn là kỹ sư lập báo cáo vận hành Nhà máy Nhiệt điện Van Phong 1 BOT. "
+            "Chỉ trả về JSON nội dung báo cáo, không viết script, không tạo file."
         )
-        options = make_options(system_prompt=system, db_path=self._db_path)
+        options = make_options(system_prompt=system)   # không db_path → không Bash
         self._run_agent(prompt, options)
 
     def _echo_user(self, msg: str):
@@ -655,6 +657,34 @@ class ClaudeAssistantWidget(QWidget):
             self._diag_panel.set_diagnosis(data or {})
         elif self._mode == "report":
             self._mode = "chat"
+            self._render_report_from_buffer()
+
+    def _render_report_from_buffer(self):
+        """Cách C: parse JSON nội dung báo cáo → app render .docx → mở file."""
+        rep = copilot.extract_report_json(self._resp_buffer)
+        if not rep:
+            self._append(
+                '<p style="color:#dc2626;margin:6px 0">'
+                '⚠️ Không đọc được nội dung báo cáo (JSON). Thử lại nhé.</p>'
+            )
+            return
+        try:
+            path = copilot.render_report(rep)
+        except Exception as e:
+            safe = str(e).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            self._append(
+                f'<p style="color:#dc2626;margin:6px 0"><b>Lỗi tạo báo cáo:</b> {safe}</p>'
+            )
+            return
+        safe_path = path.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        self._append(
+            f'<p style="color:#166534;margin:6px 0">'
+            f'✅ Đã tạo báo cáo KV-OP:<br><b>{safe_path}</b></p>'
+        )
+        try:
+            os.startfile(path)  # type: ignore[attr-defined]
+        except Exception:
+            pass
 
     def _retry_diagnosis_json(self):
         """#3 — yêu cầu Claude định dạng lại khối JSON từ câu trả lời trước."""

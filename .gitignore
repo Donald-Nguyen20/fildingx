@@ -187,3 +187,7 @@ mindmaps/
 test/
 last_diagnosis.json
 diagnosis_history.json
+make_report_*.py
+gen_report_*.py
+reports/
+~$*.docx

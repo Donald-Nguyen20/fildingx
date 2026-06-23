@@ -177,27 +177,136 @@ def _normalize(data: dict) -> dict:
     return out
 
 
-# ── Sinh báo cáo KV-OP từ kết quả chẩn đoán ──────────────────────────────
+# ── Sinh báo cáo KV-OP: Claude trả JSON nội dung → app tự render docx ─────
 
-def build_report_prompt(diagnosis: dict, db_path: str) -> str:
-    """Prompt yêu cầu Claude sinh file .docx KV-OP từ cây nguyên nhân."""
+def build_report_content_prompt(diagnosis: dict) -> str:
+    """Yêu cầu Claude soạn NỘI DUNG báo cáo dạng JSON (app sẽ tự render .docx)."""
     diag_json = json.dumps(diagnosis, ensure_ascii=False, indent=2)
+    schema = (
+        '{\n'
+        '  "doc_no": "KV-OP-26-XXXX", "date": "DD Month YYYY",\n'
+        '  "equipment": "...", "unit": "Unit 1", "kks_tag": "...", "subject": "...",\n'
+        '  "introduction": ["para", "..."],\n'
+        '  "abnormal_status": {"paras": ["..."],\n'
+        '      "table": {"headers": ["Time","Event","Value"], "rows": [["..","..",".."]]}},\n'
+        '  "analysis": {"intro": "...",\n'
+        '      "causes": [{"title": "3.1 ... Confidence 70%", "paras": ["..."],\n'
+        '          "evidence": ["\\"quote\\" [Doc: <doc_number>, Section: <heading>] (verified)"]}],\n'
+        '      "summary_table": {"headers": ["#","Cause","Confidence","Ref Doc"], "rows": [["..","..","..",".."]]}},\n'
+        '  "suggestions": ["(1) ...", "(2) ..."],\n'
+        '  "execution_plan": {"headers": ["Action","Responsible","Target Date"], "rows": [["..","..",".."]]},\n'
+        '  "conclusion": ["..."],\n'
+        '  "attachments": ["ATT-1: ...", "ATT-2: ..."],\n'
+        '  "filename": "KV-OP-26-XXXX_ShortTitle"\n'
+        '}'
+    )
     return (
-        "Từ kết quả chẩn đoán dưới đây, hãy SINH BÁO CÁO VẬN HÀNH KV-OP (.docx).\n\n"
-        "⚠ NGÔN NGỮ: Toàn bộ NỘI DUNG báo cáo viết bằng TIẾNG ANH "
-        "(mọi câu mô tả, phân tích, kiến nghị, bảng kế hoạch... đều bằng tiếng Anh "
-        "để đồng nhất với khung tiêu đề tiếng Anh có sẵn).\n\n"
-        "Dùng module có sẵn `report_helper.py` bằng cách viết 1 script Python rồi chạy qua Bash:\n"
-        "  from report_helper import new_doc, add_title_block, add_section, add_para, \\\n"
-        "      add_bullet, add_data_table, add_sign_off, add_attachment_list, save_report\n\n"
-        "Báo cáo gồm đủ 7 phần: Introduction, Abnormal Status, Analysis (Root Cause), "
-        "Suggestion, Execution Plan (bảng Action/Responsible/Target Date), Conclusion, Attachment.\n"
-        "Phần Analysis phải liệt kê các nguyên nhân theo confidence và GHI RÕ trích dẫn "
-        "'Doc: <doc_number>, Section: <heading>' cho mỗi luận điểm.\n"
-        f"DB tham chiếu nếu cần tra thêm: \"{db_path}\"\n\n"
-        "Sau khi save, in ra đường dẫn file. Kết quả chẩn đoán (JSON):\n"
+        "Hãy soạn NỘI DUNG báo cáo vận hành KV-OP từ kết quả chẩn đoán bên dưới.\n\n"
+        "QUAN TRỌNG:\n"
+        "- KHÔNG viết script Python. KHÔNG tự tạo file .docx. App sẽ tự render từ JSON này.\n"
+        "- Toàn bộ NỘI DUNG viết bằng TIẾNG ANH (khung báo cáo đã là tiếng Anh).\n"
+        "- Phần analysis: liệt kê nguyên nhân theo confidence giảm dần; mỗi evidence ghi rõ "
+        "'[Doc: <doc_number>, Section: <heading>]' và giữ nhãn (verified)/(unverified) nếu có.\n\n"
+        "Trả về DUY NHẤT một khối ```json``` theo schema:\n"
+        f"```json\n{schema}\n```\n\n"
+        "Kết quả chẩn đoán nguồn:\n"
         f"```json\n{diag_json}\n```"
     )
+
+
+def extract_report_json(full_text: str) -> Optional[dict]:
+    """Trích khối JSON nội dung báo cáo (phân biệt với JSON chẩn đoán nhờ key đặc trưng)."""
+    _REPORT_KEYS = ("introduction", "analysis", "execution_plan", "abnormal_status")
+    for raw in reversed(_JSON_FENCE_RE.findall(full_text or "")):
+        try:
+            d = json.loads(raw)
+        except Exception:
+            continue
+        if isinstance(d, dict) and any(k in d for k in _REPORT_KEYS):
+            return d
+    return None
+
+
+def _as_list(x) -> list:
+    if isinstance(x, list):
+        return x
+    return [x] if x else []
+
+
+def render_report(rep: dict) -> str:
+    """Render báo cáo KV-OP .docx từ JSON nội dung, dùng report_helper. Trả về path."""
+    import datetime
+    import report_helper as rh
+
+    doc = rh.new_doc()
+    today = datetime.datetime.now().strftime("%d %B %Y")
+    rh.add_title_block(
+        doc,
+        doc_no=rep.get("doc_no") or "KV-OP-26-XXXX",
+        date=rep.get("date") or today,
+        equipment=rep.get("equipment") or "",
+        unit=rep.get("unit") or "Unit 1",
+        kks_tag=rep.get("kks_tag") or "",
+        subject=rep.get("subject") or "",
+        prepared_by=rep.get("prepared_by") or "Operations Dept.",
+        rev=rep.get("rev") or "A",
+    )
+
+    def _table(node):
+        t = node or {}
+        if t.get("headers") and t.get("rows"):
+            rh.add_data_table(
+                doc, [str(h) for h in t["headers"]],
+                [[str(c) for c in r] for r in t["rows"]],
+                alt_color="DDEBF7",
+            )
+
+    # 1
+    rh.add_section(doc, "1. INTRODUCTION")
+    for p in _as_list(rep.get("introduction")):
+        rh.add_para(doc, str(p))
+    # 2
+    rh.add_section(doc, "2. ABNORMAL STATUS")
+    ab = rep.get("abnormal_status") or {}
+    for p in _as_list(ab.get("paras")):
+        rh.add_para(doc, str(p))
+    _table(ab.get("table"))
+    # 3
+    rh.add_section(doc, "3. ANALYSIS (ROOT CAUSE)")
+    an = rep.get("analysis") or {}
+    if an.get("intro"):
+        rh.add_para(doc, str(an["intro"]))
+    for c in _as_list(an.get("causes")):
+        if c.get("title"):
+            rh.add_section(doc, str(c["title"]), level=3)
+        for p in _as_list(c.get("paras")):
+            rh.add_para(doc, str(p))
+        for ev in _as_list(c.get("evidence")):
+            rh.add_bullet(doc, str(ev), bold_prefix="Evidence: ")
+    if (an.get("summary_table") or {}).get("rows"):
+        rh.add_para(doc, "Summary of causes ranked by confidence:")
+        _table(an.get("summary_table"))
+    # 4
+    rh.add_section(doc, "4. SUGGESTION")
+    for s in _as_list(rep.get("suggestions")):
+        rh.add_bullet(doc, str(s))
+    # 5
+    rh.add_section(doc, "5. EXECUTION PLAN")
+    _table(rep.get("execution_plan"))
+    # 6
+    rh.add_section(doc, "6. CONCLUSION")
+    for p in _as_list(rep.get("conclusion")):
+        rh.add_para(doc, str(p))
+    # 7
+    rh.add_section(doc, "7. ATTACHMENT")
+    rh.add_attachment_list(doc, [str(a) for a in _as_list(rep.get("attachments"))])
+
+    doc.add_paragraph()
+    rh.add_sign_off(doc)
+
+    fname = rep.get("filename") or rep.get("doc_no") or "KV-OP-report"
+    fname = re.sub(r"[^0-9A-Za-z_\-.]+", "_", str(fname))
+    return rh.save_report(doc, fname)
 
 
 # ── Mở file gốc theo doc_number (dùng cho nút 'Mở file' ở panel) ──────────
