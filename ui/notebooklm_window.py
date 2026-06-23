@@ -1828,8 +1828,32 @@ def _build_reduce_prompt(question: str, items: list) -> str:
     return "\n".join(parts)
 
 
+_REDUCE_SYSTEM = (
+    "Bạn là trợ lý tổng hợp. Gộp câu trả lời từ nhiều notebook thành MỘT câu "
+    "trả lời cô đọng, mạch lạc, bằng tiếng Việt. Yêu cầu:\n"
+    "- Đánh giá mức liên quan của từng notebook với CÂU HỎI; LOẠI BỎ hẳn "
+    "notebook lạc đề hoặc không trả lời được câu hỏi.\n"
+    "- Hợp nhất các ý trùng lặp, không lặp lại.\n"
+    "- Khi nêu thông tin quan trọng, ghi nguồn gọn dạng [📓 tên notebook].\n"
+    "- Kết thúc bằng 1 dòng nhỏ: 'Nguồn: <các notebook đã dùng>' và nếu có "
+    "loại bỏ thì thêm '(bỏ qua: <notebook> — không liên quan)'.\n"
+    "- KHÔNG bịa thông tin ngoài các câu trả lời được cung cấp."
+)
+
+
+def _pick_chat_provider(cfg: dict) -> str:
+    """Chọn provider có key (Groq → OpenRouter → Gemini), fallback Ollama local."""
+    if (cfg.get("groq_api_key") or "").strip():
+        return "groq"
+    if (cfg.get("openrouter_api_key") or "").strip():
+        return "openrouter"
+    if (cfg.get("gemini_api_key") or "").strip():
+        return "gemini"
+    return "ollama"
+
+
 class MultiChatReduceWorker(QThread):
-    """Gộp N câu trả lời notebook thành 1 câu cô đọng bằng Claude (claude_agent_sdk)."""
+    """Gộp N câu trả lời notebook thành 1 câu cô đọng bằng LLM từ Config LLM."""
     done  = Signal(str)
     error = Signal(str)
 
@@ -1840,40 +1864,15 @@ class MultiChatReduceWorker(QThread):
 
     def run(self):
         try:
-            from claude_agent_sdk import query, ClaudeAgentOptions
-            from claude_agent_sdk.types import AssistantMessage
-            from paths import APP_DIR
+            from core.llm_client import create_llm_client
+            from core.llm_config import load_llm_config
 
-            system = (
-                "Bạn là trợ lý tổng hợp. Gộp câu trả lời từ nhiều notebook thành MỘT câu "
-                "trả lời cô đọng, mạch lạc, bằng tiếng Việt. Yêu cầu:\n"
-                "- Đánh giá mức liên quan của từng notebook với CÂU HỎI; LOẠI BỎ hẳn "
-                "notebook lạc đề hoặc không trả lời được câu hỏi.\n"
-                "- Hợp nhất các ý trùng lặp, không lặp lại.\n"
-                "- Khi nêu thông tin quan trọng, ghi nguồn gọn dạng [📓 tên notebook].\n"
-                "- Kết thúc bằng 1 dòng nhỏ: 'Nguồn: <các notebook đã dùng>' và nếu có "
-                "loại bỏ thì thêm '(bỏ qua: <notebook> — không liên quan)'.\n"
-                "- KHÔNG bịa thông tin ngoài các câu trả lời được cung cấp."
-            )
-            options = ClaudeAgentOptions(
-                system_prompt=system,
-                allowed_tools=[],
-                permission_mode="bypassPermissions",
-                cwd=APP_DIR,
-                max_turns=1,
-            )
-            prompt = _build_reduce_prompt(self.question, self.items)
+            cfg = load_llm_config()
+            provider = _pick_chat_provider(cfg)
+            prompt = _REDUCE_SYSTEM + "\n\n" + _build_reduce_prompt(self.question, self.items)
 
-            async def _collect():
-                buf = []
-                async for message in query(prompt=prompt, options=options):
-                    if isinstance(message, AssistantMessage):
-                        for block in message.content:
-                            if hasattr(block, "text") and block.text:
-                                buf.append(block.text)
-                return "".join(buf)
-
-            text = _run_async(_collect())
+            client = create_llm_client(provider)
+            text = client.generate(prompt)
             if not (text or "").strip():
                 self.error.emit("empty")
                 return
@@ -3808,10 +3807,10 @@ class NotebookLMWidget(QWidget):
         self.btn_save_note.setEnabled(True)
 
     def _on_reduce_error(self, _msg: str):
-        """Gộp lỗi (vd chưa đăng nhập Claude) → báo rõ rồi fallback hiển thị từng notebook."""
+        """Gộp lỗi (vd chưa cấu hình LLM) → báo rõ rồi fallback hiển thị từng notebook."""
         self.chat_display.append(
             "<span style='color:#b45309;font-size:13px'>⚠ Chưa gộp được câu trả lời "
-            "(cần đăng nhập Claude ở tab Claude). Tạm hiển thị riêng từng notebook:</span>"
+            "(kiểm tra API key ở ⚙ Config LLM). Tạm hiển thị riêng từng notebook:</span>"
         )
         self._render_multi_per_notebook(getattr(self, "_pending_multi", []) or [])
 
