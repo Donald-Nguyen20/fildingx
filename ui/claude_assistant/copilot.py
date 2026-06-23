@@ -180,6 +180,9 @@ def build_report_prompt(diagnosis: dict, db_path: str) -> str:
     diag_json = json.dumps(diagnosis, ensure_ascii=False, indent=2)
     return (
         "Từ kết quả chẩn đoán dưới đây, hãy SINH BÁO CÁO VẬN HÀNH KV-OP (.docx).\n\n"
+        "⚠ NGÔN NGỮ: Toàn bộ NỘI DUNG báo cáo viết bằng TIẾNG ANH "
+        "(mọi câu mô tả, phân tích, kiến nghị, bảng kế hoạch... đều bằng tiếng Anh "
+        "để đồng nhất với khung tiêu đề tiếng Anh có sẵn).\n\n"
         "Dùng module có sẵn `report_helper.py` bằng cách viết 1 script Python rồi chạy qua Bash:\n"
         "  from report_helper import new_doc, add_title_block, add_section, add_para, \\\n"
         "      add_bullet, add_data_table, add_sign_off, add_attachment_list, save_report\n\n"
