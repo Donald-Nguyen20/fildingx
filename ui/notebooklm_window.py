@@ -1788,6 +1788,92 @@ class MultiChatWorker(QThread):
             self.error.emit(str(e))
 
 
+# ── Lọc nhiễu (bước 1) + gộp bằng Claude (bước 2) cho MultiChat ───────────
+
+_EMPTY_ANSWER_HINTS = (
+    "do not contain", "does not contain", "doesn't contain", "no information",
+    "not contain information", "unable to find", "could not find", "couldn't find",
+    "no relevant information", "no mention", "cannot find", "can't find",
+    "không có thông tin", "không đề cập", "không tìm thấy", "nguồn không",
+    "không chứa thông tin", "không nói", "chưa có thông tin",
+)
+
+
+def _is_empty_answer(text: str) -> bool:
+    """True nếu câu trả lời là dạng 'không có thông tin' (notebook không liên quan)."""
+    t = (text or "").strip().lower()
+    if not t:
+        return True
+    if len(t) < 400:                       # chỉ coi câu NGẮN + có cụm phủ định là rỗng nghĩa
+        return any(h in t for h in _EMPTY_ANSWER_HINTS)
+    return False
+
+
+def _build_reduce_prompt(question: str, items: list) -> str:
+    """Prompt gộp các câu trả lời notebook thành 1, kèm cổng đánh giá liên quan."""
+    parts = [
+        f'Câu hỏi của người dùng:\n"{question}"\n',
+        "Dưới đây là câu trả lời RIÊNG từ từng notebook. Hãy gộp thành MỘT câu trả lời "
+        "cô đọng, chỉ giữ nội dung THỰC SỰ trả lời câu hỏi:",
+    ]
+    for i, (title, answer, _c) in enumerate(items, 1):
+        parts.append(f"\n--- 📓 Notebook {i}: {title} ---\n{answer}\n")
+    return "\n".join(parts)
+
+
+class MultiChatReduceWorker(QThread):
+    """Gộp N câu trả lời notebook thành 1 câu cô đọng bằng Claude (claude_agent_sdk)."""
+    done  = Signal(str)
+    error = Signal(str)
+
+    def __init__(self, question: str, items: list):
+        super().__init__()
+        self.question = question
+        self.items    = items   # [(nb_title, answer, citations), ...]
+
+    def run(self):
+        try:
+            from claude_agent_sdk import query, ClaudeAgentOptions
+            from claude_agent_sdk.types import AssistantMessage
+            from paths import APP_DIR
+
+            system = (
+                "Bạn là trợ lý tổng hợp. Gộp câu trả lời từ nhiều notebook thành MỘT câu "
+                "trả lời cô đọng, mạch lạc, bằng tiếng Việt. Yêu cầu:\n"
+                "- Đánh giá mức liên quan của từng notebook với CÂU HỎI; LOẠI BỎ hẳn "
+                "notebook lạc đề hoặc không trả lời được câu hỏi.\n"
+                "- Hợp nhất các ý trùng lặp, không lặp lại.\n"
+                "- Khi nêu thông tin quan trọng, ghi nguồn gọn dạng [📓 tên notebook].\n"
+                "- Kết thúc bằng 1 dòng nhỏ: 'Nguồn: <các notebook đã dùng>' và nếu có "
+                "loại bỏ thì thêm '(bỏ qua: <notebook> — không liên quan)'.\n"
+                "- KHÔNG bịa thông tin ngoài các câu trả lời được cung cấp."
+            )
+            options = ClaudeAgentOptions(
+                system_prompt=system,
+                allowed_tools=[],
+                permission_mode="bypassPermissions",
+                cwd=APP_DIR,
+                max_turns=1,
+            )
+            prompt = _build_reduce_prompt(self.question, self.items)
+
+            async def _collect():
+                buf = []
+                async for message in query(prompt=prompt, options=options):
+                    if isinstance(message, AssistantMessage):
+                        for block in message.content:
+                            if hasattr(block, "text") and block.text:
+                                buf.append(block.text)
+                return "".join(buf)
+
+            text = _run_async(_collect())
+            if not (text or "").strip():
+                self.error.emit("empty")
+                return
+            self.done.emit(text)
+        except Exception as e:
+            self.error.emit(str(e))
+
 
 class ImageChatWorker(QThread):
     """Vision AI mô tả ảnh dán → NbLM chat.ask với prompt đã enrich."""
@@ -3588,6 +3674,7 @@ class NotebookLMWidget(QWidget):
         if self._checked_notebook_ids and not img_bytes:
             # Multi-notebook mode: query tất cả sổ đã check song song
             nb_list = list(self._checked_notebook_ids.items())  # [(id, title), ...]
+            self._multi_question = question   # giữ câu hỏi gốc cho bước gộp
             sent_question = question + (_TABLE_FORMAT_HINT if _needs_table_hint(question) else "")
             w = MultiChatWorker(nb_list, sent_question)
             w.done.connect(self._on_multi_chat_done)
@@ -3644,19 +3731,53 @@ class NotebookLMWidget(QWidget):
         self._start_worker(sw)
 
     def _on_multi_chat_done(self, results: list):
-        """Hiển thị từng notebook có nội dung liên quan (có citations), bỏ qua các notebook không liên quan."""
-        self._stop_thinking()
-
-        # Chỉ hiển thị notebook có citations — bỏ qua hoàn toàn những cái không liên quan
-        relevant = [r for r in results if r[2] and not r[1].startswith("⚠")]
+        """Bước 1: lọc notebook liên quan thật. Bước 2: gộp bằng Claude → 1 câu cô đọng."""
+        # Lọc: có citations + không lỗi + không phải câu 'không có thông tin'
+        relevant = [
+            r for r in results
+            if r[2] and not r[1].startswith("⚠") and not _is_empty_answer(r[1])
+        ]
 
         if not relevant:
+            self._stop_thinking()
             self._last_answer   = ""
             self._citation_refs = []
             self.btn_send.setEnabled(True)
             self.btn_save_note.setEnabled(False)
             return
 
+        # Bước 2: gộp bằng Claude (giữ spinner; xong ở _on_reduce_done)
+        self._pending_multi = relevant
+        rw = MultiChatReduceWorker(getattr(self, "_multi_question", ""), relevant)
+        rw.done.connect(self._on_reduce_done)
+        rw.error.connect(self._on_reduce_error)
+        self._start_worker(rw)
+
+    def _on_reduce_done(self, text: str):
+        """Hiển thị DUY NHẤT câu trả lời tổng hợp cô đọng."""
+        self._stop_thinking()
+        self._last_answer   = text
+        self._citation_refs = []
+        html = self._md_to_html(text)
+        self.chat_display.append(
+            "<b style='color:#a6e3a1'>Mr Finder</b> "
+            "<span style='color:#89b4fa'>[tổng hợp]</span>:<br>" + html
+        )
+        self.chat_display.append("<br>")
+        self.btn_send.setEnabled(True)
+        self.btn_save_note.setEnabled(True)
+
+    def _on_reduce_error(self, _msg: str):
+        """Gộp lỗi (vd chưa đăng nhập Claude) → fallback hiển thị từng notebook như cũ."""
+        self._render_multi_per_notebook(getattr(self, "_pending_multi", []) or [])
+
+    def _render_multi_per_notebook(self, relevant: list):
+        """Fallback: hiển thị riêng từng notebook + citations (luồng cũ)."""
+        self._stop_thinking()
+        if not relevant:
+            self.btn_send.setEnabled(True)
+            self.btn_save_note.setEnabled(False)
+            return
         combined_text = []
         for nb_title, text, citations in relevant:
             combined_text.append(text)
