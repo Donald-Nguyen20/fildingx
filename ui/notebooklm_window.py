@@ -3738,17 +3738,24 @@ class NotebookLMWidget(QWidget):
         self._start_worker(sw)
 
     def _on_multi_chat_done(self, results: list):
-        """Bước 1: lọc notebook liên quan thật. Bước 2: gộp bằng Claude → 1 câu cô đọng."""
-        # Lọc: có citations + không lỗi + không phải câu 'không có thông tin'
+        """Bước 1: lọc notebook trả lời thật. Bước 2: gộp bằng Claude → 1 câu cô đọng."""
+        # Lọc: không lỗi + không phải câu 'không có thông tin'.
+        # KHÔNG bắt buộc có citations — NotebookLM nhiều khi trả lời đúng mà không kèm
+        # citation, trước đây bị bỏ luôn nên 'thinking xong mà trống trơn'.
         relevant = [
             r for r in results
-            if r[2] and not r[1].startswith("⚠") and not _is_empty_answer(r[1])
+            if not r[1].startswith("⚠") and not _is_empty_answer(r[1])
         ]
 
         if not relevant:
             self._stop_thinking()
             self._last_answer   = ""
             self._citation_refs = []
+            self.chat_display.append(
+                "<i style='color:#6c7086'>Không tìm thấy nội dung liên quan trong các "
+                "notebook đã chọn.</i>"
+            )
+            self.chat_display.append("<br>")
             self.btn_send.setEnabled(True)
             self.btn_save_note.setEnabled(False)
             return
