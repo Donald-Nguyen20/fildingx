@@ -3761,15 +3761,48 @@ class NotebookLMWidget(QWidget):
         self._start_worker(rw)
 
     def _on_reduce_done(self, text: str):
-        """Hiển thị DUY NHẤT câu trả lời tổng hợp cô đọng."""
+        """Hiển thị câu trả lời tổng hợp + phần Sources gộp từ các notebook liên quan."""
         self._stop_thinking()
-        self._last_answer   = text
-        self._citation_refs = []
+        self._last_answer = text
         html = self._md_to_html(text)
         self.chat_display.append(
             "<b style='color:#a6e3a1'>Mr Finder</b> "
             "<span style='color:#89b4fa'>[tổng hợp]</span>:<br>" + html
         )
+
+        # Gộp citations từ các notebook liên quan (giữ tên notebook để biết nguồn)
+        cites, seen = [], set()
+        for nb_title, _ans, citations in (getattr(self, "_pending_multi", []) or []):
+            for c in (citations or []):
+                quote  = c.get("text", "")
+                source = c.get("source", "")
+                key = (quote, source)
+                if quote and key not in seen:
+                    seen.add(key)
+                    cites.append({"text": quote, "source": source, "notebook": nb_title})
+        self._citation_refs = cites
+
+        if cites:
+            parts = []
+            for i, c in enumerate(cites, 1):
+                quote  = c["text"]
+                source = c["source"]
+                nbt    = c.get("notebook", "")
+                short  = quote[:150] + ("…" if len(quote) > 150 else "")
+                src_html = (
+                    f" <a href='nlm://{i-1}' style='color:#1d4ed8;text-decoration:underline'>{source}</a>"
+                    if source else ""
+                )
+                nb_html = f" <span style='color:#89b4fa'>[📓 {nbt}]</span>" if nbt else ""
+                parts.append(
+                    f"<span style='color:#15803d'>[{i}]{src_html}</span>{nb_html}"
+                    f" <i style='color:#374151'>\"{short}\"</i>"
+                )
+            self.chat_display.append(
+                "<span style='font-size:15px;color:#b45309'>──────────────── Sources ────────────────</span><br>"
+                + "<br>".join(parts)
+            )
+
         self.chat_display.append("<br>")
         self.btn_send.setEnabled(True)
         self.btn_save_note.setEnabled(True)
