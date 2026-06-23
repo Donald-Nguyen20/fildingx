@@ -14,6 +14,10 @@ import re
 import sqlite3
 from typing import Optional
 
+from paths import APP_DIR
+
+_LAST_DIAGNOSIS_FILE = os.path.join(APP_DIR, "last_diagnosis.json")
+
 
 # ── System prompt: hướng dẫn Claude chạy quy trình chẩn đoán ──────────────
 
@@ -222,3 +226,92 @@ def resolve_source_path(
         return os.path.join(base, rp) if base else rp
     except Exception:
         return None
+
+
+# ── #1 Xác minh quote: kiểm tra đoạn trích có THẬT trong DB không ─────────
+
+def _norm_match(s: str) -> str:
+    """Chuẩn hoá để so khớp: lowercase + gộp khoảng trắng."""
+    return re.sub(r"\s+", " ", (s or "").lower()).strip()
+
+
+def verify_quote(db_path: str, doc_number: str, quote: str) -> bool:
+    """True nếu đoạn quote (hoặc đoạn đầu của nó) xuất hiện trong content của doc."""
+    q = _norm_match(quote)
+    if not db_path or not doc_number or len(q) < 8:
+        return False
+    try:
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT c.content FROM chunks c JOIN files f ON f.id=c.file_id "
+            "WHERE f.doc_number=?",
+            (doc_number,),
+        )
+        rows = cur.fetchall()
+        if not rows:
+            cur.execute(
+                "SELECT content FROM files WHERE doc_number=? AND name!='BASE_PATH'",
+                (doc_number,),
+            )
+            rows = cur.fetchall()
+        conn.close()
+    except Exception:
+        return False
+
+    blob = _norm_match(" ".join((r[0] or "") for r in rows))
+    if not blob:
+        return False
+    if q in blob:
+        return True
+    frag = q[:40]                       # fallback: khớp 40 ký tự đầu
+    return len(frag) >= 12 and frag in blob
+
+
+def verify_diagnosis(db_path: str, data: dict) -> dict:
+    """Gắn cờ verified cho từng evidence (sửa data tại chỗ và trả về)."""
+    if not data:
+        return data
+    for c in data.get("causes", []):
+        for e in c.get("evidence", []):
+            e["verified"] = verify_quote(
+                db_path, e.get("doc_number", ""), e.get("quote", "")
+            )
+    return data
+
+
+# ── #3 Retry: yêu cầu Claude xuất lại khối JSON đúng định dạng ────────────
+
+def build_retry_json_prompt(previous_answer: str) -> str:
+    prev = (previous_answer or "")[-6000:]
+    return (
+        "Câu trả lời trước CHƯA chứa khối JSON đúng định dạng. KHÔNG cần query thêm. "
+        "Dựa trên nội dung dưới đây, hãy xuất DUY NHẤT một khối ```json``` theo schema:\n"
+        '{"symptom","equipment","system_code","causes":[{"title","confidence",'
+        '"rationale","evidence":[{"doc_number","section","quote"}]}]}\n\n'
+        "Nội dung trước:\n" + prev
+    )
+
+
+# ── #5 Lưu / khôi phục kết quả chẩn đoán gần nhất ────────────────────────
+
+def save_last_diagnosis(data: dict) -> None:
+    if not data or not data.get("causes"):
+        return
+    try:
+        tmp = _LAST_DIAGNOSIS_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, _LAST_DIAGNOSIS_FILE)
+    except Exception:
+        pass
+
+
+def load_last_diagnosis() -> Optional[dict]:
+    try:
+        if os.path.exists(_LAST_DIAGNOSIS_FILE):
+            with open(_LAST_DIAGNOSIS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return None

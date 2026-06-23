@@ -129,6 +129,7 @@ class ClaudeAssistantWidget(QWidget):
         self._orb_view: QWebEngineView | None = None
         self._mode: str = "chat"          # "chat" | "diagnose" | "report"
         self._resp_buffer: str = ""       # gom full text để parse JSON chẩn đoán
+        self._diag_retried: bool = False  # đã thử retry JSON 1 lần chưa
         self._build_ui()
 
     # ── Build UI ──────────────────────────────────────────────────────
@@ -419,7 +420,11 @@ class ClaudeAssistantWidget(QWidget):
                     '⚠️ Hãy chọn file DB trước khi chẩn đoán.</p>'
                 )
             self._show_diag_panel(True)
-            self._diag_panel.reset()
+            last = copilot.load_last_diagnosis()
+            if last and last.get("causes"):
+                self._diag_panel.set_diagnosis(last, restored=True)
+            else:
+                self._diag_panel.reset()
             self._inp_msg.clear()
             self._inp_msg.setPlaceholderText("Mô tả triệu chứng sự cố… (Enter để chẩn đoán)")
         else:
@@ -537,6 +542,7 @@ class ClaudeAssistantWidget(QWidget):
         claude_md = self._load_claude_md()
 
         if self._mode == "diagnose":
+            self._diag_retried = False
             self._diag_panel.set_analyzing(msg)
             diag_system = copilot.build_diagnosis_system_prompt(self._db_path, claude_md)
             merged_system = (diag_system + "\n" + system).strip()
@@ -632,9 +638,32 @@ class ClaudeAssistantWidget(QWidget):
         # Chẩn đoán: parse khối JSON cây nguyên nhân → đổ vào panel
         if self._mode == "diagnose":
             data = copilot.extract_diagnosis_json(self._resp_buffer)
+            if not data and not self._diag_retried:
+                # #3 — parse fail: nhắc Claude xuất lại đúng JSON (1 lần)
+                self._diag_retried = True
+                self._retry_diagnosis_json()
+                return
+            if data:
+                data = copilot.verify_diagnosis(self._db_path, data)  # #1
+                copilot.save_last_diagnosis(data)                     # #5
             self._diag_panel.set_diagnosis(data or {})
         elif self._mode == "report":
             self._mode = "chat"
+
+    def _retry_diagnosis_json(self):
+        """#3 — yêu cầu Claude định dạng lại khối JSON từ câu trả lời trước."""
+        self._set_busy(True)
+        self._orb.set_active(True)
+        self._set_jarvis(2)
+        self._append(
+            '<p style="color:#94a3b8;margin:6px 0;font-size:11px">'
+            '↻ Đang định dạng lại kết quả…</p>'
+        )
+        self._append('<p style="color:#166534;margin:2px 0"><b>Claude:</b> ')
+        prompt = copilot.build_retry_json_prompt(self._resp_buffer)
+        self._resp_buffer = ""
+        options = make_options(system_prompt="Bạn là trợ lý định dạng JSON chính xác.")
+        self._run_agent(prompt, options)
 
     def _on_error(self, msg: str):
         safe = msg.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")

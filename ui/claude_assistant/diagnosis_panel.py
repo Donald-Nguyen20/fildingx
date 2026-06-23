@@ -8,11 +8,11 @@ from __future__ import annotations
 
 import os
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QUrl
 from PySide6.QtGui import QFont, QColor, QBrush
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QLabel, QPushButton,
-    QTreeWidget, QTreeWidgetItem, QTextEdit, QMessageBox,
+    QTreeWidget, QTreeWidgetItem, QTextBrowser, QMessageBox,
 )
 
 from ui.claude_assistant import copilot
@@ -36,6 +36,7 @@ class DiagnosisPanel(QWidget):
         super().__init__(parent)
         self._db_path: str = ""
         self._diagnosis: dict = {}
+        self._cur_evidence: list = []     # evidence của nguyên nhân đang chọn
         self._build_ui()
 
     # ── Build UI ──────────────────────────────────────────────────────
@@ -85,37 +86,18 @@ class DiagnosisPanel(QWidget):
         self._tree.currentItemChanged.connect(self._on_select_cause)
         split.addWidget(self._tree)
 
-        # ── Phải: bằng chứng ──
-        ev_wrap = QWidget()
-        ev_lay = QVBoxLayout(ev_wrap)
-        ev_lay.setContentsMargins(0, 0, 0, 0)
-        ev_lay.setSpacing(4)
-
-        self._evidence = QTextEdit()
-        self._evidence.setReadOnly(True)
+        # ── Phải: bằng chứng (mỗi evidence có link mở file riêng) ──
+        self._evidence = QTextBrowser()
+        self._evidence.setOpenLinks(False)
+        self._evidence.setOpenExternalLinks(False)
+        self._evidence.anchorClicked.connect(self._on_anchor)
         self._evidence.setStyleSheet("""
-            QTextEdit {
+            QTextBrowser {
                 background: #f8fafc; border: 1px solid #e2e8f0;
                 border-radius: 6px; color: #1e293b; padding: 8px; font-size: 12px;
             }
         """)
-        ev_lay.addWidget(self._evidence, 1)
-
-        self._btn_open = QPushButton("📄  Mở file gốc")
-        self._btn_open.setFixedHeight(30)
-        self._btn_open.setEnabled(False)
-        self._btn_open.setStyleSheet("""
-            QPushButton {
-                background: #eef2ff; color: #4f46e5;
-                border: 1px solid #c7d2fe; border-radius: 5px; font-size: 11px;
-            }
-            QPushButton:hover { background: #e0e7ff; }
-            QPushButton:disabled { background: #f1f5f9; color: #cbd5e1; border-color: #e2e8f0; }
-        """)
-        self._btn_open.clicked.connect(self._on_open_file)
-        ev_lay.addWidget(self._btn_open)
-
-        split.addWidget(ev_wrap)
+        split.addWidget(self._evidence)
         split.setSizes([260, 320])
         root.addWidget(split, 1)
 
@@ -142,18 +124,18 @@ class DiagnosisPanel(QWidget):
         """Trạng thái đang phân tích."""
         self._tree.clear()
         self._evidence.clear()
-        self._btn_open.setEnabled(False)
+        self._cur_evidence = []
         self._btn_report.setEnabled(False)
         self._diagnosis = {}
         sym = f"  «{symptom}»" if symptom else ""
         self._lbl_sub.setText(f"⏳ Đang suy luận đa tầng qua tài liệu…{sym}")
 
-    def set_diagnosis(self, data: dict):
-        """Đổ kết quả chẩn đoán vào panel."""
+    def set_diagnosis(self, data: dict, restored: bool = False):
+        """Đổ kết quả chẩn đoán vào panel. restored=True khi khôi phục lần gần nhất."""
         self._diagnosis = data or {}
         self._tree.clear()
         self._evidence.clear()
-        self._btn_open.setEnabled(False)
+        self._cur_evidence = []
 
         causes = (data or {}).get("causes") or []
         if not causes:
@@ -164,7 +146,8 @@ class DiagnosisPanel(QWidget):
         equip = data.get("equipment", "")
         sys_code = data.get("system_code", "")
         head = equip + (f"  ({sys_code})" if sys_code else "")
-        self._lbl_sub.setText(f"🛠 {head}" if head else "Kết quả chẩn đoán")
+        prefix = "↺ Kết quả gần nhất — " if restored else ""
+        self._lbl_sub.setText(f"{prefix}🛠 {head}" if head else f"{prefix}Kết quả chẩn đoán")
 
         for c in causes:
             conf = c.get("confidence", 0)
@@ -183,7 +166,7 @@ class DiagnosisPanel(QWidget):
         self._tree.clear()
         self._evidence.clear()
         self._diagnosis = {}
-        self._btn_open.setEnabled(False)
+        self._cur_evidence = []
         self._btn_report.setEnabled(False)
         self._lbl_sub.setText("Chọn DB và mô tả triệu chứng để bắt đầu.")
 
@@ -191,41 +174,63 @@ class DiagnosisPanel(QWidget):
     def _on_select_cause(self, current: QTreeWidgetItem, _prev):
         if current is None:
             self._evidence.clear()
-            self._btn_open.setEnabled(False)
+            self._cur_evidence = []
             return
         cause = current.data(0, Qt.UserRole) or {}
         self._render_evidence(cause)
 
     def _render_evidence(self, cause: dict):
+        self._cur_evidence = cause.get("evidence") or []
         parts = []
         rationale = cause.get("rationale", "")
         if rationale:
             parts.append(
                 f'<p style="color:#475569;margin:0 0 8px 0">{_esc(rationale)}</p>'
             )
-        evidence = cause.get("evidence") or []
-        if not evidence:
+        if not self._cur_evidence:
             parts.append('<p style="color:#94a3b8">Không có bằng chứng trích dẫn.</p>')
-        for e in evidence:
+
+        for i, e in enumerate(self._cur_evidence):
             doc = _esc(e.get("doc_number", ""))
             sec = _esc(e.get("section", ""))
             quote = _esc(e.get("quote", ""))
+
+            verified = e.get("verified")
+            if verified is True:
+                badge = '<span style="color:#16a34a;font-size:11px">✓ Đã xác minh</span>'
+            elif verified is False:
+                badge = '<span style="color:#d97706;font-size:11px">⚠ Chưa khớp DB</span>'
+            else:
+                badge = ""
+
+            link = (
+                f'&nbsp;&nbsp;<a href="open:{i}" '
+                f'style="color:#4f46e5;text-decoration:none">📄 Mở file</a>'
+                if e.get("doc_number") else ""
+            )
+
             parts.append(
                 '<div style="margin:0 0 10px 0;border-left:2px solid #6366f1;padding-left:8px">'
                 f'<div style="color:#4f46e5;font-size:11px"><b>{doc}</b>'
                 f'{(" › " + sec) if sec else ""}</div>'
                 f'<div style="color:#334155;font-size:12px">"{quote}"</div>'
+                f'<div style="margin-top:2px">{badge}{link}</div>'
                 '</div>'
             )
         self._evidence.setHtml("".join(parts))
 
-        # nút Mở file: lấy doc_number của evidence đầu tiên
-        first_doc = evidence[0].get("doc_number", "") if evidence else ""
-        self._btn_open.setEnabled(bool(first_doc and self._db_path))
-        self._btn_open.setProperty("doc_number", first_doc)
-
-    def _on_open_file(self):
-        doc = self._btn_open.property("doc_number") or ""
+    def _on_anchor(self, url: QUrl):
+        """Click link 'open:<index>' → mở file gốc của evidence tương ứng."""
+        s = url.toString()
+        if not s.startswith("open:"):
+            return
+        try:
+            idx = int(s.split(":", 1)[1])
+        except Exception:
+            return
+        if not (0 <= idx < len(self._cur_evidence)):
+            return
+        doc = self._cur_evidence[idx].get("doc_number", "")
         path = copilot.resolve_source_path(self._db_path, doc_number=doc)
         if path and os.path.exists(path):
             try:

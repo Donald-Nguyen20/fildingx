@@ -185,3 +185,4 @@ outputs/
 images/
 mindmaps/
 test/
+last_diagnosis.json
