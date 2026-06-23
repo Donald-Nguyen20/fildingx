@@ -1794,18 +1794,25 @@ _EMPTY_ANSWER_HINTS = (
     "do not contain", "does not contain", "doesn't contain", "no information",
     "not contain information", "unable to find", "could not find", "couldn't find",
     "no relevant information", "no mention", "cannot find", "can't find",
+    "do not provide", "does not provide", "not provide any", "no details",
     "không có thông tin", "không đề cập", "không tìm thấy", "nguồn không",
-    "không chứa thông tin", "không nói", "chưa có thông tin",
+    "không chứa thông tin", "không nói", "chưa có thông tin", "không cung cấp",
+    "không có chi tiết", "không có đủ thông tin", "không nêu", "không mô tả",
 )
 
 
 def _is_empty_answer(text: str) -> bool:
-    """True nếu câu trả lời là dạng 'không có thông tin' (notebook không liên quan)."""
+    """True nếu câu trả lời thực chất là 'không có thông tin liên quan' (kể cả khi dài dòng)."""
     t = (text or "").strip().lower()
     if not t:
         return True
-    if len(t) < 400:                       # chỉ coi câu NGẮN + có cụm phủ định là rỗng nghĩa
-        return any(h in t for h in _EMPTY_ANSWER_HINTS)
+    # Mở đầu bằng cụm phủ định → câu KHÔNG trả lời được, dù sau đó có giải thích dài
+    head = t[:180]
+    if any(h in head for h in _EMPTY_ANSWER_HINTS):
+        return True
+    # Câu ngắn có cụm phủ định ở bất kỳ đâu
+    if len(t) < 400 and any(h in t for h in _EMPTY_ANSWER_HINTS):
+        return True
     return False
 
 
@@ -3768,7 +3775,11 @@ class NotebookLMWidget(QWidget):
         self.btn_save_note.setEnabled(True)
 
     def _on_reduce_error(self, _msg: str):
-        """Gộp lỗi (vd chưa đăng nhập Claude) → fallback hiển thị từng notebook như cũ."""
+        """Gộp lỗi (vd chưa đăng nhập Claude) → báo rõ rồi fallback hiển thị từng notebook."""
+        self.chat_display.append(
+            "<span style='color:#b45309;font-size:13px'>⚠ Chưa gộp được câu trả lời "
+            "(cần đăng nhập Claude ở tab Claude). Tạm hiển thị riêng từng notebook:</span>"
+        )
         self._render_multi_per_notebook(getattr(self, "_pending_multi", []) or [])
 
     def _render_multi_per_notebook(self, relevant: list):
