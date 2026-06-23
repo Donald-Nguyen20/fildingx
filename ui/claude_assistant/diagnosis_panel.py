@@ -40,7 +40,7 @@ class DiagnosisPanel(QWidget):
 
     # ── Build UI ──────────────────────────────────────────────────────
     def _build_ui(self):
-        self.setStyleSheet("background: #0b1220;")
+        self.setStyleSheet("background: #ffffff;")
         root = QVBoxLayout(self)
         root.setContentsMargins(8, 8, 8, 8)
         root.setSpacing(6)
@@ -48,7 +48,7 @@ class DiagnosisPanel(QWidget):
         # Header
         self._lbl_title = QLabel("🔬  Chẩn đoán sự cố")
         self._lbl_title.setFont(QFont("Segoe UI", 12, QFont.Bold))
-        self._lbl_title.setStyleSheet("color: #7dd3fc; background: transparent;")
+        self._lbl_title.setStyleSheet("color: #4f46e5; background: transparent;")
         root.addWidget(self._lbl_title)
 
         self._lbl_sub = QLabel("Chọn DB và mô tả triệu chứng để bắt đầu.")
@@ -59,7 +59,7 @@ class DiagnosisPanel(QWidget):
         # Splitter: cây nguyên nhân | bằng chứng
         split = QSplitter(Qt.Horizontal)
         split.setHandleWidth(1)
-        split.setStyleSheet("QSplitter::handle { background: #1a2535; }")
+        split.setStyleSheet("QSplitter::handle { background: #e2e8f0; }")
 
         # ── Trái: cây nguyên nhân ──
         self._tree = QTreeWidget()
@@ -72,14 +72,14 @@ class DiagnosisPanel(QWidget):
         self._tree.setColumnWidth(1, 44)
         self._tree.setStyleSheet("""
             QTreeWidget {
-                background: #0e1626; border: 1px solid #1e2d45;
-                border-radius: 6px; color: #cbd5e1; font-size: 12px;
+                background: #f8fafc; border: 1px solid #e2e8f0;
+                border-radius: 6px; color: #1e293b; font-size: 12px;
             }
             QTreeWidget::item { padding: 5px 4px; }
-            QTreeWidget::item:selected { background: #1e3a5c; color: #e0f2fe; }
+            QTreeWidget::item:selected { background: #e0e7ff; color: #312e81; }
             QHeaderView::section {
-                background: #0a1220; color: #64748b;
-                border: none; border-bottom: 1px solid #1e2d45; padding: 4px;
+                background: #eef2f7; color: #64748b;
+                border: none; border-bottom: 1px solid #e2e8f0; padding: 4px;
             }
         """)
         self._tree.currentItemChanged.connect(self._on_select_cause)
@@ -95,8 +95,8 @@ class DiagnosisPanel(QWidget):
         self._evidence.setReadOnly(True)
         self._evidence.setStyleSheet("""
             QTextEdit {
-                background: #0e1626; border: 1px solid #1e2d45;
-                border-radius: 6px; color: #cbd5e1; padding: 8px; font-size: 12px;
+                background: #f8fafc; border: 1px solid #e2e8f0;
+                border-radius: 6px; color: #1e293b; padding: 8px; font-size: 12px;
             }
         """)
         ev_lay.addWidget(self._evidence, 1)
@@ -106,11 +106,11 @@ class DiagnosisPanel(QWidget):
         self._btn_open.setEnabled(False)
         self._btn_open.setStyleSheet("""
             QPushButton {
-                background: #0d2236; color: #7dd3fc;
-                border: 1px solid #1e4d72; border-radius: 5px; font-size: 11px;
+                background: #eef2ff; color: #4f46e5;
+                border: 1px solid #c7d2fe; border-radius: 5px; font-size: 11px;
             }
-            QPushButton:hover { background: #1a3a5c; }
-            QPushButton:disabled { background: #0a1220; color: #475569; border-color: #1a2535; }
+            QPushButton:hover { background: #e0e7ff; }
+            QPushButton:disabled { background: #f1f5f9; color: #cbd5e1; border-color: #e2e8f0; }
         """)
         self._btn_open.clicked.connect(self._on_open_file)
         ev_lay.addWidget(self._btn_open)
@@ -129,7 +129,7 @@ class DiagnosisPanel(QWidget):
                 border-radius: 8px; font-weight: 600; font-size: 13px;
             }
             QPushButton:hover    { background: #4338ca; }
-            QPushButton:disabled { background: #1e293b; color: #475569; }
+            QPushButton:disabled { background: #e2e8f0; color: #94a3b8; }
         """)
         self._btn_report.clicked.connect(self._on_report)
         root.addWidget(self._btn_report)
@@ -201,20 +201,20 @@ class DiagnosisPanel(QWidget):
         rationale = cause.get("rationale", "")
         if rationale:
             parts.append(
-                f'<p style="color:#94a3b8;margin:0 0 8px 0">{_esc(rationale)}</p>'
+                f'<p style="color:#475569;margin:0 0 8px 0">{_esc(rationale)}</p>'
             )
         evidence = cause.get("evidence") or []
         if not evidence:
-            parts.append('<p style="color:#64748b">Không có bằng chứng trích dẫn.</p>')
+            parts.append('<p style="color:#94a3b8">Không có bằng chứng trích dẫn.</p>')
         for e in evidence:
             doc = _esc(e.get("doc_number", ""))
             sec = _esc(e.get("section", ""))
             quote = _esc(e.get("quote", ""))
             parts.append(
-                '<div style="margin:0 0 10px 0;border-left:2px solid #1e4d72;padding-left:8px">'
-                f'<div style="color:#7dd3fc;font-size:11px"><b>{doc}</b>'
+                '<div style="margin:0 0 10px 0;border-left:2px solid #6366f1;padding-left:8px">'
+                f'<div style="color:#4f46e5;font-size:11px"><b>{doc}</b>'
                 f'{(" › " + sec) if sec else ""}</div>'
-                f'<div style="color:#cbd5e1;font-size:12px">"{quote}"</div>'
+                f'<div style="color:#334155;font-size:12px">"{quote}"</div>'
                 '</div>'
             )
         self._evidence.setHtml("".join(parts))
