@@ -162,9 +162,9 @@ class ClaudeAssistantWidget(QWidget):
             "color: #16a34a; font-size: 11px; background: transparent;"
         )
 
-        self._btn_login = QPushButton("🔑 Đăng nhập")
+        self._btn_login = QPushButton("🔑 Login")
         self._btn_login.setFixedHeight(26)
-        self._btn_login.setToolTip("Mở cửa sổ đăng nhập Claude Code")
+        self._btn_login.setToolTip("Open Claude Code login window")
         self._btn_login.setStyleSheet("""
             QPushButton {
                 background: #0d2236; color: #7dd3fc;
@@ -209,10 +209,10 @@ class ClaudeAssistantWidget(QWidget):
         btn_grid.setSpacing(6)
 
         _ACTIONS = [
-            ("🔍", "Tìm tài liệu", "Tìm trong DB tài liệu về: ", 1, "chat"),
-            ("📝", "Tạo báo cáo",  "Tạo báo cáo vận hành về: ", 3, "chat"),
-            ("🔬", "Chẩn đoán",    "",                           2, "diagnose"),
-            ("💬", "Hỏi đáp",      "",                           0, "chat"),
+            ("🔍", "Find Docs",   "Find in document DB about: ",   1, "chat"),
+            ("📝", "Make Report", "Create operation report about: ", 3, "chat"),
+            ("🔬", "Diagnose",    "",                              2, "diagnose"),
+            ("💬", "Ask",         "",                              0, "chat"),
         ]
         _btn_style = """
             QPushButton {
@@ -250,7 +250,7 @@ class ClaudeAssistantWidget(QWidget):
         sp_lbl.setStyleSheet("color: #64748b; font-size: 11px;")
         self._inp_system = QLineEdit()
         self._inp_system.setPlaceholderText(
-            "Bạn là trợ lý thông minh, trả lời bằng tiếng Việt."
+            "You are a smart assistant. Answer in English."
         )
         self._inp_system.setStyleSheet("""
             QLineEdit {
@@ -269,13 +269,13 @@ class ClaudeAssistantWidget(QWidget):
         db_lbl = QLabel("DB:")
         db_lbl.setFixedWidth(52)
         db_lbl.setStyleSheet("color: #64748b; font-size: 11px;")
-        self._lbl_db = QLabel("Chưa chọn file DB")
+        self._lbl_db = QLabel("No DB selected")
         self._lbl_db.setStyleSheet("""
             color: #94a3b8; font-size: 11px;
             background: #f8fafc; border: 1px solid #e2e8f0;
             border-radius: 6px; padding: 2px 8px;
         """)
-        self._btn_pick_db = QPushButton("📂 Chọn DB")
+        self._btn_pick_db = QPushButton("📂 Select DB")
         self._btn_pick_db.setFixedHeight(26)
         self._btn_pick_db.setStyleSheet("""
             QPushButton {
@@ -287,7 +287,7 @@ class ClaudeAssistantWidget(QWidget):
         self._btn_pick_db.clicked.connect(self._pick_db)
         self._btn_clear_db = QPushButton("✕")
         self._btn_clear_db.setFixedSize(26, 26)
-        self._btn_clear_db.setToolTip("Bỏ chọn DB")
+        self._btn_clear_db.setToolTip("Clear DB")
         self._btn_clear_db.setStyleSheet("""
             QPushButton {
                 background: #f1f5f9; border: 1px solid #e2e8f0;
@@ -317,7 +317,7 @@ class ClaudeAssistantWidget(QWidget):
         # Input bar
         input_row = QHBoxLayout()
         self._inp_msg = QLineEdit()
-        self._inp_msg.setPlaceholderText("Nhập câu hỏi… (Enter để gửi)")
+        self._inp_msg.setPlaceholderText("Type a question… (Enter to send)")
         self._inp_msg.setFixedHeight(36)
         self._inp_msg.setStyleSheet("""
             QLineEdit {
@@ -329,7 +329,7 @@ class ClaudeAssistantWidget(QWidget):
         """)
         self._inp_msg.returnPressed.connect(self._on_send)
 
-        self._btn_send = QPushButton("📤  Gửi")
+        self._btn_send = QPushButton("📤  Send")
         self._btn_send.setFixedSize(88, 36)
         self._btn_send.setStyleSheet("""
             QPushButton {
@@ -345,7 +345,7 @@ class ClaudeAssistantWidget(QWidget):
 
         self._btn_clear = QPushButton("🗑")
         self._btn_clear.setFixedSize(36, 36)
-        self._btn_clear.setToolTip("Xoá hội thoại")
+        self._btn_clear.setToolTip("Clear chat")
         self._btn_clear.setStyleSheet("""
             QPushButton {
                 background: #f1f5f9; border: 1px solid #e2e8f0;
@@ -418,7 +418,7 @@ class ClaudeAssistantWidget(QWidget):
             if not self._db_path:
                 self._append(
                     '<p style="color:#dc2626;margin:4px 0">'
-                    '⚠️ Hãy chọn file DB trước khi chẩn đoán.</p>'
+                    '⚠️ Please select a DB file before diagnosing.</p>'
                 )
             self._show_diag_panel(True)
             last = copilot.load_last_diagnosis()
@@ -427,10 +427,10 @@ class ClaudeAssistantWidget(QWidget):
             else:
                 self._diag_panel.reset()
             self._inp_msg.clear()
-            self._inp_msg.setPlaceholderText("Mô tả triệu chứng sự cố… (Enter để chẩn đoán)")
+            self._inp_msg.setPlaceholderText("Describe the fault symptom… (Enter to diagnose)")
         else:
             self._show_diag_panel(False)
-            self._inp_msg.setPlaceholderText("Nhập câu hỏi… (Enter để gửi)")
+            self._inp_msg.setPlaceholderText("Type a question… (Enter to send)")
             self._inp_msg.setText(prefix)
             self._inp_msg.setCursorPosition(len(prefix))
 
@@ -446,7 +446,7 @@ class ClaudeAssistantWidget(QWidget):
 
     def _pick_db(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, "Chọn file DB", "", "SQLite DB (*.db *.sqlite)"
+            self, "Select DB file", "", "SQLite DB (*.db *.sqlite)"
         )
         if path:
             self._db_path = path
@@ -462,7 +462,7 @@ class ClaudeAssistantWidget(QWidget):
     def _clear_db(self):
         self._db_path = ""
         self._diag_panel.set_db_path("")
-        self._lbl_db.setText("Chưa chọn file DB")
+        self._lbl_db.setText("No DB selected")
         self._lbl_db.setStyleSheet("""
             color: #94a3b8; font-size: 11px;
             background: #f8fafc; border: 1px solid #e2e8f0;
@@ -509,7 +509,7 @@ class ClaudeAssistantWidget(QWidget):
     def _set_busy(self, busy: bool):
         self._inp_msg.setEnabled(not busy)
         self._btn_send.setEnabled(not busy)
-        self._btn_send.setText("⏳" if busy else "📤  Gửi")
+        self._btn_send.setText("⏳" if busy else "📤  Send")
 
     # ── Slots ─────────────────────────────────────────────────────────
     def _on_login(self):
@@ -532,7 +532,7 @@ class ClaudeAssistantWidget(QWidget):
         if self._mode == "diagnose" and not self._db_path:
             self._append(
                 '<p style="color:#dc2626;margin:4px 0">'
-                '⚠️ Hãy chọn file DB trước khi chẩn đoán.</p>'
+                '⚠️ Please select a DB file before diagnosing.</p>'
             )
             return
 
@@ -587,7 +587,7 @@ class ClaudeAssistantWidget(QWidget):
         app tự render .docx bằng report_helper trong _on_done.
         """
         self._mode = "report"
-        self._echo_user("📝 Sinh báo cáo KV-OP từ kết quả chẩn đoán")
+        self._echo_user("📝 Generate KV-OP report from diagnosis")
         self._set_jarvis(3)
 
         prompt = copilot.build_report_content_prompt(diagnosis)
@@ -608,7 +608,7 @@ class ClaudeAssistantWidget(QWidget):
         safe_msg = msg.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
         self._append(
             f'<p style="color:#4f46e5;margin:8px 0 2px 0">'
-            f'<b>Bạn:</b> {safe_msg}</p><br>'
+            f'<b>You:</b> {safe_msg}</p><br>'
         )
         self._append('<p style="color:#166534;margin:2px 0"><b>Claude:</b> ')
 
@@ -665,7 +665,7 @@ class ClaudeAssistantWidget(QWidget):
         if not rep:
             self._append(
                 '<p style="color:#dc2626;margin:6px 0">'
-                '⚠️ Không đọc được nội dung báo cáo (JSON). Thử lại nhé.</p>'
+                '⚠️ Could not read report content (JSON). Please try again.</p>'
             )
             return
         try:
@@ -673,13 +673,13 @@ class ClaudeAssistantWidget(QWidget):
         except Exception as e:
             safe = str(e).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
             self._append(
-                f'<p style="color:#dc2626;margin:6px 0"><b>Lỗi tạo báo cáo:</b> {safe}</p>'
+                f'<p style="color:#dc2626;margin:6px 0"><b>Report generation error:</b> {safe}</p>'
             )
             return
         safe_path = path.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
         self._append(
             f'<p style="color:#166534;margin:6px 0">'
-            f'✅ Đã tạo báo cáo KV-OP:<br><b>{safe_path}</b></p>'
+            f'✅ KV-OP report created:<br><b>{safe_path}</b></p>'
         )
         try:
             os.startfile(path)  # type: ignore[attr-defined]
@@ -693,7 +693,7 @@ class ClaudeAssistantWidget(QWidget):
         self._set_jarvis(2)
         self._append(
             '<p style="color:#94a3b8;margin:6px 0;font-size:11px">'
-            '↻ Đang định dạng lại kết quả…</p>'
+            '↻ Reformatting result…</p>'
         )
         self._append('<p style="color:#166534;margin:2px 0"><b>Claude:</b> ')
         prompt = copilot.build_retry_json_prompt(self._resp_buffer)
@@ -704,7 +704,7 @@ class ClaudeAssistantWidget(QWidget):
     def _on_error(self, msg: str):
         safe = msg.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
         self._append(
-            f'<p style="color:#dc2626;margin:4px 0"><b>Lỗi:</b> {safe}</p>'
+            f'<p style="color:#dc2626;margin:4px 0"><b>Error:</b> {safe}</p>'
         )
         self._set_busy(False)
         self._orb.set_active(False)

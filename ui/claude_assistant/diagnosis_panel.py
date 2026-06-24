@@ -49,7 +49,7 @@ class DiagnosisPanel(QWidget):
 
         # Header: tiêu đề + combo lịch sử
         hdr = QHBoxLayout()
-        self._lbl_title = QLabel("🔬  Chẩn đoán sự cố")
+        self._lbl_title = QLabel("🔬  Fault Diagnosis")
         self._lbl_title.setFont(QFont("Segoe UI", 12, QFont.Bold))
         self._lbl_title.setStyleSheet("color: #4f46e5; background: transparent;")
         hdr.addWidget(self._lbl_title)
@@ -58,7 +58,7 @@ class DiagnosisPanel(QWidget):
         self._history_combo = QComboBox()
         self._history_combo.setFixedHeight(26)
         self._history_combo.setMinimumWidth(150)
-        self._history_combo.setToolTip("Tra lại các ca chẩn đoán cũ")
+        self._history_combo.setToolTip("Browse past diagnoses")
         self._history_combo.setStyleSheet("""
             QComboBox {
                 background: #f1f5f9; border: 1px solid #e2e8f0;
@@ -74,7 +74,7 @@ class DiagnosisPanel(QWidget):
         hdr.addWidget(self._history_combo)
         root.addLayout(hdr)
 
-        self._lbl_sub = QLabel("Chọn DB và mô tả triệu chứng để bắt đầu.")
+        self._lbl_sub = QLabel("Select a DB and describe the symptom to start.")
         self._lbl_sub.setWordWrap(True)
         self._lbl_sub.setStyleSheet("color: #64748b; font-size: 11px; background: transparent;")
         root.addWidget(self._lbl_sub)
@@ -86,7 +86,7 @@ class DiagnosisPanel(QWidget):
 
         # ── Trái: cây nguyên nhân ──
         self._tree = QTreeWidget()
-        self._tree.setHeaderLabels(["Nguyên nhân", "%"])
+        self._tree.setHeaderLabels(["Cause", "%"])
         self._tree.setRootIsDecorated(False)
         self._tree.setColumnWidth(0, 180)
         self._tree.header().setStretchLastSection(False)
@@ -124,7 +124,7 @@ class DiagnosisPanel(QWidget):
         root.addWidget(split, 1)
 
         # ── Nút sinh báo cáo ──
-        self._btn_report = QPushButton("📝  Sinh báo cáo KV-OP")
+        self._btn_report = QPushButton("📝  Generate KV-OP Report")
         self._btn_report.setFixedHeight(38)
         self._btn_report.setEnabled(False)
         self._btn_report.setStyleSheet("""
@@ -147,7 +147,7 @@ class DiagnosisPanel(QWidget):
         hist = copilot.load_history()
         self._history_combo.blockSignals(True)
         self._history_combo.clear()
-        self._history_combo.addItem(f"🕘 Lịch sử ({len(hist)})")
+        self._history_combo.addItem(f"🕘 History ({len(hist)})")
         for rec in hist:
             d = rec.get("diagnosis", {}) or {}
             sym = (d.get("symptom") or rec.get("symptom") or "")[:40]
@@ -173,7 +173,7 @@ class DiagnosisPanel(QWidget):
         self._btn_report.setEnabled(False)
         self._diagnosis = {}
         sym = f"  «{symptom}»" if symptom else ""
-        self._lbl_sub.setText(f"⏳ Đang suy luận đa tầng qua tài liệu…{sym}")
+        self._lbl_sub.setText(f"⏳ Reasoning across documents…{sym}")
 
     def set_diagnosis(self, data: dict, restored: bool = False):
         """Đổ kết quả chẩn đoán vào panel. restored=True khi khôi phục lần gần nhất."""
@@ -184,19 +184,19 @@ class DiagnosisPanel(QWidget):
 
         causes = (data or {}).get("causes") or []
         if not causes:
-            self._lbl_sub.setText("⚠️ Không tạo được cây nguyên nhân từ dữ liệu hiện có.")
+            self._lbl_sub.setText("⚠️ Could not build a cause tree from available data.")
             self._btn_report.setEnabled(False)
             return
 
         equip = data.get("equipment", "")
         sys_code = data.get("system_code", "")
         head = equip + (f"  ({sys_code})" if sys_code else "")
-        prefix = "↺ Kết quả gần nhất — " if restored else ""
-        self._lbl_sub.setText(f"{prefix}🛠 {head}" if head else f"{prefix}Kết quả chẩn đoán")
+        prefix = "↺ Last result — " if restored else ""
+        self._lbl_sub.setText(f"{prefix}🛠 {head}" if head else f"{prefix}Diagnosis result")
 
         for c in causes:
             conf = c.get("confidence", 0)
-            item = QTreeWidgetItem([c.get("title", "Nguyên nhân"), f"{conf}%"])
+            item = QTreeWidgetItem([c.get("title", "Cause"), f"{conf}%"])
             item.setData(0, Qt.UserRole, c)
             item.setForeground(1, QBrush(_confidence_color(conf)))
             f = item.font(1)
@@ -213,7 +213,7 @@ class DiagnosisPanel(QWidget):
         self._diagnosis = {}
         self._cur_evidence = []
         self._btn_report.setEnabled(False)
-        self._lbl_sub.setText("Chọn DB và mô tả triệu chứng để bắt đầu.")
+        self._lbl_sub.setText("Select a DB and describe the symptom to start.")
 
     # ── Slots ─────────────────────────────────────────────────────────
     def _on_select_cause(self, current: QTreeWidgetItem, _prev):
@@ -233,7 +233,7 @@ class DiagnosisPanel(QWidget):
                 f'<p style="color:#475569;margin:0 0 8px 0">{_esc(rationale)}</p>'
             )
         if not self._cur_evidence:
-            parts.append('<p style="color:#94a3b8">Không có bằng chứng trích dẫn.</p>')
+            parts.append('<p style="color:#94a3b8">No cited evidence.</p>')
 
         for i, e in enumerate(self._cur_evidence):
             doc = _esc(e.get("doc_number", ""))
@@ -242,15 +242,15 @@ class DiagnosisPanel(QWidget):
 
             verified = e.get("verified")
             if verified is True:
-                badge = '<span style="color:#16a34a;font-size:11px">✓ Đã xác minh</span>'
+                badge = '<span style="color:#16a34a;font-size:11px">✓ Verified</span>'
             elif verified is False:
-                badge = '<span style="color:#d97706;font-size:11px">⚠ Chưa khớp DB</span>'
+                badge = '<span style="color:#d97706;font-size:11px">⚠ Not matched in DB</span>'
             else:
                 badge = ""
 
             link = (
                 f'&nbsp;&nbsp;<a href="open:{i}" '
-                f'style="color:#4f46e5;text-decoration:none">📄 Mở file</a>'
+                f'style="color:#4f46e5;text-decoration:none">📄 Open file</a>'
                 if e.get("doc_number") else ""
             )
 
@@ -281,11 +281,11 @@ class DiagnosisPanel(QWidget):
             try:
                 os.startfile(path)  # type: ignore[attr-defined]
             except Exception as e:
-                QMessageBox.warning(self, "Lỗi mở file", str(e))
+                QMessageBox.warning(self, "Open file error", str(e))
         else:
             QMessageBox.information(
-                self, "Không tìm thấy",
-                f"Không tìm thấy file gốc cho doc:\n{doc}",
+                self, "Not found",
+                f"Source file not found for doc:\n{doc}",
             )
 
     def _on_report(self):
