@@ -508,3 +508,129 @@ def build_precedent_block(symptom: str, max_cases: int = 5) -> str:
         "và điều chỉnh confidence cho sát tiền lệ thực tế nhà máy."
     )
     return "\n".join(lines)
+
+
+# ── Quick-Reference Card: Claude gom thông tin thiết bị → JSON → app render ───
+
+def build_quickcard_system_prompt(db_path: str, claude_md: str = "") -> str:
+    """System prompt: Claude gom thông tin 1 thiết bị từ DB rồi trả JSON thẻ tra cứu."""
+    instr = f"""Bạn là kỹ sư tạo THẺ TRA CỨU NHANH (quick-reference card) cho thiết bị
+nhà máy điện. Từ TÊN/MÃ thiết bị, gom thông tin súc tích từ tài liệu trong DB.
+
+File DB: "{db_path}"
+Truy vấn DB CHỈ bằng Bash (read-only, chỉ SELECT):
+  python db_query.py "{db_path}" "SQL query"
+
+QUY TRÌNH:
+  ① Xác định thiết bị + system_code:
+     python db_query.py "{db_path}" "SELECT DISTINCT system_code,doc_number,name FROM files WHERE id IN (SELECT rowid FROM files_fts WHERE files_fts MATCH '<từ khóa>*') AND name!='BASE_PATH' LIMIT 10"
+  ② Lấy thông số kỹ thuật, setpoint, quy trình khởi động/dừng, sự cố thường gặp:
+     tra chunks_fts MATCH 'specification OR rating OR setpoint OR startup OR shutdown OR trouble'
+
+NGUYÊN TẮC:
+- Nội dung viết bằng TIẾNG ANH, NGẮN GỌN (thẻ chỉ 1 trang để mang ra hiện trường).
+- Setpoint ghi đủ alarm + trip + đơn vị khi có.
+- Mỗi nhóm thông tin nên dẫn nguồn 'Doc: <doc_number> §<section>' trong 'references'.
+- KHÔNG bịa số liệu. Không có thì để trống mục đó.
+- KHÔNG viết script, KHÔNG tạo file. App sẽ tự render thẻ từ JSON bạn trả về.
+
+ĐẦU RA: sau khi gom xong, trả về DUY NHẤT một khối ```json``` theo schema (chỉ SELECT)."""
+    if claude_md:
+        return claude_md.strip() + "\n\n" + instr
+    return instr
+
+
+def build_quickcard_prompt(equipment: str) -> str:
+    """User prompt: yêu cầu tạo thẻ cho 1 thiết bị + schema JSON."""
+    schema = (
+        '{\n'
+        '  "equipment": "...", "system_code": "...", "kks_tag": "...", "manufacturer": "...",\n'
+        '  "key_specs": [["Parameter","Value"], ...],\n'
+        '  "setpoints": [["Parameter","Alarm","Trip","Unit"], ...],\n'
+        '  "startup": ["step", ...],\n'
+        '  "shutdown": ["step", ...],\n'
+        '  "common_faults": [["Symptom","Action"], ...],\n'
+        '  "references": ["Doc: <doc_number> §<section>", ...],\n'
+        '  "filename": "QuickCard_<ShortName>"\n'
+        '}'
+    )
+    return (
+        f'Tạo THẺ TRA CỨU NHANH cho thiết bị: "{equipment.strip()}".\n'
+        "Gom thông tin từ DB rồi trả về DUY NHẤT một khối ```json``` theo schema:\n"
+        f"```json\n{schema}\n```"
+    )
+
+
+def extract_quickcard_json(full_text: str) -> Optional[dict]:
+    """Trích khối JSON thẻ tra cứu (phân biệt qua key đặc trưng)."""
+    _CARD_KEYS = ("key_specs", "setpoints", "common_faults", "startup")
+    for raw in reversed(_JSON_FENCE_RE.findall(full_text or "")):
+        try:
+            d = json.loads(raw)
+        except Exception:
+            continue
+        if isinstance(d, dict) and any(k in d for k in _CARD_KEYS):
+            return d
+    return None
+
+
+def render_quickcard(card: dict) -> str:
+    """Render thẻ tra cứu nhanh .docx (1 trang) từ JSON, dùng report_helper. Trả path."""
+    import report_helper as rh
+
+    def _rows(node, ncol):
+        out = []
+        for r in _as_list(node):
+            if isinstance(r, (list, tuple)):
+                r = list(r) + [""] * (ncol - len(r))
+                out.append([str(c) for c in r[:ncol]])
+        return out
+
+    doc = rh.new_doc()
+    equip = card.get("equipment") or "Equipment"
+    rh.add_section(doc, f"QUICK REFERENCE — {equip}")
+
+    meta = "   |   ".join(x for x in [
+        f"System: {card.get('system_code','')}" if card.get("system_code") else "",
+        f"KKS: {card.get('kks_tag','')}"        if card.get("kks_tag") else "",
+        f"Mfr: {card.get('manufacturer','')}"   if card.get("manufacturer") else "",
+    ] if x)
+    if meta:
+        rh.add_para(doc, meta)
+
+    specs = _rows(card.get("key_specs"), 2)
+    if specs:
+        rh.add_section(doc, "Key Specifications", level=3)
+        rh.add_data_table(doc, ["Parameter", "Value"], specs, alt_color="DDEBF7")
+
+    sps = _rows(card.get("setpoints"), 4)
+    if sps:
+        rh.add_section(doc, "Alarm / Trip Setpoints", level=3)
+        rh.add_data_table(doc, ["Parameter", "Alarm", "Trip", "Unit"], sps, alt_color="DDEBF7")
+
+    su = _as_list(card.get("startup"))
+    if su:
+        rh.add_section(doc, "Startup", level=3)
+        for s in su:
+            rh.add_bullet(doc, str(s))
+
+    sd = _as_list(card.get("shutdown"))
+    if sd:
+        rh.add_section(doc, "Shutdown", level=3)
+        for s in sd:
+            rh.add_bullet(doc, str(s))
+
+    cf = _rows(card.get("common_faults"), 2)
+    if cf:
+        rh.add_section(doc, "Common Faults", level=3)
+        rh.add_data_table(doc, ["Symptom", "Action"], cf, alt_color="DDEBF7")
+
+    refs = _as_list(card.get("references"))
+    if refs:
+        rh.add_section(doc, "References", level=3)
+        for r in refs:
+            rh.add_bullet(doc, str(r))
+
+    fname = card.get("filename") or ("QuickCard_" + equip)
+    fname = re.sub(r"[^0-9A-Za-z_\-.]+", "_", str(fname))
+    return rh.save_report(doc, fname)

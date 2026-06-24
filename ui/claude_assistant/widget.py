@@ -213,6 +213,7 @@ class ClaudeAssistantWidget(QWidget):
             ("📝", "Make Report", "Create operation report about: ", 3, "chat"),
             ("🔬", "Diagnose",    "",                              2, "diagnose"),
             ("💬", "Ask",         "",                              0, "chat"),
+            ("🪪", "Quick Card",  "",                              1, "quickcard"),
         ]
         _btn_style = """
             QPushButton {
@@ -230,7 +231,11 @@ class ClaudeAssistantWidget(QWidget):
             btn.clicked.connect(
                 lambda _checked, p=prefix, s=state, m=mode: self._on_action(p, s, m)
             )
-            btn_grid.addWidget(btn, idx // 2, idx % 2)
+            # nút lẻ cuối (số nút lẻ) trải hết 2 cột cho cân đối
+            if idx == len(_ACTIONS) - 1 and len(_ACTIONS) % 2 == 1:
+                btn_grid.addWidget(btn, idx // 2, 0, 1, 2)
+            else:
+                btn_grid.addWidget(btn, idx // 2, idx % 2)
 
         left_lay.addWidget(btn_frame)
         splitter.addWidget(left)
@@ -428,6 +433,15 @@ class ClaudeAssistantWidget(QWidget):
                 self._diag_panel.reset()
             self._inp_msg.clear()
             self._inp_msg.setPlaceholderText("Describe the fault symptom… (Enter to diagnose)")
+        elif mode == "quickcard":
+            self._show_diag_panel(False)
+            if not self._db_path:
+                self._append(
+                    '<p style="color:#dc2626;margin:4px 0">'
+                    '⚠️ Please select a DB file first.</p>'
+                )
+            self._inp_msg.clear()
+            self._inp_msg.setPlaceholderText("Enter equipment name… (Enter to build card)")
         else:
             self._show_diag_panel(False)
             self._inp_msg.setPlaceholderText("Type a question… (Enter to send)")
@@ -529,11 +543,11 @@ class ClaudeAssistantWidget(QWidget):
         if not msg:
             return
 
-        # Chế độ chẩn đoán cần DB
-        if self._mode == "diagnose" and not self._db_path:
+        # Chế độ chẩn đoán / quick card cần DB
+        if self._mode in ("diagnose", "quickcard") and not self._db_path:
             self._append(
                 '<p style="color:#dc2626;margin:4px 0">'
-                '⚠️ Please select a DB file before diagnosing.</p>'
+                '⚠️ Please select a DB file first.</p>'
             )
             return
 
@@ -552,6 +566,11 @@ class ClaudeAssistantWidget(QWidget):
             options = make_options(system_prompt=merged_system, db_path=self._db_path)
             precedent = copilot.build_precedent_block(msg)   # hop ⑤ — đối chiếu ca cũ
             prompt = copilot.build_diagnosis_prompt(msg, precedent)
+        elif self._mode == "quickcard":
+            qc_system = copilot.build_quickcard_system_prompt(self._db_path, claude_md)
+            merged_system = (qc_system + "\n" + system).strip()
+            options = make_options(system_prompt=merged_system, db_path=self._db_path)
+            prompt = copilot.build_quickcard_prompt(msg)
         elif self._db_path:
             db_system = (
                 f'Bạn là trợ lý kỹ thuật Nhà máy Nhiệt điện Van Phong 1 BOT.\n'
@@ -659,6 +678,36 @@ class ClaudeAssistantWidget(QWidget):
         elif self._mode == "report":
             self._mode = "chat"
             self._render_report_from_buffer()
+        elif self._mode == "quickcard":
+            self._mode = "chat"
+            self._render_quickcard_from_buffer()
+
+    def _render_quickcard_from_buffer(self):
+        """Parse JSON thẻ tra cứu → app render .docx → mở file."""
+        card = copilot.extract_quickcard_json(self._resp_buffer)
+        if not card:
+            self._append(
+                '<p style="color:#dc2626;margin:6px 0">'
+                '⚠️ Could not read card content (JSON). Please try again.</p>'
+            )
+            return
+        try:
+            path = copilot.render_quickcard(card)
+        except Exception as e:
+            safe = str(e).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            self._append(
+                f'<p style="color:#dc2626;margin:6px 0"><b>Card generation error:</b> {safe}</p>'
+            )
+            return
+        safe_path = path.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        self._append(
+            f'<p style="color:#166534;margin:6px 0">'
+            f'✅ Quick reference card created:<br><b>{safe_path}</b></p>'
+        )
+        try:
+            os.startfile(path)  # type: ignore[attr-defined]
+        except Exception:
+            pass
 
     def _render_report_from_buffer(self):
         """Cách C: parse JSON nội dung báo cáo → app render .docx → mở file."""
