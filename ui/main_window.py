@@ -286,7 +286,7 @@ class FileSearchApp(QMainWindow):
         lbl_k.setFixedWidth(60)
         h.addWidget(lbl_k)
         self.filename_entry = QLineEdit()
-        self.filename_entry.setPlaceholderText("Search by name… ($stats, @fuzzy, A%B, A*B, folder:name)")
+        self.filename_entry.setPlaceholderText("Search by name… ($stats, @fuzzy, A,B=or, A*B=and, A%B=not, folder:name)")
         self.filename_entry.returnPressed.connect(self.search_files)
         h.addWidget(self.filename_entry, 3)
         self.search_btn = QPushButton("🔍  Search")
