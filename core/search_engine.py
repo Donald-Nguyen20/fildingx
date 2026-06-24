@@ -15,11 +15,23 @@ FileResult = List[Tuple[str, str]]   # [(name, full_path), ...]
 def search_files_by_name(folder_path: str, keyword: str) -> FileResult:
     """
     Tìm file theo tên. Hỗ trợ:
+      - A,B  → tên chứa A HOẶC B (ít nhất một); hỗ trợ nhiều từ: A,B,C
       - A%B  → có A, không có B
       - A*B  → tên chứa cả A và B (theo thứ tự bất kỳ)
       - từ thường → regex contains, case-insensitive
     """
     matches: FileResult = []
+
+    # --- A,B  OR syntax (tên chứa ít nhất MỘT từ) ---
+    if "," in keyword:
+        terms = [t.strip() for t in keyword.split(",") if t.strip()]
+        if len(terms) >= 2:
+            pattern = re.compile("|".join(re.escape(t) for t in terms), re.IGNORECASE)
+            for root, _, files in os.walk(folder_path):
+                for f in files:
+                    if pattern.search(f):
+                        matches.append((f, os.path.join(root, f)))
+            return matches
 
     # --- A%B syntax ---
     q = parse_percent_query(keyword)
@@ -54,9 +66,21 @@ def search_files_by_name(folder_path: str, keyword: str) -> FileResult:
 
 def search_folders_by_name(folder_path: str, keyword: str) -> FileResult:
     """
-    Tìm folder theo tên. Hỗ trợ A*B syntax (giống search_files_by_name).
+    Tìm folder theo tên. Hỗ trợ A,B (OR) và A*B syntax (giống search_files_by_name).
     Trả về [(folder_name, full_path), ...]
     """
+    # --- A,B  OR syntax (tên chứa ít nhất MỘT từ) ---
+    if "," in keyword:
+        terms = [t.strip() for t in keyword.split(",") if t.strip()]
+        if len(terms) >= 2:
+            pattern = re.compile("|".join(re.escape(t) for t in terms), re.IGNORECASE)
+            matches: FileResult = []
+            for root, dirs, _ in os.walk(folder_path):
+                for d in dirs:
+                    if pattern.search(d):
+                        matches.append((d, os.path.join(root, d)))
+            return matches
+
     if "*" in keyword:
         parts = [p.strip() for p in keyword.split("*") if p.strip()]
         if len(parts) == 2:
