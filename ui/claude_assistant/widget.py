@@ -490,13 +490,14 @@ class ClaudeAssistantWidget(QWidget):
         return "\n".join(parts)
 
     def _load_claude_md(self) -> str:
-        """Đọc CLAUDE.md trong thư mục app làm system context."""
+        """Đọc CLAUDE.md cạnh app (theo paths.APP_DIR) làm system context.
+
+        Dùng APP_DIR để khi đóng gói (.exe) chỉ cần copy CLAUDE.md cạnh exe là
+        chạy đúng — nhất quán với db_query.py / report_helper.py (Bash cwd=APP_DIR).
+        """
         try:
-            md_path = os.path.join(
-                os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-                "CLAUDE.md",
-            )
-            with open(md_path, "r", encoding="utf-8") as f:
+            import paths
+            with open(os.path.join(paths.APP_DIR, "CLAUDE.md"), "r", encoding="utf-8") as f:
                 return f.read()
         except Exception:
             return ""
