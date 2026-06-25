@@ -141,7 +141,7 @@ class IndexSearchWidget(QWidget):
 
         self.result_table.clear()
         if rows:
-            for name, path, _doc_number, db_path in rows:
+            for name, path, _type, db_path in rows:
                 item = QTreeWidgetItem([name, path])
                 item.setData(0, Qt.UserRole, db_path)
                 self.result_table.addTopLevelItem(item)
@@ -153,48 +153,16 @@ class IndexSearchWidget(QWidget):
         try:
             conn = sqlite3.connect(db_path)
             cur = conn.cursor()
-
-            # Kiểm tra schema — doc_number chỉ có ở DB phiên bản mới
-            cur.execute("PRAGMA table_info(files)")
-            col_names = {row[1] for row in cur.fetchall()}
-            has_doc = "doc_number" in col_names
-            doc_sel = "COALESCE(doc_number,'')" if has_doc else "''"
-
-            try:
-                # FTS5 — nhanh, đã index
-                fts_q = " OR ".join(f'{w}*' for w in keyword.split() if w)
-                cur.execute(
-                    f"""
-                    SELECT name, path, {doc_sel} FROM files
-                    WHERE id IN (SELECT rowid FROM files_fts WHERE files_fts MATCH ?)
-                      AND name != 'BASE_PATH'
-                    ORDER BY name LIMIT 200
-                    """,
-                    (fts_q,),
-                )
-            except Exception:
-                # fallback: LIKE trên name (và doc_number nếu schema có)
-                like = f"%{keyword}%"
-                if has_doc:
-                    cur.execute(
-                        f"""
-                        SELECT name, path, {doc_sel} FROM files
-                        WHERE (name LIKE ? OR doc_number LIKE ?)
-                          AND name != 'BASE_PATH'
-                        LIMIT 200
-                        """,
-                        (like, like),
-                    )
-                else:
-                    cur.execute(
-                        f"""
-                        SELECT name, path, {doc_sel} FROM files
-                        WHERE name LIKE ?
-                          AND name != 'BASE_PATH'
-                        LIMIT 200
-                        """,
-                        (like,),
-                    )
+            like = f"%{keyword}%"
+            cur.execute(
+                """
+                SELECT name, path, type FROM files
+                WHERE (name LIKE ? OR content LIKE ?)
+                  AND name != 'BASE_PATH'
+                ORDER BY name LIMIT 200
+                """,
+                (like, like),
+            )
             rows = cur.fetchall()
             conn.close()
             return rows
