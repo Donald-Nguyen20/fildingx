@@ -153,12 +153,19 @@ class IndexSearchWidget(QWidget):
         try:
             conn = sqlite3.connect(db_path)
             cur = conn.cursor()
+
+            # Kiểm tra doc_number có tồn tại không
+            cur.execute("PRAGMA table_info(files)")
+            cols = {row[1] for row in cur.fetchall()}
+            has_doc = "doc_number" in cols
+            doc_sel = "COALESCE(doc_number,'')" if has_doc else "''"
+
             try:
                 # FTS5 — nhanh, đã index
                 fts_q = " OR ".join(f'{w}*' for w in keyword.split() if w)
                 cur.execute(
-                    """
-                    SELECT name, path, COALESCE(doc_number,'') FROM files
+                    f"""
+                    SELECT name, path, {doc_sel} FROM files
                     WHERE id IN (SELECT rowid FROM files_fts WHERE files_fts MATCH ?)
                       AND name != 'BASE_PATH'
                     ORDER BY name LIMIT 200
@@ -166,16 +173,18 @@ class IndexSearchWidget(QWidget):
                     (fts_q,),
                 )
             except Exception:
-                # fallback: LIKE trên name + doc_number (không scan content)
+                # fallback: LIKE trên name (và doc_number nếu có)
                 like = f"%{keyword}%"
+                where = "(name LIKE ? OR doc_number LIKE ?)" if has_doc else "name LIKE ?"
+                params = (like, like) if has_doc else (like,)
                 cur.execute(
-                    """
-                    SELECT name, path, COALESCE(doc_number,'') FROM files
-                    WHERE (name LIKE ? OR doc_number LIKE ?)
+                    f"""
+                    SELECT name, path, {doc_sel} FROM files
+                    WHERE {where}
                       AND name != 'BASE_PATH'
                     LIMIT 200
                     """,
-                    (like, like),
+                    params,
                 )
             rows = cur.fetchall()
             conn.close()
