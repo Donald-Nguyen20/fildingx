@@ -1,11 +1,14 @@
 """ui/claude_assistant/widget.py — Chat UI dùng claude_agent_sdk (Claude Code session)."""
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 import subprocess
 import sys
 from pathlib import Path
+
+import paths
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QSplitter,
@@ -23,6 +26,25 @@ from ui.claude_assistant import copilot
 
 _MAX_RESULTS   = 5    # số file lấy từ DB
 _MAX_CONTENT   = 800  # ký tự content mỗi file
+
+
+def _load_saved_db_path() -> str:
+    """Đọc đường dẫn DB đã lưu (nếu file còn tồn tại)."""
+    try:
+        with open(paths.CLAUDE_DB_FILE, "r", encoding="utf-8") as f:
+            path = (json.load(f) or {}).get("db_path", "")
+        return path if path and os.path.exists(path) else ""
+    except Exception:
+        return ""
+
+
+def _save_db_path(path: str):
+    """Lưu đường dẫn DB để lần sau khỏi import lại."""
+    try:
+        with open(paths.CLAUDE_DB_FILE, "w", encoding="utf-8") as f:
+            json.dump({"db_path": path}, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
 
 _STOPWORDS = {
     "là", "gì", "vậy", "của", "và", "với", "có", "không", "trong",
@@ -131,7 +153,24 @@ class ClaudeAssistantWidget(QWidget):
         self._resp_buffer: str = ""       # gom full text để parse JSON chẩn đoán
         self._diag_retried: bool = False  # đã thử retry JSON 1 lần chưa
         self._cur_symptom: str = ""       # triệu chứng của lượt chẩn đoán hiện tại
+
+        # Idle timer — sau khi hoàn thành/lỗi, orb tự về REST sau vài giây
+        self._idle_timer = QTimer(self)
+        self._idle_timer.setSingleShot(True)
+        self._idle_timer.timeout.connect(lambda: self._set_jarvis(0))
+
+        # Streaming intensity — đếm ký tự token, throttle 200ms đẩy 1 lần sang orb
+        self._stream_chars = 0
+        self._stream_timer = QTimer(self)
+        self._stream_timer.setInterval(200)
+        self._stream_timer.timeout.connect(self._pump_stream_intensity)
+
         self._build_ui()
+
+        # Khôi phục DB đã import lần trước (không ghi lại file)
+        saved = _load_saved_db_path()
+        if saved:
+            self._apply_db_path(saved, persist=False)
 
     # ── Build UI ──────────────────────────────────────────────────────
     def _build_ui(self):
@@ -382,11 +421,24 @@ class ClaudeAssistantWidget(QWidget):
 
     # ── JARVIS orb control ────────────────────────────────────────────
     def _load_orb_html(self):
-        html_path = Path(__file__).parent / "neural_interface.html"
-        url = QUrl.fromLocalFile(str(html_path))
-        print(f"[orb] loading: {url.toString()}")
-        print(f"[orb] file exists: {html_path.exists()}")
-        self._orb_view.load(url)
+        # Resolve path: works in dev mode and PyInstaller --onedir build
+        if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+            html_path = Path(sys._MEIPASS) / "ui" / "claude_assistant" / "neural_interface.html"
+        else:
+            html_path = Path(__file__).resolve().parent / "neural_interface.html"
+
+        if not html_path.exists():
+            self._orb_view.setHtml("<html><body></body></html>")
+            return
+
+        # Use setHtml to avoid file:// security restrictions in WebEngine
+        try:
+            html_content = html_path.read_text(encoding="utf-8")
+            base_url = QUrl.fromLocalFile(str(html_path.parent) + "/")
+            self._orb_view.setHtml(html_content, base_url)
+        except Exception:
+            url = QUrl.fromLocalFile(str(html_path))
+            self._orb_view.load(url)
 
     def _on_orb_loaded(self, ok: bool):
         print(f"[orb] loadFinished ok={ok}")
@@ -410,8 +462,25 @@ class ClaudeAssistantWidget(QWidget):
         )
 
     def _set_jarvis(self, state: int):
+        # Mọi lần đổi state đều dừng idle timer; chỉ _schedule_idle() mới hẹn về REST
+        if state != 0:
+            self._idle_timer.stop()
         if self._orb_view is not None:
             self._orb_view.page().runJavaScript(f"setS({state})")
+
+    def _schedule_idle(self, delay_ms: int = 6000):
+        """Hẹn orb tự về REST sau khi không còn hoạt động."""
+        self._idle_timer.start(delay_ms)
+
+    def _pump_stream_intensity(self):
+        """Throttle 200ms: quy đổi số ký tự token đã nhận → cường độ orb (0..1)."""
+        chars = self._stream_chars
+        self._stream_chars = 0
+        if chars <= 0:
+            return
+        intensity = min(1.0, chars / 25.0)  # ~25 ký tự/200ms = full intensity
+        if self._orb_view is not None:
+            self._orb_view.page().runJavaScript(f"streamPulse({intensity:.3f})")
 
     # ── Helpers ───────────────────────────────────────────────────────
     def _on_action(self, prefix: str, state: int, mode: str = "chat"):
@@ -458,13 +527,11 @@ class ClaudeAssistantWidget(QWidget):
             self._diag_panel.hide()
             self._splitter.setSizes([340, 660])
 
-    def _pick_db(self):
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Select DB file", "", "SQLite DB (*.db *.sqlite)"
-        )
+    def _apply_db_path(self, path: str, persist: bool = True):
+        """Cập nhật state + UI + (tuỳ chọn) lưu xuống JSON. path='' = clear."""
+        self._db_path = path
+        self._diag_panel.set_db_path(path)
         if path:
-            self._db_path = path
-            self._diag_panel.set_db_path(path)
             self._lbl_db.setText(os.path.basename(path))
             self._lbl_db.setStyleSheet("""
                 color: #334155; font-size: 11px;
@@ -472,17 +539,26 @@ class ClaudeAssistantWidget(QWidget):
                 border-radius: 6px; padding: 2px 8px;
             """)
             self._lbl_db.setToolTip(path)
+        else:
+            self._lbl_db.setText("No DB selected")
+            self._lbl_db.setStyleSheet("""
+                color: #94a3b8; font-size: 11px;
+                background: #f8fafc; border: 1px solid #e2e8f0;
+                border-radius: 6px; padding: 2px 8px;
+            """)
+            self._lbl_db.setToolTip("")
+        if persist:
+            _save_db_path(path)
+
+    def _pick_db(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Select DB file", "", "SQLite DB (*.db *.sqlite)"
+        )
+        if path:
+            self._apply_db_path(path)
 
     def _clear_db(self):
-        self._db_path = ""
-        self._diag_panel.set_db_path("")
-        self._lbl_db.setText("No DB selected")
-        self._lbl_db.setStyleSheet("""
-            color: #94a3b8; font-size: 11px;
-            background: #f8fafc; border: 1px solid #e2e8f0;
-            border-radius: 6px; padding: 2px 8px;
-        """)
-        self._lbl_db.setToolTip("")
+        self._apply_db_path("")
 
     def _build_db_context(self, msg: str) -> str:
         """Search DB dùng FTS5 chunks_fts, trả về context string."""
@@ -633,6 +709,8 @@ class ClaudeAssistantWidget(QWidget):
         self._append('<p style="color:#166534;margin:2px 0"><b>Claude:</b> ')
 
     def _run_agent(self, prompt: str, options):
+        self._stream_chars = 0
+        self._stream_timer.start()        # bắt đầu nuôi orb intensity
         self._worker = AgentWorker(prompt, options)
         self._worker.text_chunk.connect(self._on_text_chunk)
         self._worker.tool_used.connect(self._on_tool_used)
@@ -642,6 +720,7 @@ class ClaudeAssistantWidget(QWidget):
 
     def _on_text_chunk(self, text: str):
         self._resp_buffer += text
+        self._stream_chars += len(text)   # nuôi orb intensity (throttle 200ms)
         safe = (text.replace("&", "&amp;")
                     .replace("<", "&lt;")
                     .replace(">", "&gt;")
@@ -655,9 +734,12 @@ class ClaudeAssistantWidget(QWidget):
 
     def _on_done(self):
         self._append("</p><br>")
+        self._stream_timer.stop()
+        self._stream_chars = 0
         self._set_busy(False)
         self._orb.set_active(False)
         self._set_jarvis(1)          # FOCUS — hoàn thành
+        self._schedule_idle()        # vài giây sau tự về REST
         self._inp_msg.setFocus()
 
         # Chẩn đoán: parse khối JSON cây nguyên nhân → đổ vào panel
@@ -756,6 +838,9 @@ class ClaudeAssistantWidget(QWidget):
         self._append(
             f'<p style="color:#dc2626;margin:4px 0"><b>Error:</b> {safe}</p>'
         )
+        self._stream_timer.stop()
+        self._stream_chars = 0
         self._set_busy(False)
         self._orb.set_active(False)
         self._set_jarvis(4)          # OVERLOAD — lỗi
+        self._schedule_idle(8000)    # lỗi giữ lâu hơn rồi mới về REST

@@ -159,6 +159,23 @@ function triggerFire(nIdx){
   });
 }
 
+// Streaming intensity — Python gọi mỗi ~200ms khi token đang chảy về.
+// intensity: 0..1 (tỉ lệ với tốc độ token). Tạo burst neuron firing tức thời
+// + boost cường độ tạm thời (tự decay trong frame loop).
+let _streamBoost=0;
+function streamPulse(intensity){
+  intensity=Math.max(0,Math.min(1,intensity));
+  _streamBoost=Math.max(_streamBoost,intensity);
+  const burst=Math.floor(intensity*6);
+  if(burst<=0) return;
+  const eligible=NEURONS.filter(n=>n.firing===0&&n.fireCooldown<=0);
+  for(let k=0;k<burst&&eligible.length;k++){
+    const idx=Math.floor(Math.random()*eligible.length);
+    triggerFire(NEURONS.indexOf(eligible[idx]));
+    eligible.splice(idx,1);
+  }
+}
+
 let fireTimer=0;
 
 // --- Main loop ---
@@ -166,6 +183,7 @@ function frame(){
   requestAnimationFrame(frame);
   t+=.016;
   if(bl<1) bl=Math.min(1,bl+.008);  // ~2.5s blend mượt giữa các state
+  if(_streamBoost>0) _streamBoost=Math.max(0,_streamBoost-.012);  // decay ~1.3s
   const f=ss(bl);
   const sA=STATES[cur], sB=STATES[nxt];
   const colA    =lrpC(sA.colA,   sB.colA,   f);
@@ -308,8 +326,8 @@ function frame(){
     }
   });
 
-  // ── Core — pulsing depth focal point ──
-  const cp=.68+Math.sin(t*3.2)*waveAmp*.38;
+  // ── Core — pulsing depth focal point (mạnh hơn khi đang stream) ──
+  const cp=(.68+_streamBoost*.22)+Math.sin(t*3.2)*waveAmp*.38;
   [[88,.022],[58,.048],[32,.110],[16,.240],[7,.460],[3,.800]].forEach(([r,a])=>{
     const g=ctx.createRadialGradient(CX,CY,0,CX,CY,r*cp);
     g.addColorStop(0,`rgba(${csA},${Math.min(1,a*1.7*cp)})`);
@@ -324,7 +342,9 @@ function frame(){
 }
 
 frame();
-startAutoCycle(8000);  // đổi màu mỗi 8 giây
+// Orb phản ánh trạng thái thật của app (do Python điều khiển qua setS()).
+// KHÔNG auto-cycle — bắt đầu ở REST, chờ tín hiệu thật.
+setS(0);
 </script>
 </body>
 </html>

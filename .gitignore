@@ -153,6 +153,7 @@ summaries.json
 exe_addons.json
 nlm_source_map.json
 nlm_cookies.json
+claude_db.json
 browser_profile/
 
 # ###########################################################################
