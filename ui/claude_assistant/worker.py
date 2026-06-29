@@ -8,6 +8,11 @@ from PySide6.QtCore import QThread, Signal
 from claude_agent_sdk import query, ClaudeAgentOptions
 from claude_agent_sdk.types import AssistantMessage
 
+from ui.claude_assistant.sdk_win_patch import apply_no_console_patch
+
+# Ẩn cửa sổ console của Claude CLI trên Windows
+apply_no_console_patch()
+
 
 class AgentWorker(QThread):
     text_chunk = Signal(str)   # text streaming từng đoạn
