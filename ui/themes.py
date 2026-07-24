@@ -1,5 +1,5 @@
 """
-ui/themes.py — 6 bộ màu cho toàn app.
+ui/themes.py — 7 bộ màu cho toàn app.
 Mỗi theme gồm:
   - name : tên hiển thị
   - hud  : dict màu cho HudPanel (vẽ bằng Python/QPainter)
@@ -471,6 +471,83 @@ QTreeWidget, QListWidget, QTableWidget, QTextBrowser, QWidget#pdfContent {
 QHeaderView::section {
     background:rgba(235,245,255,255); color:rgba(10,60,145,245);
     padding:8px 10px; border:1px solid rgba(0,140,235,50); font-weight:900;
+}
+""",
+    },
+
+    # ── 6) Ghost Purple ───────────────────────────────────────────────────────
+    {
+        "name": "Ghost Purple",
+        "hud": {
+            "base":    [_c(26,22,38,255), _c(32,27,46,255), _c(21,17,31,255)],
+            "sheen":   [_c(190,150,255,24), _c(170,130,245,9), _c(150,110,225,0)],
+            "vig_a":   126,
+            "vig_dark": True,
+            "glow":    [_c(166,111,245,14), _c(185,140,250,40), _c(201,169,245,120)],
+            "glow_w":  [16, 9, 2.5],
+            "hi":      [_c(215,190,255,60), _c(190,160,250,15), _c(166,120,245,0)],
+            "sh":      [_c(0,0,0,0), _c(0,0,0,48), _c(0,0,0,145)],
+            "core":    _c(190,150,255,182),
+        },
+        "qss": r"""
+QMainWindow, QWidget {
+    background: qlineargradient(x1:0,y1:0,x2:1,y2:1,
+        stop:0 rgba(24,20,36,255), stop:0.45 rgba(30,25,46,255), stop:1 rgba(36,30,56,255));
+}
+QWidget { color: rgba(224,214,250,232); font-size: 13px; }
+QFrame, QGroupBox {
+    background: qlineargradient(x1:0,y1:0,x2:1,y2:0,
+        stop:0 rgba(166,111,245,30), stop:0.3 rgba(150,100,235,21),
+        stop:0.75 rgba(132,88,215,16), stop:1 rgba(118,78,195,24));
+    border:1px solid rgba(190,150,255,50); border-radius:12px;
+}
+QGroupBox::title { subcontrol-origin:margin; subcontrol-position:top left;
+    padding:0 8px; color:rgba(210,185,255,245); font-weight:900; }
+QLabel { background:transparent; border:none; color:rgba(224,214,250,232); font-weight:700; }
+QLineEdit, QPlainTextEdit, QTextEdit, QComboBox {
+    background:rgba(18,14,28,238); border:1px solid rgba(190,150,255,64);
+    border-radius:10px; padding:7px 10px; color:rgba(224,214,250,246);
+    selection-background-color:rgba(20,20,40,230); selection-color:rgba(255,255,255,255);
+}
+QLineEdit::placeholder { color:rgba(224,214,250,92); }
+QLineEdit:focus, QPlainTextEdit:focus, QTextEdit:focus, QComboBox:focus {
+    background:rgba(22,17,34,252); border:1px solid rgba(201,169,245,190);
+}
+QComboBox QAbstractItemView {
+    background:rgba(22,17,34,255); border:1px solid rgba(190,150,255,62);
+    color:rgba(224,214,250,246); selection-background-color:rgba(20,20,40,230); selection-color:rgba(255,255,255,255);
+}
+QPushButton, QToolButton {
+    background:qlineargradient(x1:0,y1:0,x2:1,y2:0,
+        stop:0 rgba(201,169,245,224), stop:0.45 rgba(178,138,240,224), stop:1 rgba(150,108,225,224));
+    border:1.5px solid rgba(160,115,235,118); border-radius:10px;
+    padding:8px 14px; font-weight:900; color:rgba(20,12,34,246);
+}
+QPushButton:hover, QToolButton:hover {
+    background:qlineargradient(x1:0,y1:0,x2:1,y2:0,
+        stop:0 rgba(224,200,255,244), stop:0.45 rgba(196,160,255,244), stop:1 rgba(166,120,248,244));
+    border:1.5px solid rgba(201,169,245,170); color:rgba(14,8,26,246);
+}
+QPushButton:pressed, QToolButton:pressed {
+    background:qlineargradient(x1:0,y1:0,x2:1,y2:0,
+        stop:0 rgba(140,96,228,255), stop:0.5 rgba(120,74,205,255), stop:1 rgba(109,40,217,255));
+    border:1.5px solid rgba(125,82,215,170);
+}
+QPushButton:disabled, QToolButton:disabled {
+    background:rgba(44,32,64,112); border:1.5px solid rgba(100,68,160,52); color:rgba(160,135,210,92);
+}
+QScrollBar:vertical { background:transparent; width:10px; margin:4px; }
+QScrollBar::handle:vertical { background:rgba(190,150,255,62); border-radius:5px; min-height:30px; }
+QScrollBar::handle:vertical:hover { background:rgba(201,169,245,112); }
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height:0px; }
+QSplitter::handle { background:rgba(190,150,255,28); }
+QTreeWidget, QListWidget, QTableWidget, QTextBrowser, QWidget#pdfContent {
+    background:rgba(18,14,28,246); color:rgba(224,214,250,255);
+    border:1px solid rgba(190,150,255,56); border-radius:10px; padding:8px;
+}
+QHeaderView::section {
+    background:rgba(24,19,36,255); color:rgba(201,169,245,245);
+    padding:8px 10px; border:1px solid rgba(190,150,255,46); font-weight:900;
 }
 """,
     },

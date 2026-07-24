@@ -13,6 +13,7 @@ import paths
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QSplitter,
     QPushButton, QLabel, QLineEdit, QTextEdit, QFileDialog,
+    QDialog, QMessageBox,
 )
 from PySide6.QtCore import Qt, QUrl, QTimer
 from PySide6.QtGui import QFont, QTextCursor
@@ -142,6 +143,62 @@ def _bundled_claude() -> str:
     return "claude"
 
 
+class TrendDataDialog(QDialog):
+    """Dialog dán dữ liệu trend/log nhiều dòng + mô tả triệu chứng để chẩn đoán."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("📈 Trend / Log Data Analysis")
+        self.resize(580, 440)
+
+        lay = QVBoxLayout(self)
+        lay.setSpacing(6)
+
+        lbl_sym = QLabel("Fault symptom (short description):")
+        self.inp_symptom = QLineEdit()
+        self.inp_symptom.setPlaceholderText("e.g. IDF-A bearing vibration rising")
+        lay.addWidget(lbl_sym)
+        lay.addWidget(self.inp_symptom)
+
+        lbl_data = QLabel("Trend / log data (paste from DCS trend, Excel log sheet…):")
+        self.inp_data = QTextEdit()
+        self.inp_data.setAcceptRichText(False)
+        self.inp_data.setPlaceholderText(
+            "Time\tTag\tValue\n"
+            "02:00\tIDF-A brg vib\t4.2 mm/s\n"
+            "02:30\tIDF-A brg vib\t6.8 mm/s\n"
+            "(paste bảng số liệu — giữ nguyên cột/tab)"
+        )
+        self.inp_data.setStyleSheet("font-family: Consolas, monospace; font-size: 12px;")
+        lay.addWidget(lbl_data)
+        lay.addWidget(self.inp_data, 1)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        btn_cancel = QPushButton("Cancel")
+        btn_cancel.clicked.connect(self.reject)
+        btn_ok = QPushButton("🔬 Analyze")
+        btn_ok.setDefault(True)
+        btn_ok.clicked.connect(self._on_ok)
+        btn_row.addWidget(btn_cancel)
+        btn_row.addWidget(btn_ok)
+        lay.addLayout(btn_row)
+
+    def _on_ok(self):
+        if not self.inp_symptom.text().strip():
+            QMessageBox.warning(self, "Missing symptom",
+                                "Please enter a short fault symptom description.")
+            return
+        if not self.inp_data.toPlainText().strip():
+            QMessageBox.warning(self, "Missing data",
+                                "Please paste the trend / log data to analyze.")
+            return
+        self.accept()
+
+    def values(self) -> tuple[str, str]:
+        return self.inp_symptom.text().strip(), self.inp_data.toPlainText().strip()
+
+
 class ClaudeAssistantWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -253,6 +310,8 @@ class ClaudeAssistantWidget(QWidget):
             ("🔬", "Diagnose",    "",                              2, "diagnose"),
             ("💬", "Ask",         "",                              0, "chat"),
             ("🪪", "Quick Card",  "",                              1, "quickcard"),
+            ("🔧", "Work Pack",   "",                              1, "workpackage"),
+            ("📈", "Trend Data",  "",                              2, "trend"),
         ]
         _btn_style = """
             QPushButton {
@@ -511,6 +570,33 @@ class ClaudeAssistantWidget(QWidget):
                 )
             self._inp_msg.clear()
             self._inp_msg.setPlaceholderText("Enter equipment name… (Enter to build card)")
+        elif mode == "workpackage":
+            self._show_diag_panel(False)
+            if not self._db_path:
+                self._append(
+                    '<p style="color:#dc2626;margin:4px 0">'
+                    '⚠️ Please select a DB file first.</p>'
+                )
+            self._inp_msg.clear()
+            self._inp_msg.setPlaceholderText(
+                "Describe the job… e.g. Replace IDF-A bearing (Enter to build package)"
+            )
+        elif mode == "trend":
+            if not self._db_path:
+                self._mode = "chat"
+                self._append(
+                    '<p style="color:#dc2626;margin:4px 0">'
+                    '⚠️ Please select a DB file before analyzing trend data.</p>'
+                )
+                return
+            dlg = TrendDataDialog(self)
+            if dlg.exec() == QDialog.Accepted:
+                symptom, data_text = dlg.values()
+                self._run_trend_diagnosis(symptom, data_text)
+            else:
+                self._mode = "chat"
+                self._set_jarvis(0)
+            return
         else:
             self._show_diag_panel(False)
             self._inp_msg.setPlaceholderText("Type a question… (Enter to send)")
@@ -619,8 +705,8 @@ class ClaudeAssistantWidget(QWidget):
         if not msg:
             return
 
-        # Chế độ chẩn đoán / quick card cần DB
-        if self._mode in ("diagnose", "quickcard") and not self._db_path:
+        # Chế độ chẩn đoán / quick card / work package cần DB
+        if self._mode in ("diagnose", "quickcard", "workpackage") and not self._db_path:
             self._append(
                 '<p style="color:#dc2626;margin:4px 0">'
                 '⚠️ Please select a DB file first.</p>'
@@ -647,6 +733,11 @@ class ClaudeAssistantWidget(QWidget):
             merged_system = (qc_system + "\n" + system).strip()
             options = make_options(system_prompt=merged_system, db_path=self._db_path)
             prompt = copilot.build_quickcard_prompt(msg)
+        elif self._mode == "workpackage":
+            wp_system = copilot.build_workpackage_system_prompt(self._db_path, claude_md)
+            merged_system = (wp_system + "\n" + system).strip()
+            options = make_options(system_prompt=merged_system, db_path=self._db_path)
+            prompt = copilot.build_workpackage_prompt(msg)
         elif self._db_path:
             db_system = (
                 f'Bạn là trợ lý kỹ thuật Nhà máy Nhiệt điện Van Phong 1 BOT.\n'
@@ -674,6 +765,29 @@ class ClaudeAssistantWidget(QWidget):
             options = make_options(system_prompt=merged_system)
             prompt = msg
 
+        self._run_agent(prompt, options)
+
+    def _run_trend_diagnosis(self, symptom: str, data_text: str):
+        """📈 Trend Data: chẩn đoán kèm dữ liệu trend/log — tái dùng pipeline diagnose."""
+        self._mode = "diagnose"
+        self._show_diag_panel(True)
+
+        n_lines = len([ln for ln in data_text.splitlines() if ln.strip()])
+        self._echo_user(f"📈 {symptom}  (+ {n_lines} lines of trend/log data)")
+
+        self._diag_retried = False
+        self._cur_symptom = symptom
+        self._diag_panel.set_analyzing(symptom)
+
+        system = self._inp_system.text().strip()
+        claude_md = self._load_claude_md()
+        diag_system = copilot.build_diagnosis_system_prompt(self._db_path, claude_md)
+        merged_system = (diag_system + "\n" + system).strip()
+        options = make_options(system_prompt=merged_system, db_path=self._db_path)
+
+        precedent = copilot.build_precedent_block(symptom)
+        trend = copilot.build_trend_block(data_text)
+        prompt = copilot.build_diagnosis_prompt(symptom, precedent, trend)
         self._run_agent(prompt, options)
 
     def _on_generate_report(self, diagnosis: dict):
@@ -763,6 +877,36 @@ class ClaudeAssistantWidget(QWidget):
         elif self._mode == "quickcard":
             self._mode = "chat"
             self._render_quickcard_from_buffer()
+        elif self._mode == "workpackage":
+            self._mode = "chat"
+            self._render_workpackage_from_buffer()
+
+    def _render_workpackage_from_buffer(self):
+        """Parse JSON work package → app render .docx → mở file."""
+        wp = copilot.extract_workpackage_json(self._resp_buffer)
+        if not wp:
+            self._append(
+                '<p style="color:#dc2626;margin:6px 0">'
+                '⚠️ Could not read work package content (JSON). Please try again.</p>'
+            )
+            return
+        try:
+            path = copilot.render_workpackage(wp)
+        except Exception as e:
+            safe = str(e).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            self._append(
+                f'<p style="color:#dc2626;margin:6px 0"><b>Work package generation error:</b> {safe}</p>'
+            )
+            return
+        safe_path = path.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        self._append(
+            f'<p style="color:#166534;margin:6px 0">'
+            f'✅ Work package created:<br><b>{safe_path}</b></p>'
+        )
+        try:
+            os.startfile(path)  # type: ignore[attr-defined]
+        except Exception:
+            pass
 
     def _render_quickcard_from_buffer(self):
         """Parse JSON thẻ tra cứu → app render .docx → mở file."""

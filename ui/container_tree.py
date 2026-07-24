@@ -483,7 +483,7 @@ class ContainerOrgChartWidget(QWidget):
         lay.setContentsMargins(0, 4, 0, 0)
         lay.setSpacing(4)
 
-        # Hàng tạo/xóa container
+        # Hàng tạo container (xóa dùng click-phải trên item)
         crud = QHBoxLayout()
         self._list_entry = QLineEdit()
         self._list_entry.setPlaceholderText("New container name…")
@@ -493,16 +493,12 @@ class ContainerOrgChartWidget(QWidget):
         create_btn = QPushButton("➕")
         create_btn.setFixedSize(28, 28)
         create_btn.setToolTip("Create")
+        # padding:0 để glyph không bị QSS toàn cục (padding:8px 14px) cắt mất
+        create_btn.setStyleSheet("QPushButton { padding: 0px; font-size: 15px; }")
         create_btn.clicked.connect(self._list_create_container)
-
-        del_btn = QPushButton("🗑")
-        del_btn.setFixedSize(28, 28)
-        del_btn.setToolTip("Delete selected")
-        del_btn.clicked.connect(self._list_delete_container)
 
         crud.addWidget(self._list_entry, 1)
         crud.addWidget(create_btn)
-        crud.addWidget(del_btn)
         lay.addLayout(crud)
 
         self._containers_list = QTreeWidget()
@@ -649,23 +645,6 @@ class ContainerOrgChartWidget(QWidget):
         self._list_entry.clear()
         self._emit_changed()
         self.on_container_selected(name)
-
-    def _list_delete_container(self):
-        item = self._containers_list.currentItem()
-        if not item:
-            return
-        name = item.data(Qt.UserRole)
-        if QMessageBox.question(
-            self, "Confirm", f"Delete container '{name}'?",
-            QMessageBox.Yes | QMessageBox.No
-        ) != QMessageBox.Yes:
-            return
-        for n in self._collect_descendants(name):
-            self._containers.pop(n, None)
-            self._parents.pop(n, None)
-        if self._selected == name:
-            self._selected = None
-        self._emit_changed()
 
     def _show_list_context_menu(self, pos):
         item = self._containers_list.itemAt(pos)

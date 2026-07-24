@@ -34,7 +34,7 @@ Build:
   --hidden-import=docx --hidden-import=pptx --hidden-import=fitz
 
   
-pyinstaller --noconfirm --clean --onedir --windowed --name "Finding9.1.2" "Finding8.py" --icon "icon.ico" `
+pyinstaller --noconfirm --clean --onedir --windowed --name "Finding9.2.2" "Finding8.py" --icon "icon.ico" `
   --add-data "$env:LOCALAPPDATA\ms-playwright\chromium-1208;ms-playwright\chromium-1208" `
   --add-data "$env:LOCALAPPDATA\ms-playwright\ffmpeg-1011;ms-playwright\ffmpeg-1011" `
   --add-data "$env:LOCALAPPDATA\ms-playwright\winldd-1007;ms-playwright\winldd-1007" `
@@ -87,6 +87,10 @@ from ui.main_window import FileSearchApp
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    app.setStyleSheet(
+        "QToolTip { background-color: #1e1a2e; color: #e0aaff; "
+        "border: 1px solid #b967ff; padding: 6px; font-size: 12px; }"
+    )
     window = FileSearchApp()
     window.showMaximized()
     sys.exit(app.exec())

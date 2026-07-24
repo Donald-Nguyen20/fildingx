@@ -53,11 +53,12 @@ class HelpDialog(QDialog):
             "Search by Name": self.page_search_by_name(),
             "Advanced Query (% / * / @ / synonyms)": self.page_advanced_query(),
             "Result Table (cột & thao tác)": self.page_results_table(),
+            "Claude Assistant (AI Co-Pilot)": self.page_claude_assistant(),
             "Containers (nhóm công việc)": self.page_containers(),
-            "Notes (ghi chú theo file)": self.page_notes(),
+            "Preview & Notes (PDF + ghi chú AI)": self.page_notes(),
             "Search Duplicates (file trùng)": self.page_duplicates(),
             "Batch Rename (đổi tên hàng loạt)": self.page_batch_rename(),
-            "Index Search (SQLite DB)": self.page_index_search(),
+            "DB Search (Index Search — SQLite)": self.page_index_search(),
             "Tools / EXE Launcher": self.page_tools_exe(),
             "NotebookLM & Dịch thuật": self.page_notebooklm(),
             "Shortcuts & Mouse Actions": self.page_shortcuts(),
@@ -117,9 +118,9 @@ class HelpDialog(QDialog):
             <td>Tạo "bộ hồ sơ" cho từng công việc (SOP, bản vẽ, báo cáo…)</td>
           </tr>
           <tr>
-            <td><b>Notes</b></td>
-            <td>Ghi chú theo file (text + ảnh), lưu HTML</td>
-            <td>Lưu nhanh insight/khuyến nghị khi mở file</td>
+            <td><b>📄 Preview & Notes</b></td>
+            <td>Xem PDF trong app + ghi chú (text/ảnh), tóm tắt & mind map bằng NotebookLM</td>
+            <td>Lưu nhanh insight/khuyến nghị khi mở file PDF</td>
           </tr>
           <tr>
             <td><b>Duplicates</b></td>
@@ -140,6 +141,11 @@ class HelpDialog(QDialog):
             <td><b>NotebookLM</b></td>
             <td>Chat hỏi tài liệu qua Google NotebookLM, tóm tắt file trong Notes</td>
             <td>Hỏi "theo tài liệu kỹ thuật" có trích nguồn, tóm tắt nhanh PDF</td>
+          </tr>
+          <tr>
+            <td><b>🤖 Claude</b></td>
+            <td>AI Co-Pilot: hỏi đáp DB tài liệu, chẩn đoán sự cố (cây nguyên nhân + bằng chứng), sinh báo cáo KV-OP tự động</td>
+            <td>Khi cần tra cứu nhanh + phân tích nguyên nhân gốc + soạn báo cáo vận hành</td>
           </tr>
           <tr>
             <td><b>🎨 Studio</b></td>
@@ -182,11 +188,11 @@ class HelpDialog(QDialog):
           <li>Mở container để xem lại danh sách file bất cứ lúc nào.</li>
         </ol>
 
-        <h3>3) Ghi chú theo file</h3>
+        <h3>3) Ghi chú theo file (PDF)</h3>
         <ol>
-          <li>Trong container, click file → mở <b>Notes</b>.</li>
-          <li>Ghi text + chèn ảnh (ảnh hiện trường / ảnh đồ thị).</li>
-          <li><b>Save</b> để lưu dạng HTML.</li>
+          <li>Chọn 1 file PDF → bấm <b>📄 Preview</b> ở sidebar phải để mở panel xem trước.</li>
+          <li>Chuyển sang tab <b>📝 Notes</b>: ghi text + chèn ảnh (ảnh hiện trường / ảnh đồ thị).</li>
+          <li><b>💾 Save</b> để lưu (app cũng tự lưu khi bạn chuyển file khác).</li>
         </ol>
 
         <h3>4) Dọn trùng</h3>
@@ -311,9 +317,112 @@ class HelpDialog(QDialog):
           <li><b>Copy</b> → copy file name hoặc full path để dán sang email/biên bản.</li>
         </ul>
 
+        <h3>🤖 Group — AI tự phân nhóm kết quả</h3>
+        <p>Sau khi search ra kết quả, nút <b>🤖 Group</b> (cạnh ô search) sẽ bật lên (enable).
+        Bấm để nhờ AI (LLM) tự động <b>phân nhóm kết quả theo loại tài liệu</b>
+        (VD: gom riêng bản vẽ, manual, báo cáo, datasheet…) — hữu ích khi kết quả trả về quá nhiều và lẫn lộn nhiều loại.</p>
+        <div class="hint">
+          <b>Lưu ý:</b> Chức năng này gọi LLM (provider cấu hình ở NotebookLM ⚙ Settings), có thể mất vài giây và tốn 1 lượt gọi API.
+        </div>
+
         <div class="hint">
           <b>Mẹo:</b> Khi có nhiều bản, hãy ưu tiên theo <b>Date Modified</b> và kiểm tra nội dung nhanh trước khi dùng.
         </div>
+        </body>
+        """
+
+    def page_claude_assistant(self) -> str:
+        return f"""
+        {self._base_style()}
+        <body>
+        <h2>Claude Assistant (AI Co-Pilot)</h2>
+        <p>Tab <b>🤖 Claude</b> là trợ lý AI chạy bằng Claude Code SDK, có thể đọc database tài liệu kỹ thuật
+        (schema <code>chunks_fts</code> theo <code>CLAUDE.md</code> — khác với DB đơn giản của tab DB Search),
+        chẩn đoán sự cố và tự soạn báo cáo vận hành.</p>
+
+        <h3>Đăng nhập (chỉ cần 1 lần)</h3>
+        <ul>
+          <li>Bấm <b>🔑 Login</b> → mở cửa sổ console chạy <code>claude login</code>.</li>
+          <li>Đăng nhập xong, tab Claude dùng được ngay, không cần lặp lại mỗi lần mở app.</li>
+        </ul>
+
+        <h3>Chọn Database tài liệu</h3>
+        <ul>
+          <li><b>📂 Select DB</b>: chọn file <code>.db/.sqlite</code> chứa tài liệu kỹ thuật đã index (bảng <code>files</code>/<code>chunks</code> + FTS5).</li>
+          <li>App tự nhớ đường dẫn DB đã chọn (lưu vào <code>claude_db.json</code>) — mở app lần sau không cần chọn lại.</li>
+          <li><b>✕</b>: bỏ chọn DB hiện tại.</li>
+          <li><b>System:</b> ô nhập system prompt tùy chỉnh (VD: "Answer in Vietnamese").</li>
+        </ul>
+
+        <h3>7 chế độ thao tác (nút bên trái, dưới orb)</h3>
+        <table>
+          <tr><th>Nút</th><th>Chế độ</th><th>Dùng khi nào?</th></tr>
+          <tr><td>💬 <b>Ask</b></td><td>Chat tự do</td><td>Hỏi bất kỳ câu hỏi kỹ thuật nào</td></tr>
+          <tr><td>🔍 <b>Find Docs</b></td><td>Tìm trong DB tài liệu</td><td>Cần tra cứu nhanh nội dung/tài liệu liên quan 1 chủ đề</td></tr>
+          <tr><td>📝 <b>Make Report</b></td><td>Soạn báo cáo vận hành</td><td>Cần bản nháp báo cáo về 1 chủ đề/sự kiện</td></tr>
+          <tr><td>🔬 <b>Diagnose</b></td><td>Chẩn đoán sự cố (Co-Pilot)</td><td>Có triệu chứng bất thường, cần tìm nguyên nhân gốc</td></tr>
+          <tr><td>🪪 <b>Quick Card</b></td><td>Thẻ tra cứu nhanh thiết bị</td><td>Cần tóm tắt thông số/thông tin 1 thiết bị</td></tr>
+          <tr><td>🔧 <b>Work Pack</b></td><td>Gói chuẩn bị công việc</td><td>Sắp làm 1 công việc (VD thay bearing IDF-A), cần gom đủ procedure + drawing + setpoint + safety</td></tr>
+          <tr><td>📈 <b>Trend Data</b></td><td>Chẩn đoán kèm số liệu trend/log</td><td>Có bảng số liệu DCS/log sheet, cần phân tích và đối chiếu setpoint trước khi tìm nguyên nhân</td></tr>
+        </table>
+        <div class="warn">
+          <b>Lưu ý:</b> Các chế độ <b>Diagnose</b>, <b>Quick Card</b>, <b>Work Pack</b>, <b>Trend Data</b>
+          cần đã chọn DB trước, nếu chưa app sẽ nhắc chọn.
+        </div>
+
+        <h3>🔬 Diagnose — Cây chẩn đoán sự cố</h3>
+        <ol>
+          <li>Bấm <b>🔬 Diagnose</b> → nhập mô tả triệu chứng (VD: "IDF bearing vibration high") → Enter.</li>
+          <li>Panel bên phải hiện <b>cây nguyên nhân</b> (Cause) xếp hạng theo <b>% confidence</b>
+              (xanh = tin cậy cao, vàng = trung bình, đỏ = thấp).</li>
+          <li>Click 1 nguyên nhân → xem <b>bằng chứng</b> (trích đoạn tài liệu, doc number, section) bên phải;
+              click bằng chứng để mở file nguồn tương ứng.</li>
+          <li>Dropdown lịch sử (góc trên) cho phép mở lại các lần chẩn đoán trước đó.</li>
+          <li>Bấm <b>📝 Generate KV-OP Report</b> → app tự soạn báo cáo <code>.docx</code> theo format chuẩn
+              (Introduction / Abnormal Status / Analysis / Suggestion / Execution Plan / Conclusion)
+              từ chính cây nguyên nhân + bằng chứng đang hiển thị.</li>
+        </ol>
+        <div class="ok">
+          <b>File báo cáo lưu ở đâu?</b> Thư mục <code>reports/</code> nằm <b>cạnh file chạy của app</b>
+          (cạnh .exe khi đã đóng gói, hoặc cạnh <code>Finding8.py</code> khi chạy từ source).
+        </div>
+
+        <h3>🔧 Work Pack — Gói chuẩn bị công việc</h3>
+        <ol>
+          <li>Bấm <b>🔧 Work Pack</b> → mô tả công việc (VD: "Replace IDF-A bearing") → Enter.</li>
+          <li>Claude tự query DB gom: <b>Safety precautions</b>, <b>Procedures</b> (doc number thật),
+              <b>Drawings</b>, <b>Alarm/Trip setpoints</b> cần lưu ý, <b>Tools & Materials</b>,
+              <b>Spare parts</b>, trình tự chính và <b>References</b>.</li>
+          <li>App tự render file <code>.docx</code> vào thư mục <code>reports/</code> và mở lên —
+              dùng ngay cho họp toolbox / chuẩn bị hiện trường.</li>
+        </ol>
+
+        <h3>📈 Trend Data — Chẩn đoán kèm số liệu</h3>
+        <ol>
+          <li>Bấm <b>📈 Trend Data</b> → dialog hiện ra: nhập <b>triệu chứng ngắn gọn</b> +
+              <b>dán bảng số liệu</b> (copy từ trend DCS, log sheet Excel — giữ nguyên cột/tab).</li>
+          <li>Bấm <b>🔬 Analyze</b>: Claude phân tích chuỗi số liệu (xu hướng, tốc độ thay đổi,
+              thời điểm bất thường), <b>đối chiếu giá trị đo với alarm/trip setpoint trong DB</b>,
+              rồi chạy tiếp quy trình chẩn đoán như chế độ Diagnose.</li>
+          <li>Kết quả hiện trên <b>panel cây nguyên nhân</b> — nhận định số liệu được đưa vào
+              rationale của từng nguyên nhân; từ đây bấm <b>Generate KV-OP Report</b> như bình thường
+              (số liệu sẽ vào phần Abnormal Status của báo cáo).</li>
+        </ol>
+
+        <h3>Orb (JARVIS) — phản ánh trạng thái thật</h3>
+        <p>Quả cầu neural bên trái <b>không chỉ để trang trí</b> — nó phản ánh đúng trạng thái xử lý thật của app:</p>
+        <ul>
+          <li>Nghỉ (REST) khi không có tác vụ.</li>
+          <li>Sáng/nhịp nhanh hơn khi đang xử lý hoặc đang stream câu trả lời (cường độ tăng theo tốc độ ký tự trả về).</li>
+          <li>Đổi màu cảnh báo khi có lỗi.</li>
+        </ul>
+
+        <h3>Chat panel (bên phải)</h3>
+        <ul>
+          <li><b>📤 Send</b> (hoặc Enter): gửi câu hỏi/yêu cầu.</li>
+          <li><b>🗑</b> (nút cạnh Send): xóa toàn bộ nội dung chat hiện tại.</li>
+          <li>Câu trả lời hiển thị dạng streaming (chữ chạy dần), có thể kèm trích dẫn <code>Doc:</code>/<code>Section:</code> khi lấy từ DB.</li>
+        </ul>
         </body>
         """
 
@@ -342,9 +451,52 @@ class HelpDialog(QDialog):
           <li>Click container để xem danh sách file trong container.</li>
           <li>Mở file: double-click file trong container.</li>
           <li>Copy nhanh: copy file name / copy full path để share.</li>
-          <li>Xóa file khỏi container: remove item (không xóa file gốc nếu app thiết kế đúng theo "remove from list").</li>
-          <li>Xóa container: delete container (chỉ xóa nhóm, không xóa file gốc).</li>
         </ul>
+
+        <h3>Thanh công cụ Container (search / layout / fullscreen)</h3>
+        <table>
+          <tr><th>Điều khiển</th><th>Chức năng</th></tr>
+          <tr><td>🔍 <b>Search containers…</b></td><td>Ở chế độ List: lọc danh sách container theo tên. Ở chế độ sơ đồ (TB/LR): <b>highlight</b> container khớp trên sơ đồ</td></tr>
+          <tr><td>⛶ <b>Fullscreen</b></td><td>Phóng to/thu nhỏ panel Container để xem dễ hơn</td></tr>
+          <tr><td>☰/⇅/⇄ <b>Switch layout</b></td><td>Đổi cách hiển thị container — xem chi tiết bên dưới</td></tr>
+        </table>
+
+        <h3>3 chế độ hiển thị container</h3>
+        <table>
+          <tr><th>Chế độ</th><th>Mô tả</th></tr>
+          <tr><td>☰ <b>List</b> (mặc định)</td><td>Danh sách phẳng, gọn, dễ thao tác nhanh (create/rename/right-click)</td></tr>
+          <tr><td>⇅ <b>Top → Bottom</b></td><td>Vẽ container dạng <b>sơ đồ tổ chức</b> (org chart) từ trên xuống, thể hiện rõ quan hệ cha–con</td></tr>
+          <tr><td>⇄ <b>Left → Right</b></td><td>Sơ đồ tổ chức theo chiều ngang</td></tr>
+        </table>
+        <div class="hint">
+          <b>Mẹo:</b> Ở 2 chế độ sơ đồ (TB/LR), dùng <b>lăn chuột (wheel)</b> để zoom in/out; click vào 1 node để chọn container đó (đồng bộ với danh sách file bên dưới).
+        </div>
+
+        <h3>Cây container (phân cấp cha–con)</h3>
+        <p>Container có thể lồng nhau thành cây (VD: container mẹ "Boiler" chứa các container con theo từng sự cố).
+        Click <b>phải</b> vào 1 container để mở menu:</p>
+        <table>
+          <tr><th>Mục menu</th><th>Chức năng</th></tr>
+          <tr><td>➕ <b>New Sub Container</b></td><td>Tạo container con bên trong container đang chọn</td></tr>
+          <tr><td>✏️ <b>Rename</b></td><td>Đổi tên container</td></tr>
+          <tr><td>🔗 <b>Set Parent…</b></td><td>Chuyển container vào làm con của 1 container khác</td></tr>
+          <tr><td>⬆ <b>Make Root</b></td><td>Đưa container ra khỏi container cha, trở thành container gốc</td></tr>
+          <tr><td>🗑 <b>Delete</b></td><td>Xóa container này (và toàn bộ container con bên trong nếu có)</td></tr>
+        </table>
+        <div class="warn">
+          <b>Lưu ý:</b> Xóa container chỉ xóa <b>nhóm</b> (danh sách liên kết đến file), <b>không xóa file gốc trên ổ đĩa</b>.
+        </div>
+
+        <h3>Gỡ file khỏi container</h3>
+        <ul>
+          <li>Chọn 1 file trong danh sách → bấm nút <b>Remove File</b> bên dưới danh sách để gỡ file đó khỏi container đang chọn.</li>
+          <li>Thao tác này chỉ gỡ liên kết trong container, <b>không xóa file gốc trên ổ đĩa</b>.</li>
+          <li>Nút hình vuông cạnh bên (⛶) <b>mở rộng/thu gọn khung tài liệu</b> (panel file list) khi cần xem nhiều dòng hơn.</li>
+        </ul>
+        <div class="hint">
+          Click phải trên 1 file trong container hiện chỉ có: 📁 Open Folder, 📓 Add to NotebookLM
+          (chưa có Delete/Remove trong menu này — dùng nút <b>Remove File</b> thay thế).
+        </div>
 
         <div class="hint">
           <b>Gợi ý đặt tên container chuẩn kỹ thuật:</b><br/>
@@ -358,23 +510,50 @@ class HelpDialog(QDialog):
         return f"""
         {self._base_style()}
         <body>
-        <h2>Notes (ghi chú theo file)</h2>
+        <h2>📄 Preview & Notes (PDF viewer + ghi chú AI)</h2>
 
-        <p>Notes giúp bạn lưu "tri thức cá nhân" ngay cạnh tài liệu: nhận xét, kết luận, checklist, ảnh chụp hiện trường/đồ thị.</p>
+        <p>Bấm nút <b>📄 Preview</b> ở sidebar phải để bật/tắt panel xem trước — panel này chỉ hoạt động với
+        <b>file PDF</b> (file khác sẽ không load được nội dung xem trước). Panel gồm 2 tab.</p>
 
-        <h3>Mở Notes</h3>
+        <h3>Tab "📄 Page" — xem PDF</h3>
         <ul>
-          <li>Chọn file trong container → mở Notes.</li>
-          <li>Hoặc dùng chức năng Notes panel (nếu có nút/khung Notes).</li>
+          <li>Xem PDF trực tiếp trong app (không cần mở app ngoài).</li>
+          <li><b>Ctrl+F</b> hoặc chuột phải → <b>Find…</b>: tìm chữ trong PDF (Prev/Next/Close).</li>
+          <li>Chuột phải → <b>Copy</b>: copy đoạn text đã bôi đen.</li>
         </ul>
 
-        <h3>Những gì Notes hỗ trợ</h3>
-        <ul>
-          <li><b>Text</b> (rich text) – bôi đen, xuống dòng, bullet…</li>
-          <li><b>Insert Image</b> – chèn ảnh minh họa</li>
-          <li><b>Save</b> – lưu dạng HTML (dễ mở lại và giữ format)</li>
-          <li><b>Font size</b> – tăng/giảm để đọc dễ</li>
-        </ul>
+        <h3>Tab "📝 Notes" — ghi chú cho file đang xem</h3>
+        <table>
+          <tr><th>Nút</th><th>Chức năng</th></tr>
+          <tr><td><b>Size / B / I</b></td><td>Cỡ chữ, đậm, nghiêng cho phần đang bôi đen</td></tr>
+          <tr><td>🖼 <b>Image</b></td><td>Chèn ảnh minh họa (hiện trường, đồ thị…) vào note</td></tr>
+          <tr><td>🌐 <b>VI/EN</b></td><td>Dịch nhanh nội dung note Anh↔Việt (có cache, không gọi API lại nếu đã dịch)</td></tr>
+          <tr><td>📓 <b>NbLM</b></td><td>Nhờ NotebookLM tóm tắt file (tự upload → lấy summary → xoá khỏi NotebookLM)</td></tr>
+          <tr><td>🗺 <b>Mind Map</b></td><td>Tạo sơ đồ tư duy bằng NotebookLM; có nút 🔄 tạo lại và ⛶ xem toàn màn hình</td></tr>
+          <tr><td>💾 <b>Save</b></td><td>Lưu note thủ công (app cũng <b>tự động lưu</b> khi bạn chuyển sang file khác hoặc đóng panel)</td></tr>
+        </table>
+
+        <div class="hint">
+          Note được lưu theo <b>đường dẫn file PDF</b> (không lưu theo container) — cùng 1 file PDF xuất hiện ở
+          nhiều container khác nhau vẫn dùng chung 1 note.
+        </div>
+
+        <h4>🗺 Mind Map — cách dùng chi tiết</h4>
+        <ol>
+          <li>Mở PDF trong Preview → tab Notes → bấm <b>🗺 Mind Map</b>.</li>
+          <li>Yêu cầu đã <b>đăng nhập NotebookLM</b> (🔑 Switch Account ở tab NotebookLM) — nếu chưa, app báo "Not Logged In".</li>
+          <li>App tạo notebook tạm, upload file, nhờ NotebookLM sinh sơ đồ, rồi <b>xóa notebook tạm ngay sau đó</b> —
+          kết quả chỉ được cache local (theo đường dẫn file), <u>không</u> lưu vào tài khoản NotebookLM của bạn.</li>
+          <li>Bấm 🗺 lại trên <b>cùng file đang xem</b> → ẩn/hiện lại sơ đồ đã có (không tạo lại, không tốn quota).</li>
+          <li>Chuyển sang file PDF khác rồi bấm 🗺 → luôn tạo/hiện sơ đồ <b>của file mới</b>, không bị kẹt ở sơ đồ file cũ.</li>
+          <li>🔄 <b>Regenerate</b>: xóa cache và tạo lại từ đầu (dùng khi tài liệu đã cập nhật).</li>
+          <li>⛶ <b>Fullscreen</b>: mở sơ đồ toàn màn hình để xem dễ hơn.</li>
+          <li>Click vào 1 <b>node</b> trong sơ đồ → app tự chuyển qua tab NotebookLM và hỏi thêm về node đó (cần notebook tương ứng đã được chọn/tự động khớp file).</li>
+        </ol>
+        <div class="hint">
+          Có <b>3 cách</b> tạo mind map trong app, khác nhau ở chỗ có lưu lại hay không — xem so sánh ở trang
+          <i>NotebookLM &amp; Studio</i>.
+        </div>
 
         <div class="ok">
           <b>Best practice:</b><br/>
@@ -457,27 +636,36 @@ class HelpDialog(QDialog):
         return f"""
         {self._base_style()}
         <body>
-        <h2>Index Search (SQLite DB)</h2>
+        <h2>🗄 DB Search (Index Search — SQLite)</h2>
 
-        <p>Index Search dùng database SQLite để tìm rất nhanh trong một "chỉ mục" đã xây sẵn.</p>
+        <p>Tab <b>🗄 DB Search</b> dùng database SQLite (build sẵn bằng script index, VD <code>create_index2.1.py</code>)
+        để tìm rất nhanh theo tên/nội dung file đã lập chỉ mục — không cần mở từng file gốc.</p>
 
         <h3>Cách dùng</h3>
         <ol>
-          <li>Mở <b>Index Search</b> (thường là nút/khung riêng).</li>
-          <li><b>Import DB (*.db)</b> để nạp database.</li>
-          <li>Nhập keyword → Search.</li>
-          <li>Mở file từ kết quả.</li>
+          <li><b>📂 Import DB</b>: chọn 1 hoặc nhiều file <code>.db</code> cùng lúc (multi-select).</li>
+          <li>Dropdown chọn DB: mặc định <b>All DBs</b> (tìm trên tất cả DB đã import cùng lúc), hoặc chọn đúng 1 DB cụ thể theo tên.</li>
+          <li>Gõ từ khóa vào ô tìm kiếm → Enter hoặc bấm <b>🔍 Search</b>.</li>
+          <li>Kết quả hiện dạng bảng <b>File Name | Path</b> — double-click để mở file.</li>
+          <li><b>📋 Copy</b>: copy tên file đang chọn trong kết quả.</li>
         </ol>
+        <div class="hint">
+          Danh sách DB đã import được nhớ lại giữa các lần mở app (lưu ở <code>db_list.json</code>) —
+          không cần import lại mỗi lần mở.
+        </div>
 
         <h3>DB có thể chứa gì?</h3>
         <ul>
-          <li><b>Name index</b>: tên file, đường dẫn, metadata.</li>
-          <li><b>Content index</b> (nếu DB có): nội dung text đã trích từ PDF/Word/Text.</li>
+          <li><b>Name index</b>: tên file, đường dẫn, loại file.</li>
+          <li><b>Content index</b> (nếu DB có cột content): nội dung text đã trích từ PDF/Word/Text, tìm bằng <code>LIKE</code>.</li>
         </ul>
 
-        <div class="hint">
-          <b>Mẹo:</b> Nếu bạn đã có DB index content, đây là cách tìm "từ trong nội dung" nhanh hơn RAG.
-          RAG phù hợp hơn cho hỏi-đáp, tóm tắt, giải thích theo tài liệu.
+        <div class="warn">
+          <b>Phân biệt với tab 🤖 Claude:</b> DB dùng ở tab DB Search có schema đơn giản
+          (<code>files: id/name/path/type/content</code>). DB dùng ở tab Claude có schema riêng, phức tạp hơn
+          (<code>doc_number</code>, <code>lot</code>, <code>discipline</code>, bảng <code>chunks</code> + FTS5) —
+          <b>không dùng lẫn hai loại DB này cho nhau.</b> Nếu cần hỏi-đáp/chẩn đoán sâu theo tài liệu kỹ thuật, dùng tab
+          <b>🤖 Claude</b> thay vì DB Search.
         </div>
         </body>
         """
@@ -488,9 +676,21 @@ class HelpDialog(QDialog):
         <body>
         <h2>Tools / EXE Launcher</h2>
 
-        <p>Tính năng này giúp bạn "gắn" các phần mềm/EXE hay dùng vào giao diện để mở nhanh.</p>
+        <h3>Panel "Tools" (sidebar phải)</h3>
+        <p>Các tool dựng sẵn trong app:</p>
+        <table>
+          <tr><th>Nút</th><th>Chức năng</th></tr>
+          <tr><td>📋 <b>List Files</b></td><td>Chọn nhiều thư mục cùng lúc (Ctrl/Shift+click), xem dạng cây phân cấp folder/file, tick chọn để thêm vào phạm vi search</td></tr>
+          <tr><td>🔄 <b>Sync Folders</b></td><td>Đồng bộ nội dung Folder A → Folder B, xem song song 2 cây thư mục (Source | Target); cấu hình lưu ở <code>sync_config.json</code></td></tr>
+          <tr><td>🔍 <b>Duplicates</b></td><td>Quét file trùng nội dung — xem chi tiết ở mục <i>Search Duplicates</i></td></tr>
+          <tr><td>📝 <b>Open Notes</b></td><td>Mở/tạo file <code>Notes.xlsm</code> (sổ ghi chú dạng Excel — khác với tab 📝 Notes trong panel <b>Preview</b>, vốn là note HTML gắn theo từng file PDF)</td></tr>
+          <tr><td>🔗 <b>Hyperlink Notes</b></td><td>Chọn file đã tick trong cây kết quả → gắn hyperlink các file đó vào 1 ô trong <code>Notes.xlsm</code></td></tr>
+          <tr><td>📊 <b>Google Sheet</b></td><td>So sánh nội dung 2 tab trong 1 Google Sheet (diff checker) — hoạt động không cần API key (sheet "Anyone with link"), có API key thì tự load tên tab</td></tr>
+        </table>
 
-        <h3>Ví dụ tool nên gắn</h3>
+        <h3>Panel "ADD ON" — gắn EXE ngoài</h3>
+        <p>Giúp bạn "gắn" các phần mềm/EXE hay dùng vào giao diện để mở nhanh.</p>
+        <h4>Ví dụ tool nên gắn</h4>
         <ul>
           <li>PDF reader</li>
           <li>CAD viewer (DWG/DXF)</li>
@@ -498,14 +698,12 @@ class HelpDialog(QDialog):
           <li>Notepad++ / VS Code</li>
           <li>Tool nội bộ công ty</li>
         </ul>
-
-        <h3>Cách dùng</h3>
+        <h4>Cách dùng</h4>
         <ol>
-          <li>Thêm tool (Add EXE) → chọn file .exe.</li>
-          <li>Tool xuất hiện ở khu vực Tools.</li>
+          <li>Bấm <b>ADD ON ➕</b> → chọn file .exe.</li>
+          <li>Tool xuất hiện trong danh sách bên dưới nút ADD ON.</li>
           <li>Click để mở tool nhanh.</li>
         </ol>
-
         <div class="hint">
           <b>Gợi ý:</b> Bạn nên đặt tên tool theo workflow:
           <code>PDF</code>, <code>DWG Viewer</code>, <code>OCR</code>, <code>Log Viewer</code>, <code>Trend Tool</code>…
@@ -539,6 +737,21 @@ class HelpDialog(QDialog):
           <li>Mặc định tất cả source được tick (dùng tất cả khi generate).</li>
           <li>Click phải source → menu: <i>View Content, Create Mind Map, Delete</i>.</li>
         </ul>
+
+        <div class="ok">
+          <b>3 cách tạo Mind Map — khác nhau ở chỗ có lưu lại hay không:</b>
+          <table>
+            <tr><th>Cách</th><th>Nơi bấm</th><th>Có lưu vĩnh viễn?</th></tr>
+            <tr><td>1. Preview panel</td><td>Tab 📝 Notes → nút 🗺 Mind Map</td>
+                <td>❌ Không — notebook tạm, xóa ngay sau khi xong, chỉ cache local theo file</td></tr>
+            <tr><td>2. Click phải Source</td><td>Cây Notebooks/Sources → <i>Create Mind Map</i></td>
+                <td>❌ Không — có file local thì giống Cách 1; không có file local thì tạo online tạm thời (không thành artifact)</td></tr>
+            <tr><td>3. Studio panel</td><td>🎨 Studio → nút 🗺 Mind Map</td>
+                <td>✅ Có — lưu thành <b>artifact thật</b> trong notebook, hiện trong "Existing Artifacts", mở lại bất cứ lúc nào</td></tr>
+          </table>
+          Muốn giữ lại mind map lâu dài (chia sẻ, xem lại sau) → luôn dùng <b>Cách 3 (Studio)</b>.
+          Muốn xem nhanh không cần lưu → dùng Cách 1 hoặc 2.
+        </div>
 
         <h3>Tab Chat</h3>
         <ul>
@@ -641,7 +854,8 @@ class HelpDialog(QDialog):
         <ul>
           <li><b>Double-click</b> kết quả → mở file</li>
           <li><b>Click</b> container → xem danh sách file</li>
-          <li><b>Click</b> source trong AI Popup → mở file nguồn</li>
+          <li><b>Click</b> trích dẫn nguồn trong tab NotebookLM/Claude → mở file nguồn tương ứng</li>
+          <li><b>Lăn chuột</b> trên sơ đồ container (chế độ TB/LR) → zoom in/out</li>
         </ul>
 
         <div class="hint">
@@ -663,7 +877,7 @@ class HelpDialog(QDialog):
           <li>Tạo container: <code>Trip-YYYY-MM-DD-Shift</code></li>
           <li>Add vào container: SLD, logic trip, SOE/log, SOP, báo cáo cũ</li>
           <li>Notes: ghi "Symptom → Evidence → Hypothesis → Action"</li>
-          <li>(Nếu có vector store) hỏi AI: checklist & trích SOP</li>
+          <li>Tab <b>🤖 Claude</b>: bấm <b>🔬 Diagnose</b>, mô tả triệu chứng → xem cây nguyên nhân + bằng chứng → <b>Generate KV-OP Report</b> để có bản nháp báo cáo ngay</li>
         </ol>
 
         <h3>Template 2 – Commissioning / Test</h3>
@@ -703,27 +917,35 @@ class HelpDialog(QDialog):
           <li>Giải pháp: quét theo từng thư mục con / theo từng loại file.</li>
         </ul>
 
-        <h3>3) AI Popup báo thiếu vector store</h3>
+        <h3>3) Tab Claude không phản hồi / báo lỗi</h3>
         <ul>
-          <li>Folder vector store phải có: <code>index.faiss</code>, <code>metadata.json</code>, <code>base_path.txt</code>.</li>
-          <li>Nếu thiếu: hãy rebuild vector store bằng tool build/append.</li>
+          <li>Chưa đăng nhập Claude Code CLI → bấm <b>🔑 Login</b>, đăng nhập trong cửa sổ console hiện ra.</li>
+          <li>Nếu vẫn lỗi, kiểm tra máy đã cài <code>claude</code> CLI (Claude Code) chưa.</li>
         </ul>
 
-        <h3>4) Sources trong AI Popup click không mở</h3>
+        <h3>4) Tab Claude — Diagnose / Quick Card / Work Pack / Trend Data không chạy được</h3>
         <ul>
-          <li>Đường dẫn gốc trong <code>base_path.txt</code> sai hoặc đã di chuyển folder tài liệu.</li>
-          <li>Giải pháp: rebuild store hoặc sửa base_path đúng thư mục tài liệu.</li>
+          <li>Chưa chọn DB → bấm <b>📂 Select DB</b>, chọn đúng file <code>.db/.sqlite</code> chứa tài liệu kỹ thuật
+              (bảng <code>files</code>/<code>chunks</code> + FTS5 — <b>không phải</b> DB đơn giản của tab DB Search).</li>
+          <li>Nếu chọn nhầm DB (thiếu bảng <code>chunks</code>/FTS5), app sẽ không tìm được ngữ cảnh phù hợp.</li>
         </ul>
 
-        <h3>5) Notes không lưu / không hiện ảnh</h3>
+        <h3>5) NotebookLM báo "Không thể tự làm mới session"</h3>
+        <ul>
+          <li>Nguyên nhân: session/cookie Google đã hết hạn (thường do lâu ngày không dùng hoặc đổi mật khẩu),
+              không phải lỗi code.</li>
+          <li>Giải pháp: bấm <b>🔑 Switch Account</b> để đăng nhập Google lại thủ công 1 lần.</li>
+        </ul>
+
+        <h3>6) Notes không lưu / không hiện ảnh</h3>
         <ul>
           <li>Kiểm tra quyền ghi file (folder chỉ đọc).</li>
           <li>Ảnh quá lớn: thử resize ảnh trước khi insert.</li>
         </ul>
 
         <div class="ok">
-          <b>Pro tip:</b> Nếu bạn muốn app "không bao giờ đơ", hãy chuyển các tác vụ nặng
-          (search folder lớn, duplicates, build store) sang <b>QThread/QRunnable</b>.
+          <b>Pro tip:</b> Nếu bạn muốn app "không bao giờ đơ", các tác vụ nặng (search folder lớn, duplicates,
+          gọi AI) đều nên chạy trong <b>QThread/QRunnable</b> nền — app hiện đã làm vậy cho Duplicates, Group AI, Claude chat.
         </div>
         </body>
         """
@@ -746,12 +968,11 @@ class HelpDialog(QDialog):
           <tr>
             <td><code>$stats</code></td>
             <td>Xem thống kê file đã mở</td>
-            <td>Hiện bảng thống kê theo tháng / năm — file nào mở nhiều nhất</td>
-          </tr>
-          <tr>
-            <td><code>list all of document that you learned</code></td>
-            <td>Liệt kê tài liệu AI đã học</td>
-            <td>Gõ trong <b>AI Chat Popup</b> — hiện toàn bộ file có trong Vector Store đang tải</td>
+            <td>
+              Mở dialog <b>File Open Statistics</b>: lưới nhiệt kiểu GitHub contribution graph (16 tuần gần nhất,
+              đậm nhạt theo số lần mở/ngày) + bảng xếp hạng file mở nhiều nhất (🔥 nhiều nhất, 📈/📄/🗒️ theo mức độ).
+              Có thể lọc theo <b>Year</b>/<b>Month</b> rồi bấm <b>View</b>.
+            </td>
           </tr>
           <tr>
             <td><code>@keyword</code></td>
@@ -776,7 +997,7 @@ class HelpDialog(QDialog):
           <tr>
             <td><code>@colour0</code></td>
             <td>Đổi giao diện → <b>Metal Blue</b> (màu gốc)</td>
-            <td rowspan="6">Gõ vào ô Keyword rồi bấm Search. Không cần chọn folder.</td>
+            <td rowspan="7">Gõ vào ô Keyword rồi bấm Search. Không cần chọn folder.</td>
           </tr>
           <tr>
             <td><code>@colour1</code></td>
@@ -797,6 +1018,10 @@ class HelpDialog(QDialog):
           <tr>
             <td><code>@colour5</code></td>
             <td>Đổi giao diện → <b>Arctic Frost</b></td>
+          </tr>
+          <tr>
+            <td><code>@colour6</code></td>
+            <td>Đổi giao diện → <b>Ghost Purple</b></td>
           </tr>
         </table>
 

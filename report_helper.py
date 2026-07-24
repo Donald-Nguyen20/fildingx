@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import datetime
 import os
+import sys
 from pathlib import Path
 
 from docx import Document
@@ -35,8 +36,13 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Cm, Pt, RGBColor
 
-# Output directory — all reports saved here
-REPORTS_DIR = Path(__file__).parent / "reports"
+# Output directory — luôn nằm CẠNH app (cùng cấp .exe), không nằm trong
+# thư mục đóng gói _internal. Khi chạy dev thì nằm cạnh source.
+if getattr(sys, "frozen", False):
+    _APP_BASE = Path(sys.executable).parent
+else:
+    _APP_BASE = Path(__file__).parent
+REPORTS_DIR = _APP_BASE / "reports"
 REPORTS_DIR.mkdir(exist_ok=True)
 
 

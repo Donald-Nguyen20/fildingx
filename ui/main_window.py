@@ -257,6 +257,15 @@ class FileSearchApp(QMainWindow):
         self.filename_entry = QLineEdit()
         self.filename_entry.setPlaceholderText("Search by name… ($stats, @fuzzy, A,B=or, A*B=and, A%B=not, folder:name)")
         self.filename_entry.returnPressed.connect(self.search_files)
+        self.filename_entry.setToolTip(
+            "<b>Search syntax:</b><br>"
+            "&nbsp;&nbsp;<code>A , B</code> &nbsp;→ contains A <b>or</b> B<br>"
+            "&nbsp;&nbsp;<code>A * B</code> &nbsp;→ contains <b>both</b> A and B<br>"
+            "&nbsp;&nbsp;<code>A % B</code> &nbsp;→ contains A, <b>excludes</b> B<br>"
+            "&nbsp;&nbsp;<code>@keyword</code> → fuzzy search + synonyms<br>"
+            "&nbsp;&nbsp;<code>folder:name</code> → search folders instead of files<br>"
+            "&nbsp;&nbsp;<code>$stats</code> → view file-open statistics"
+        )
         h.addWidget(self.filename_entry, 3)
         self.search_btn = QPushButton("🔍  Search")
         self.search_btn.setMinimumWidth(120)
@@ -1102,17 +1111,18 @@ class FileSearchApp(QMainWindow):
     def eventFilter(self, obj, event):
         from PySide6.QtCore import QEvent
         from PySide6.QtGui import QMouseEvent, QKeyEvent
-        if obj is self.tree_widget and event.type() == QEvent.KeyPress:
+        tree_widget = getattr(self, "tree_widget", None)
+        if tree_widget is not None and obj is tree_widget and event.type() == QEvent.KeyPress:
             if event.key() == Qt.Key_A and event.modifiers() == Qt.ControlModifier:
                 self._check_all_items()
                 return True
             if event.key() == Qt.Key_A and event.modifiers() == (Qt.ControlModifier | Qt.ShiftModifier):
                 self._uncheck_all_items()
                 return True
-        if obj is self.tree_widget.viewport() and event.type() == QEvent.MouseButtonPress:
-            item = self.tree_widget.itemAt(event.pos())
+        if tree_widget is not None and obj is tree_widget.viewport() and event.type() == QEvent.MouseButtonPress:
+            item = tree_widget.itemAt(event.pos())
             if item is None:
-                self.tree_widget.clearSelection()
+                tree_widget.clearSelection()
         return super().eventFilter(obj, event)
 
     def _check_all_items(self):
@@ -1340,27 +1350,29 @@ class FileSearchApp(QMainWindow):
             
         QMessageBox.information(self, "NotebookLM", msg)
 
-    def _open_preview_from_nlm(self, file_path: str, page_num):
+    def _reveal_pdf_preview(self):
+        """Đảm bảo pdf_preview thực sự nhìn thấy được: chuyển _search_tabs về
+        tab "🔍 File Search" (nơi pdf_preview thực sự nằm trong splitter) rồi mới show."""
+        self._search_tabs.setCurrentIndex(0)
         if not self.pdf_preview.isVisible():
             self.pdf_preview.show()
-            self._splitter.setSizes([6000, 4000])
+        self._splitter.setSizes([6000, 4000])
+
+    def _open_preview_from_nlm(self, file_path: str, page_num):
+        self._reveal_pdf_preview()
         self.pdf_preview.load(file_path)
         if page_num is not None and page_num > 0:
             self.pdf_preview.goto_page(page_num)
 
     def _mindmap_from_nlm_source(self, file_path: str):
         """Mở PDF preview và tạo mind map từ source được chọn trong NbLM."""
-        if not self.pdf_preview.isVisible():
-            self.pdf_preview.show()
-            self._splitter.setSizes([6000, 4000])
+        self._reveal_pdf_preview()
         self.pdf_preview.load(file_path)
         self.pdf_preview._nlm_mind_map()
 
     def _mindmap_online_in_preview(self, notebook_id: str, source_id: str, title: str):
         """Tạo mind map online, hiển thị trong panel Notes của pdf_preview."""
-        if not self.pdf_preview.isVisible():
-            self.pdf_preview.show()
-            self._splitter.setSizes([6000, 4000])
+        self._reveal_pdf_preview()
         self.pdf_preview.show_mindmap_online(notebook_id, source_id, title)
 
     def _open_folder_path(self, folder: str):

@@ -4576,15 +4576,15 @@ class NotebookLMWidget(QWidget):
             _parent = self.window()
             pp = getattr(_parent, "pdf_preview", None)
             if pp and getattr(pp, "_web_view", None):
-                if not pp.isVisible():
+                reveal = getattr(_parent, "_reveal_pdf_preview", None)
+                if reveal:
+                    reveal()
+                elif not pp.isVisible():
                     pp.show()
-                    try:
-                        _parent._splitter.setSizes([6000, 4000])
-                    except Exception:
-                        pass
                 pp._web_view.setHtml(html)
                 pp._show_mindmap_panel()
                 pp._online_mindmap_html = html
+                pp._mindmap_shown_path = None
             else:
                 self._show_html_dialog(html)
 

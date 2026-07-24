@@ -87,13 +87,39 @@ Khối JSON là BẮT BUỘC và phải nằm ở CUỐI câu trả lời. CHỈ
     return instr
 
 
-def build_diagnosis_prompt(symptom: str, precedent_block: str = "") -> str:
-    """Prompt người dùng cho 1 lượt chẩn đoán (kèm tiền lệ nếu có)."""
+def build_diagnosis_prompt(
+    symptom: str, precedent_block: str = "", trend_block: str = ""
+) -> str:
+    """Prompt người dùng cho 1 lượt chẩn đoán (kèm tiền lệ / dữ liệu trend nếu có)."""
     base = f"Triệu chứng sự cố cần chẩn đoán:\n\"{symptom.strip()}\"\n\n"
+    if trend_block:
+        base += trend_block + "\n\n"
     if precedent_block:
         base += precedent_block + "\n\n"
     base += "Hãy chạy quy trình suy luận đa tầng rồi trả về tóm tắt + khối JSON cây nguyên nhân."
     return base
+
+
+_TREND_MAX_CHARS = 6000
+
+
+def build_trend_block(data_text: str) -> str:
+    """Đóng gói dữ liệu trend/log người dùng dán vào thành khối cho prompt chẩn đoán."""
+    data = (data_text or "").strip()
+    if not data:
+        return ""
+    if len(data) > _TREND_MAX_CHARS:
+        data = data[:_TREND_MAX_CHARS] + "\n… (đã cắt bớt)"
+    return (
+        "[Dữ liệu trend / log sheet kèm theo]\n"
+        "```\n" + data + "\n```\n"
+        "PHÂN TÍCH SỐ LIỆU TRƯỚC KHI TRUY VẤN DB:\n"
+        "- Nhận diện xu hướng: tăng/giảm, tốc độ thay đổi, thời điểm bắt đầu bất thường, giá trị đỉnh.\n"
+        "- Sau khi lấy được alarm/trip setpoint từ DB (bước ②), ĐỐI CHIẾU từng giá trị đo "
+        "với setpoint: vượt alarm chưa, cách trip bao nhiêu.\n"
+        "- Đưa nhận định số liệu (kèm con số cụ thể) vào phần tóm tắt và vào 'rationale' "
+        "của từng nguyên nhân trong khối JSON."
+    )
 
 
 # ── Parse khối JSON kết quả từ stream text của Claude ─────────────────────
@@ -632,5 +658,150 @@ def render_quickcard(card: dict) -> str:
             rh.add_bullet(doc, str(r))
 
     fname = card.get("filename") or ("QuickCard_" + equip)
+    fname = re.sub(r"[^0-9A-Za-z_\-.]+", "_", str(fname))
+    return rh.save_report(doc, fname)
+
+
+# ── Work Package: gom trọn bộ hồ sơ chuẩn bị cho 1 công việc → JSON → docx ───
+
+def build_workpackage_system_prompt(db_path: str, claude_md: str = "") -> str:
+    """System prompt: Claude gom procedure/drawing/setpoint/safety cho 1 công việc."""
+    instr = f"""Bạn là kỹ sư lập GÓI CHUẨN BỊ CÔNG VIỆC (work package) cho nhà máy điện.
+Từ MÔ TẢ CÔNG VIỆC (VD "thay bearing IDF-A"), gom trọn bộ tài liệu và thông tin
+cần chuẩn bị từ DB tài liệu.
+
+File DB: "{db_path}"
+Truy vấn DB CHỈ bằng Bash (read-only, chỉ SELECT):
+  python db_query.py "{db_path}" "SQL query"
+
+QUY TRÌNH:
+  ① Xác định thiết bị + system_code liên quan công việc:
+     python db_query.py "{db_path}" "SELECT DISTINCT system_code,doc_number,name,discipline FROM files WHERE id IN (SELECT rowid FROM files_fts WHERE files_fts MATCH '<từ khóa thiết bị>*') AND name!='BASE_PATH' LIMIT 10"
+  ② Tìm PROCEDURE liên quan (ưu tiên discipline G — O&M manual, F — commissioning):
+     tra chunks_fts MATCH '<công việc> OR maintenance OR replacement OR overhaul OR procedure'
+  ③ Tìm DRAWING liên quan (discipline M/P/I — bản vẽ lắp, P&ID, logic):
+     tra files_fts theo system_code, lọc discipline
+  ④ Lấy ALARM/TRIP SETPOINT cần lưu ý khi tách/tái nhập thiết bị:
+     tra chunks_fts MATCH 'alarm OR trip OR setpoint OR interlock' theo system_code
+  ⑤ Tìm SAFETY PRECAUTION + spare part/tool trong O&M manual:
+     tra chunks_fts MATCH 'safety OR precaution OR warning OR spare OR tool'
+
+NGUYÊN TẮC:
+- Nội dung viết bằng TIẾNG ANH, súc tích (gói mang ra hiện trường / họp toolbox).
+- Mỗi tài liệu liệt kê phải là doc_number THẬT lấy từ query. KHÔNG bịa.
+- Không tìm được mục nào thì để trống mục đó.
+- KHÔNG viết script, KHÔNG tạo file. App sẽ tự render .docx từ JSON bạn trả về.
+
+ĐẦU RA: sau khi gom xong, trả về DUY NHẤT một khối ```json``` theo schema (chỉ SELECT)."""
+    if claude_md:
+        return claude_md.strip() + "\n\n" + instr
+    return instr
+
+
+def build_workpackage_prompt(job: str) -> str:
+    """User prompt: yêu cầu lập work package cho 1 công việc + schema JSON."""
+    schema = (
+        '{\n'
+        '  "job": "...", "equipment": "...", "system_code": "...",\n'
+        '  "safety_precautions": ["...", ...],\n'
+        '  "procedures": [["<doc_number>","<title/section>","<note>"], ...],\n'
+        '  "drawings": [["<doc_number>","<title>","<type: P&ID/assembly/logic>"], ...],\n'
+        '  "setpoints": [["Parameter","Alarm","Trip","Unit"], ...],\n'
+        '  "tools_materials": ["...", ...],\n'
+        '  "spare_parts": [["Part","Spec/PN","Qty"], ...],\n'
+        '  "steps": ["<bước chuẩn bị / trình tự chính>", ...],\n'
+        '  "references": ["Doc: <doc_number> §<section>", ...],\n'
+        '  "filename": "WorkPackage_<ShortName>"\n'
+        '}'
+    )
+    return (
+        f'Lập GÓI CHUẨN BỊ CÔNG VIỆC cho: "{job.strip()}".\n'
+        "Gom tài liệu/thông tin từ DB rồi trả về DUY NHẤT một khối ```json``` theo schema:\n"
+        f"```json\n{schema}\n```"
+    )
+
+
+def extract_workpackage_json(full_text: str) -> Optional[dict]:
+    """Trích khối JSON work package (phân biệt qua key đặc trưng)."""
+    _WP_KEYS = ("procedures", "safety_precautions", "tools_materials", "spare_parts")
+    for raw in reversed(_JSON_FENCE_RE.findall(full_text or "")):
+        try:
+            d = json.loads(raw)
+        except Exception:
+            continue
+        if isinstance(d, dict) and any(k in d for k in _WP_KEYS):
+            return d
+    return None
+
+
+def render_workpackage(wp: dict) -> str:
+    """Render gói chuẩn bị công việc .docx từ JSON, dùng report_helper. Trả path."""
+    import report_helper as rh
+
+    def _rows(node, ncol):
+        out = []
+        for r in _as_list(node):
+            if isinstance(r, (list, tuple)):
+                r = list(r) + [""] * (ncol - len(r))
+                out.append([str(c) for c in r[:ncol]])
+        return out
+
+    doc = rh.new_doc()
+    job = wp.get("job") or "Work Package"
+    rh.add_section(doc, f"WORK PACKAGE — {job}")
+
+    meta = "   |   ".join(x for x in [
+        f"Equipment: {wp.get('equipment','')}"  if wp.get("equipment") else "",
+        f"System: {wp.get('system_code','')}"   if wp.get("system_code") else "",
+        f"Date: {datetime.datetime.now().strftime('%d %b %Y')}",
+    ] if x)
+    if meta:
+        rh.add_para(doc, meta)
+
+    sp = _as_list(wp.get("safety_precautions"))
+    if sp:
+        rh.add_section(doc, "Safety Precautions", level=3)
+        for s in sp:
+            rh.add_bullet(doc, str(s))
+
+    procs = _rows(wp.get("procedures"), 3)
+    if procs:
+        rh.add_section(doc, "Procedures", level=3)
+        rh.add_data_table(doc, ["Doc Number", "Title / Section", "Note"], procs, alt_color="DDEBF7")
+
+    dwgs = _rows(wp.get("drawings"), 3)
+    if dwgs:
+        rh.add_section(doc, "Drawings", level=3)
+        rh.add_data_table(doc, ["Doc Number", "Title", "Type"], dwgs, alt_color="DDEBF7")
+
+    sps = _rows(wp.get("setpoints"), 4)
+    if sps:
+        rh.add_section(doc, "Alarm / Trip Setpoints to Watch", level=3)
+        rh.add_data_table(doc, ["Parameter", "Alarm", "Trip", "Unit"], sps, alt_color="DDEBF7")
+
+    tm = _as_list(wp.get("tools_materials"))
+    if tm:
+        rh.add_section(doc, "Tools & Materials", level=3)
+        for t in tm:
+            rh.add_bullet(doc, str(t))
+
+    parts = _rows(wp.get("spare_parts"), 3)
+    if parts:
+        rh.add_section(doc, "Spare Parts", level=3)
+        rh.add_data_table(doc, ["Part", "Spec / P.N.", "Qty"], parts, alt_color="DDEBF7")
+
+    steps = _as_list(wp.get("steps"))
+    if steps:
+        rh.add_section(doc, "Preparation / Main Sequence", level=3)
+        for i, s in enumerate(steps, 1):
+            rh.add_bullet(doc, f"{i}. {s}")
+
+    refs = _as_list(wp.get("references"))
+    if refs:
+        rh.add_section(doc, "References", level=3)
+        for r in refs:
+            rh.add_bullet(doc, str(r))
+
+    fname = wp.get("filename") or ("WorkPackage_" + job)
     fname = re.sub(r"[^0-9A-Za-z_\-.]+", "_", str(fname))
     return rh.save_report(doc, fname)

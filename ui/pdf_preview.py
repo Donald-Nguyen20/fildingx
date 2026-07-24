@@ -225,6 +225,7 @@ class PdfPreviewWidget(QWidget):
         self._online_mindmap_nb_id  = None   # notebook_id khi dùng mind map online
         self._online_mindmap_html   = None   # HTML cache cho fullscreen
         self._online_mindmap_title  = ""
+        self._mindmap_shown_path    = None   # path của file đang hiển thị mind map local (None = đang hiện online hoặc chưa hiện gì)
         self.setMinimumWidth(300)
         self.setFocusPolicy(Qt.WheelFocus)
         self._setup_ui()
@@ -530,6 +531,7 @@ class PdfPreviewWidget(QWidget):
         if self._path:
             self._save_note(silent=True)
         self._path     = None
+        self._mindmap_shown_path = None
         self.pdf_view.setHtml("")
         self.txt_summary.clear()
 
@@ -663,14 +665,27 @@ class PdfPreviewWidget(QWidget):
         return os.path.join(paths.MINDMAP_DIR, f"{h}.html")
 
     def _nlm_mind_map(self):
+        try:
+            self._nlm_mind_map_impl()
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            self.btn_mind_map.setEnabled(True)
+            self.btn_mind_map.setText("🗺 Mind Map")
+            QMessageBox.critical(self, "Mind Map Error", f"Lỗi khi tạo mind map:\n\n{e}")
+
+    def _nlm_mind_map_impl(self):
         if not self._path:
+            QMessageBox.warning(self, "No File", "Chưa mở file PDF nào trong Preview.")
             return
         if self._web_view is None:
             QMessageBox.warning(self, "Not Available",
                 "QWebEngineView is not installed.\nInstall PySide6-WebEngine to use Mind Map.")
             return
-        # Toggle: if already visible, hide it
-        if self._web_view.isVisible():
+        # Toggle: if already showing THIS file's map, hide it. If it's showing
+        # a different file's map (or an online map), fall through and (re)generate
+        # for the current file instead of just hiding it.
+        if self._web_view.isVisible() and self._mindmap_shown_path == self._path:
             self._web_view.setVisible(False)
             self.btn_regen_map.setVisible(False)
             self.btn_fullscreen_map.setVisible(False)
@@ -681,6 +696,7 @@ class PdfPreviewWidget(QWidget):
         if cached and os.path.isfile(cached):
             with open(cached, "r", encoding="utf-8") as f:
                 html = f.read()
+            self._mindmap_shown_path = self._path
             self._show_mindmap(html)
             return
         # Need to generate — check login
@@ -693,6 +709,7 @@ class PdfPreviewWidget(QWidget):
         self.btn_mind_map.setText("⏳")
         self._web_view.setHtml("<p style='font-family:sans-serif;color:#cdd6f4;padding:16px'>Generating mind map…</p>")
         self._show_mindmap_panel()
+        self._mindmap_shown_path = self._path
         _nlm = getattr(self.window(), "notebooklm_widget", None)
         _lang = getattr(_nlm, "_current_language", "en")
         self._mindmap_worker = MindMapWorker(self._path, _lang)
@@ -701,6 +718,16 @@ class PdfPreviewWidget(QWidget):
         self._mindmap_worker.start()
 
     def show_mindmap_online(self, notebook_id: str, source_id: str, title: str):
+        try:
+            self._show_mindmap_online_impl(notebook_id, source_id, title)
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            self.btn_mind_map.setEnabled(True)
+            self.btn_mind_map.setText("🗺 Mind Map")
+            QMessageBox.critical(self, "Mind Map Error", f"Lỗi khi tạo mind map:\n\n{e}")
+
+    def _show_mindmap_online_impl(self, notebook_id: str, source_id: str, title: str):
         """Tạo mind map từ source trên NbLM, hiển thị trong Notes panel (không cần file local)."""
         if self._web_view is None:
             QMessageBox.warning(self, "Not Available",
@@ -714,6 +741,7 @@ class PdfPreviewWidget(QWidget):
         self._online_mindmap_nb_id = notebook_id
         self._online_mindmap_title = title
         self._online_mindmap_html  = None
+        self._mindmap_shown_path   = None
         self.btn_mind_map.setEnabled(False)
         self.btn_mind_map.setText("⏳")
         self._web_view.setHtml("<p style='font-family:sans-serif;color:#cdd6f4;padding:16px'>Generating mind map…</p>")
