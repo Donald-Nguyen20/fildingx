@@ -2,6 +2,8 @@
 #   1) SECRETS / LOCAL CONFIG (NEVER COMMIT)
 # ###########################################################################
 llm_config.json
+gsheet_config.json
+sync_config.json
 *.env
 .env
 .env.*
@@ -192,3 +194,10 @@ make_report_*.py
 gen_report_*.py
 reports/
 ~$*.docx
+*.docx
+
+# Tool output / scratch scripts (không thuộc source app)
+.understand-anything/
+create_index2.1.py
+maunotebooklm.py
+query_ecc.py

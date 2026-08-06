@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QTimer
 
 import paths
+from core.ai_grouper import GroupWorker
 from ui.hud_widgets import qss_hud_metal_header_feel, qss_white_results
 
 _DB_LIST_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "db_list.json")
@@ -42,6 +43,8 @@ class IndexSearchWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.db_paths: list = _load_db_list()
+        self._last_rows: list = []
+        self._group_worker = None
         self._setup_ui()
 
     def _setup_ui(self):
@@ -71,11 +74,17 @@ class IndexSearchWidget(QWidget):
         self.copy_name_btn.setFixedHeight(38)
         self.copy_name_btn.setToolTip("Copy file name")
 
+        self.btn_group = QPushButton("🤖 Group")
+        self.btn_group.setFixedHeight(38)
+        self.btn_group.setEnabled(False)
+        self.btn_group.setToolTip("Nhờ AI phân nhóm kết quả tìm kiếm theo loại tài liệu")
+
         h_layout.addWidget(self.import_btn)
         h_layout.addWidget(self.db_selector)
         h_layout.addWidget(self.search_input, 1)
         h_layout.addWidget(self.search_btn)
         h_layout.addWidget(self.copy_name_btn)
+        h_layout.addWidget(self.btn_group)
 
         # ── Result count ─────────────────────────────────────────
         self.lbl_count = QLabel("")
@@ -86,7 +95,7 @@ class IndexSearchWidget(QWidget):
         self.result_table.setObjectName("resultsTree")
         self.result_table.setAlternatingRowColors(True)
         self.result_table.setUniformRowHeights(True)
-        self.result_table.setRootIsDecorated(False)
+        self.result_table.setRootIsDecorated(True)
         self.result_table.setColumnCount(2)
         self.result_table.setHeaderLabels(["File Name", "Path"])
         self.result_table.header().setSectionResizeMode(0, self.result_table.header().ResizeMode.Stretch)
@@ -100,6 +109,7 @@ class IndexSearchWidget(QWidget):
         self.search_btn.clicked.connect(self._search)
         self.search_input.returnPressed.connect(self._search)
         self.copy_name_btn.clicked.connect(self._copy_name)
+        self.btn_group.clicked.connect(self._run_group)
         self.result_table.itemDoubleClicked.connect(self._open_file)
 
     # ── private ──────────────────────────────────────────────────
@@ -139,6 +149,7 @@ class IndexSearchWidget(QWidget):
             for row in self._search_single(selected_data, keyword):
                 rows.append((*row, selected_data))
 
+        self._last_rows = rows
         self.result_table.clear()
         if rows:
             for name, path, _type, db_path in rows:
@@ -146,8 +157,10 @@ class IndexSearchWidget(QWidget):
                 item.setData(0, Qt.UserRole, db_path)
                 self.result_table.addTopLevelItem(item)
             self.lbl_count.setText(f"Found {len(rows)} result(s) for \"{keyword}\"")
+            self.btn_group.setEnabled(True)
         else:
             self.lbl_count.setText(f"No results for \"{keyword}\"")
+            self.btn_group.setEnabled(False)
 
     def _search_single(self, db_path: str, keyword: str) -> list:
         try:
@@ -180,10 +193,79 @@ class IndexSearchWidget(QWidget):
         else:
             self.lbl_count.setText("Select a file first.")
 
+    # ── AI Group ─────────────────────────────────────────────────
+
+    def _run_group(self):
+        if not self._last_rows:
+            return
+        from core.llm_config import load_llm_config
+        provider = load_llm_config().get("translate_provider", "gemini")
+        self.btn_group.setEnabled(False)
+        self.btn_group.setText("⏳ Grouping…")
+        pairs = [(name, path) for name, path, _type, _db in self._last_rows]
+        self._group_worker = GroupWorker(pairs, provider)
+        self._group_worker.done.connect(self._on_group_done)
+        self._group_worker.error.connect(self._on_group_error)
+        self._group_worker.start()
+
+    def _on_group_done(self, result: dict):
+        self.btn_group.setText("🤖 Group")
+        self.btn_group.setEnabled(True)
+        self._display_grouped(result)
+
+    def _on_group_error(self, msg: str):
+        self.btn_group.setText("🤖 Group")
+        self.btn_group.setEnabled(True)
+        QMessageBox.warning(self, "AI Group Error", msg)
+
+    def _display_grouped(self, result: dict):
+        # GroupWorker truncates to its first _MAX_FILES rows, preserving order —
+        # so indices line up 1:1 with the same prefix of self._last_rows.
+        rows = self._last_rows
+        groups = result.get("groups", [])
+        dupes = result.get("dupes", [])
+
+        self.result_table.clear()
+        total = 0
+
+        for grp in groups:
+            label = grp["label"]
+            files = grp["files"]  # [(filename, orig_idx), ...]
+            header = QTreeWidgetItem([f"📂 {label}  ({len(files)} files)", ""])
+            header.setExpanded(True)
+            for fname, orig_idx in files:
+                _, fpath, _type, db_path = rows[orig_idx]
+                child = QTreeWidgetItem([fname, fpath])
+                child.setData(0, Qt.UserRole, db_path)
+                header.addChild(child)
+                total += 1
+            self.result_table.addTopLevelItem(header)
+
+        if dupes:
+            dup_header = QTreeWidgetItem([f"⚠️ Multiple Revisions  ({len(dupes)} document(s))", ""])
+            dup_header.setExpanded(True)
+            for dup in dupes:
+                sub = QTreeWidgetItem([f"  📄 {dup['base']}", ""])
+                sub.setExpanded(True)
+                for fname, orig_idx in dup["files"]:
+                    _, fpath, _type, db_path = rows[orig_idx]
+                    child = QTreeWidgetItem([fname, fpath])
+                    child.setData(0, Qt.UserRole, db_path)
+                    sub.addChild(child)
+                dup_header.addChild(sub)
+            self.result_table.addTopLevelItem(dup_header)
+
+        self.lbl_count.setText(
+            f"Grouped into {len(groups)} categories. "
+            + (f"{len(dupes)} duplicate document(s) detected." if dupes else "")
+        )
+
     def _open_file(self, item: QTreeWidgetItem, _column: int):
+        db_path = item.data(0, Qt.UserRole)
+        if not db_path:
+            return  # group/dupe header row — nothing to open
         try:
             relative_path = item.text(1)
-            db_path = item.data(0, Qt.UserRole)
             conn = sqlite3.connect(db_path)
             cur = conn.cursor()
             cur.execute("SELECT path FROM files WHERE name = 'BASE_PATH'")
