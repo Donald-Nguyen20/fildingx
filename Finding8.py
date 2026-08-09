@@ -34,11 +34,10 @@ Build:
   --hidden-import=docx --hidden-import=pptx --hidden-import=fitz
 
   
-pyinstaller --noconfirm --clean --onedir --windowed --name "Finding9.3.2" "Finding8.py" --icon "icon.ico" `
+pyinstaller --noconfirm --clean --onedir --windowed --name "Finding9.3.3" "Finding8.py" --icon "icon.ico" `
   --add-data "$env:LOCALAPPDATA\ms-playwright\chromium-1208;ms-playwright\chromium-1208" `
   --add-data "$env:LOCALAPPDATA\ms-playwright\ffmpeg-1011;ms-playwright\ffmpeg-1011" `
   --add-data "$env:LOCALAPPDATA\ms-playwright\winldd-1007;ms-playwright\winldd-1007" `
-  --add-data "ui\claude_assistant\neural_interface.html;ui\claude_assistant" `
   --collect-all notebooklm --collect-all playwright `
   --collect-all pdfplumber `
   --exclude-module matplotlib --exclude-module pandas --exclude-module tkinter `

@@ -1,11 +1,14 @@
 """ui/claude_assistant/widget.py — Chat UI dùng claude_agent_sdk (Claude Code session)."""
 from __future__ import annotations
 
+import html
 import json
 import os
+import re
 import sqlite3
 import subprocess
 import sys
+from contextlib import closing
 from pathlib import Path
 
 import paths
@@ -15,19 +18,15 @@ from PySide6.QtWidgets import (
     QPushButton, QLabel, QLineEdit, QTextEdit, QFileDialog,
     QDialog, QMessageBox,
 )
-from PySide6.QtCore import Qt, QUrl, QTimer
+from PySide6.QtCore import Qt, QTimer, QThread, Signal
 from PySide6.QtGui import QFont, QTextCursor
-from PySide6.QtWebEngineWidgets import QWebEngineView
 
 from ui.claude_assistant.agent import make_options
 from ui.claude_assistant.worker import AgentWorker
 from ui.claude_assistant.animations import PulsingOrb
 from ui.claude_assistant.diagnosis_panel import DiagnosisPanel
+from ui.claude_assistant.neural_orb_widget import NeuralOrbWidget
 from ui.claude_assistant import copilot
-
-_MAX_RESULTS   = 5    # số file lấy từ DB
-_MAX_CONTENT   = 800  # ký tự content mỗi file
-
 
 def _load_saved_db_path() -> str:
     """Đọc đường dẫn DB đã lưu (nếu file còn tồn tại)."""
@@ -62,71 +61,159 @@ def _extract_keywords(msg: str) -> list[str]:
     return [w for w in words if len(w) >= 3 and w.lower() not in _STOPWORDS]
 
 
-def _search_db(db_path: str, keyword: str) -> list[tuple[str, str, str, str]]:
-    """Trả về list (file_name, doc_number, heading, chunk_content) dùng FTS5 chunks_fts.
-    Fallback về LIKE trên files nếu DB không có chunks_fts."""
+# A document code is an uppercase token of at least three hyphenated segments
+# (VP1-C-L3-G-HNC-50056, ABC-M-2201-001). Kept plant-agnostic on purpose: the DB
+# decides whether a candidate is a real document, so the pattern only has to be
+# generous enough never to miss a citation, not strict enough to prove one.
+_DOC_CODE_RE = re.compile(r"\b([A-Z][A-Z0-9]{1,9}(?:-[A-Z0-9][A-Z0-9.]{0,9}){2,})\b")
+
+# A citation resolves to one document plus its revisions -- measured across 400
+# real codes: median 1 file, max 6. A code matching far more than that is too
+# generic to be a citation, so it is dropped instead of lighting a whole region
+# as though the answer had rested on all of it.
+_MAX_PATHS_PER_CITATION = 25
+
+
+def _extract_doc_codes(text: str) -> list[str]:
+    """Document codes cited in an answer, in first-mention order, deduplicated."""
+    seen: dict[str, None] = {}
+    for code in _DOC_CODE_RE.findall(text or ""):
+        seen.setdefault(code, None)
+    return list(seen)
+
+
+def _build_doc_lookup(files: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    """(UPPERCASE name, path) pairs for resolving cited codes to real files.
+
+    Built from the file list the orb already loads, so selecting a DB costs no
+    extra query. Matching on the file name rather than the doc_number column is
+    deliberate: it keeps working on DBs that have no such column, and it still
+    catches the ~3% of files whose name puts a sequence number or a note in
+    front of the code."""
+    return [(name.upper(), path) for name, path in files if name and path]
+
+
+def _resolve_cited_paths(
+    lookup: list[tuple[str, str]], codes: list[str]
+) -> list[str]:
+    """Paths of the files whose name carries one of the cited codes."""
+    resolved: list[str] = []
+    seen: set[str] = set()
+    for code in codes:
+        hits = [path for name, path in lookup if code in name]
+        if not hits or len(hits) > _MAX_PATHS_PER_CITATION:
+            continue
+        for path in hits:
+            if path not in seen:
+                seen.add(path)
+                resolved.append(path)
+    return resolved
+
+
+def _query_search_paths(db_path: str, keyword: str, limit: int = 8000) -> list[str]:
+    """Paths of every file matching the search, for lighting up the orb.
+
+    The cap is deliberately high: the highlight has to show truthfully where
+    hits sit across the whole document set, and a small cap would silently
+    under-light entire regions of the orb."""
+    fts_query = " OR ".join(f"{w}*" for w in keyword.split() if w)
+    try:
+        with closing(sqlite3.connect(db_path)) as conn:
+            cur = conn.cursor()
+            try:
+                if fts_query:
+                    cur.execute(
+                        """
+                        SELECT DISTINCT f.path
+                        FROM files f
+                        WHERE f.id IN (
+                            SELECT c.file_id FROM chunks c
+                            WHERE c.id IN (
+                                SELECT rowid FROM chunks_fts WHERE chunks_fts MATCH ?
+                            )
+                        )
+                          AND f.name != 'BASE_PATH'
+                        LIMIT ?
+                        """,
+                        (fts_query, limit),
+                    )
+                    rows = cur.fetchall()
+                    if rows:
+                        return [r[0] for r in rows if r[0]]
+            except Exception:
+                pass
+
+            cur.execute(
+                "SELECT path FROM files WHERE (name LIKE ? OR content LIKE ?) "
+                "AND name != 'BASE_PATH' LIMIT ?",
+                (f"%{keyword}%", f"%{keyword}%", limit),
+            )
+            return [r[0] for r in cur.fetchall() if r[0]]
+    except Exception:
+        return []
+
+
+class _HighlightWorker(QThread):
+    """Runs _query_search_paths off the UI thread.
+
+    On the real DB this query takes up to ~0.5s, which would stall the window
+    at the exact moment the user hits Enter.
+    """
+
+    found = Signal(list)
+
+    def __init__(self, db_path: str, keyword: str, parent=None):
+        super().__init__(parent)
+        self._db_path = db_path
+        self._keyword = keyword
+
+    def run(self) -> None:
+        self.found.emit(_query_search_paths(self._db_path, self._keyword))
+
+
+def _query_total_docs(db_path: str) -> int:
+    """Count total files in the DB so the orb can scale neuron density to data size."""
     try:
         conn = sqlite3.connect(db_path)
-        cur  = conn.cursor()
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM files WHERE name != 'BASE_PATH'")
+        total = cur.fetchone()[0]
+        conn.close()
+        return total or 0
+    except Exception:
+        return 0
 
-        # Thử FTS5 chunks_fts trước (chính xác, tiết kiệm token)
-        try:
-            fts_query = " OR ".join(f'{w}*' for w in keyword.split() if w)
-            cur.execute(
-                """
-                SELECT f.name, COALESCE(f.doc_number,''), c.heading, c.content
-                FROM chunks c
-                JOIN files f ON f.id = c.file_id
-                WHERE c.id IN (
-                    SELECT rowid FROM chunks_fts WHERE chunks_fts MATCH ?
-                )
-                  AND f.name != 'BASE_PATH'
-                ORDER BY rank
-                LIMIT ?
-                """,
-                (fts_query, _MAX_RESULTS),
-            )
-            rows = cur.fetchall()
-            conn.close()
-            if rows:
-                return rows
-        except Exception:
-            pass
 
-        # Fallback: FTS5 trên files_fts (chỉ lấy tên + đoạn đầu content)
-        try:
-            fts_query = " OR ".join(f'{w}*' for w in keyword.split() if w)
-            cur.execute(
-                """
-                SELECT name, COALESCE(doc_number,''), '', content
-                FROM files
-                WHERE id IN (
-                    SELECT rowid FROM files_fts WHERE files_fts MATCH ?
-                )
-                  AND name != 'BASE_PATH'
-                ORDER BY rank
-                LIMIT ?
-                """,
-                (fts_query, _MAX_RESULTS),
-            )
-            rows = cur.fetchall()
-            conn.close()
-            if rows:
-                return rows
-        except Exception:
-            pass
-
-        # Fallback cuối: LIKE search
+def _query_all_files(db_path: str, safety_cap: int = 50000) -> list[tuple[str, str]]:
+    """Fetch every file (name, path) so the orb can assign all of them to neurons
+    (grouping several files per neuron when needed) -- every file stays reachable
+    through the orb, none get dropped like the old random-sample approach did.
+    safety_cap is just a guard against an unexpectedly huge DB."""
+    try:
+        conn = sqlite3.connect(db_path)
+        cur = conn.cursor()
         cur.execute(
-            "SELECT name, COALESCE(doc_number,''), '', content FROM files "
-            "WHERE (name LIKE ? OR content LIKE ?) AND name != 'BASE_PATH' LIMIT ?",
-            (f"%{keyword}%", f"%{keyword}%", _MAX_RESULTS),
+            "SELECT name, path FROM files WHERE name != 'BASE_PATH' LIMIT ?",
+            (safety_cap,),
         )
         rows = cur.fetchall()
         conn.close()
         return rows
     except Exception:
         return []
+
+
+def _query_base_path(db_path: str) -> str:
+    """Fetch the root BASE_PATH to join with relative paths when opening a file from the orb."""
+    try:
+        conn = sqlite3.connect(db_path)
+        cur = conn.cursor()
+        cur.execute("SELECT path FROM files WHERE name = 'BASE_PATH'")
+        row = cur.fetchone()
+        conn.close()
+        return row[0] if row else ""
+    except Exception:
+        return ""
 
 
 def _bundled_claude() -> str:
@@ -205,7 +292,9 @@ class ClaudeAssistantWidget(QWidget):
         self._worker: AgentWorker | None = None
         self._response_started = False
         self._db_path: str = ""
-        self._orb_view: QWebEngineView | None = None
+        self._orb_view: NeuralOrbWidget | None = None
+        self._hl_seq: int = 0
+        self._doc_lookup: list[tuple[str, str]] = []  # (UPPERCASE name, path)
         self._mode: str = "chat"          # "chat" | "diagnose" | "report"
         self._resp_buffer: str = ""       # gom full text để parse JSON chẩn đoán
         self._diag_retried: bool = False  # đã thử retry JSON 1 lần chưa
@@ -291,9 +380,28 @@ class ClaudeAssistantWidget(QWidget):
         left_lay.setContentsMargins(0, 0, 0, 0)
         left_lay.setSpacing(0)
 
-        self._orb_view = QWebEngineView()
-        self._orb_view.loadFinished.connect(self._on_orb_loaded)
+        self._orb_view = NeuralOrbWidget()
+        self._orb_view.neuron_clicked.connect(self._open_orb_file)
+        self._orb_base_path = ""
         left_lay.addWidget(self._orb_view, 1)
+
+        self._src_lbl = QLabel("")
+        self._src_lbl.setWordWrap(True)
+        self._src_lbl.setStyleSheet(
+            "background: #120c06; color: #ff7e2e; font-size: 10px; "
+            "padding: 5px 10px; border-top: 1px solid #3a220f;"
+        )
+        self._src_lbl.setVisible(False)
+        left_lay.addWidget(self._src_lbl)
+
+        self._legend_lbl = QLabel("")
+        self._legend_lbl.setWordWrap(True)
+        self._legend_lbl.setStyleSheet(
+            "background: #06090f; color: #9fb3c8; font-size: 10px; "
+            "padding: 6px 10px; border-top: 1px solid #1a2535;"
+        )
+        self._legend_lbl.setVisible(False)
+        left_lay.addWidget(self._legend_lbl)
 
         # Action buttons (thay thế state buttons trong HTML)
         btn_frame = QWidget()
@@ -337,7 +445,6 @@ class ClaudeAssistantWidget(QWidget):
 
         left_lay.addWidget(btn_frame)
         splitter.addWidget(left)
-        QTimer.singleShot(0, self._load_orb_html)
 
         # Right — chat panel (white)
         right = QWidget()
@@ -479,53 +586,12 @@ class ClaudeAssistantWidget(QWidget):
         root.addWidget(splitter, 1)
 
     # ── JARVIS orb control ────────────────────────────────────────────
-    def _load_orb_html(self):
-        # Resolve path: works in dev mode and PyInstaller --onedir build
-        if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
-            html_path = Path(sys._MEIPASS) / "ui" / "claude_assistant" / "neural_interface.html"
-        else:
-            html_path = Path(__file__).resolve().parent / "neural_interface.html"
-
-        if not html_path.exists():
-            self._orb_view.setHtml("<html><body></body></html>")
-            return
-
-        # Use setHtml to avoid file:// security restrictions in WebEngine
-        try:
-            html_content = html_path.read_text(encoding="utf-8")
-            base_url = QUrl.fromLocalFile(str(html_path.parent) + "/")
-            self._orb_view.setHtml(html_content, base_url)
-        except Exception:
-            url = QUrl.fromLocalFile(str(html_path))
-            self._orb_view.load(url)
-
-    def _on_orb_loaded(self, ok: bool):
-        print(f"[orb] loadFinished ok={ok}")
-        # Local file trên Windows có thể báo ok=False nhưng vẫn render được
-        # nên inject JS bất kể ok để đảm bảo controls được ẩn
-        js = """
-(function() {
-    var lbl  = document.getElementById('lbl');
-    if (lbl)  lbl.style.display  = 'none';
-    var ctrl = document.querySelector('.ctrl');
-    if (ctrl) ctrl.style.display = 'none';
-
-    document.body.style.overflow = 'hidden';
-    document.body.style.margin   = '0';
-    document.body.style.padding  = '0';
-    setS(0);
-})();
-"""
-        self._orb_view.page().runJavaScript(
-            js, lambda r: print(f"[orb] js inject done, result={r}")
-        )
-
     def _set_jarvis(self, state: int):
         # Mọi lần đổi state đều dừng idle timer; chỉ _schedule_idle() mới hẹn về REST
         if state != 0:
             self._idle_timer.stop()
         if self._orb_view is not None:
-            self._orb_view.page().runJavaScript(f"setS({state})")
+            self._orb_view.setS(state)
 
     def _schedule_idle(self, delay_ms: int = 6000):
         """Hẹn orb tự về REST sau khi không còn hoạt động."""
@@ -539,7 +605,7 @@ class ClaudeAssistantWidget(QWidget):
             return
         intensity = min(1.0, chars / 25.0)  # ~25 ký tự/200ms = full intensity
         if self._orb_view is not None:
-            self._orb_view.page().runJavaScript(f"streamPulse({intensity:.3f})")
+            self._orb_view.stream_pulse(intensity)
 
     # ── Helpers ───────────────────────────────────────────────────────
     def _on_action(self, prefix: str, state: int, mode: str = "chat"):
@@ -635,6 +701,47 @@ class ClaudeAssistantWidget(QWidget):
             self._lbl_db.setToolTip("")
         if persist:
             _save_db_path(path)
+        if self._orb_view is not None:
+            if path:
+                self._orb_base_path = _query_base_path(path)
+                total = _query_total_docs(path)
+                files = _query_all_files(path)
+                self._doc_lookup = _build_doc_lookup(files)
+                self._orb_view.set_documents(total, files)
+            else:
+                self._orb_base_path = ""
+                self._doc_lookup = []
+                self._orb_view.set_documents(0, [])
+            self._update_orb_legend()
+            self._clear_answer_sources()
+
+    def _update_orb_legend(self) -> None:
+        """Render the folder breakdown below the orb from
+        self._orb_view.folder_legend (name, color, file_count)."""
+        legend = self._orb_view.folder_legend if self._orb_view is not None else []
+        if not legend:
+            self._legend_lbl.setVisible(False)
+            self._legend_lbl.setText("")
+            return
+        rows = []
+        for name, color, count in legend:
+            swatch = (
+                f'<span style="color:rgb({color.red()},{color.green()},{color.blue()});">'
+                "●</span>"
+            )
+            rows.append(f"{swatch} {html.escape(name)} ({count})")
+        self._legend_lbl.setText("&nbsp;&nbsp;".join(rows))
+        self._legend_lbl.setVisible(True)
+
+    def _open_orb_file(self, name: str, relative_path: str) -> None:
+        if not self._orb_base_path:
+            return
+        abs_path = os.path.join(self._orb_base_path, relative_path)
+        if os.path.exists(abs_path):
+            try:
+                os.startfile(abs_path)  # type: ignore[attr-defined]
+            except Exception:
+                pass
 
     def _pick_db(self):
         path, _ = QFileDialog.getOpenFileName(
@@ -646,24 +753,67 @@ class ClaudeAssistantWidget(QWidget):
     def _clear_db(self):
         self._apply_db_path("")
 
-    def _build_db_context(self, msg: str) -> str:
-        """Search DB dùng FTS5 chunks_fts, trả về context string."""
-        if not self._db_path:
-            return ""
-        keywords = _extract_keywords(msg)
-        query_str = " OR ".join(f"{w}*" for w in keywords) if keywords else msg
+    def _highlight_search_hits(self, keyword: str) -> None:
+        """Light up the orb neurons holding files that match the search."""
+        if self._orb_view is None:
+            return
+        keyword = " ".join(_extract_keywords(keyword)) or keyword.strip()
+        self._hl_seq += 1
+        if not (self._db_path and keyword):
+            self._orb_view.clear_highlight()
+            return
 
-        rows = _search_db(self._db_path, query_str)
-        if not rows:
-            return ""
+        seq = self._hl_seq
+        worker = _HighlightWorker(self._db_path, keyword, self)
+        worker.found.connect(lambda paths, s=seq: self._on_highlight_found(paths, s))
+        worker.finished.connect(worker.deleteLater)
+        worker.start()
 
-        parts = [f"[Ngữ cảnh tài liệu — DB: {os.path.basename(self._db_path)}]\n"]
-        for fname, doc_num, heading, content in rows:
-            label = f"[{doc_num}] {fname}" if doc_num else fname
-            section = f" > {heading}" if heading else ""
-            parts.append(f"### {label}{section}\n{(content or '').strip()}\n")
-        parts.append("---\n")
-        return "\n".join(parts)
+    def _on_highlight_found(self, paths: list, seq: int) -> None:
+        # Queries finish out of order; a superseded one must not repaint the orb.
+        if seq != self._hl_seq or self._orb_view is None:
+            return
+        self._orb_view.highlight_files(paths)
+
+    # ── Answer sources (provenance) ─────────────────────────────────────
+    def _show_answer_sources(self) -> None:
+        """Mark on the orb the documents the finished answer cited, so the
+        numbers in it can be traced back to a file and checked.
+
+        The search highlight is dropped at the same time: it answers a different
+        question (where the topic lives) and leaving both on would blur which
+        documents the answer actually rests on."""
+        if self._orb_view is None:
+            return
+        codes = _extract_doc_codes(self._resp_buffer)
+        paths = _resolve_cited_paths(self._doc_lookup, codes) if codes else []
+
+        # Bump the sequence so a search query still in flight cannot land after
+        # this and repaint over the sources.
+        self._hl_seq += 1
+        self._orb_view.clear_highlight()
+        resolved = self._orb_view.set_source_files(paths)
+        self._set_source_caption(len(resolved))
+
+    def _clear_answer_sources(self) -> None:
+        if self._orb_view is not None:
+            self._orb_view.clear_sources()
+        self._set_source_caption(0)
+
+    def _set_source_caption(self, resolved: int) -> None:
+        """Caption under the orb naming how many cited documents were located.
+
+        Only files found in this DB are counted. A code that resolves to nothing
+        is left silent on purpose: an answer may legitimately cite a standard or
+        an external document, and flagging those as missing would cry wolf."""
+        if not resolved:
+            self._src_lbl.setVisible(False)
+            self._src_lbl.setText("")
+            return
+        self._src_lbl.setText(
+            f"◆ {resolved} source file(s) cited — click a marker to open"
+        )
+        self._src_lbl.setVisible(True)
 
     def _load_claude_md(self) -> str:
         """Đọc CLAUDE.md cạnh app (theo paths.APP_DIR) làm system context.
@@ -715,6 +865,9 @@ class ClaudeAssistantWidget(QWidget):
 
         self._inp_msg.clear()
         self._echo_user(msg)
+        # The previous answer's sources belong to the previous answer.
+        self._clear_answer_sources()
+        self._highlight_search_hits(msg)
 
         system = self._inp_system.text().strip()
         claude_md = self._load_claude_md()
@@ -855,6 +1008,7 @@ class ClaudeAssistantWidget(QWidget):
         self._set_jarvis(1)          # FOCUS — hoàn thành
         self._schedule_idle()        # vài giây sau tự về REST
         self._inp_msg.setFocus()
+        self._show_answer_sources()  # orb marks the documents the answer cited
 
         # Chẩn đoán: parse khối JSON cây nguyên nhân → đổ vào panel
         if self._mode == "diagnose":
