@@ -14,6 +14,7 @@ import os
 import re
 import sqlite3
 import time
+from contextlib import closing
 from typing import Optional
 
 from paths import APP_DIR
@@ -346,22 +347,21 @@ def resolve_source_path(
     if not db_path or not os.path.exists(db_path):
         return None
     try:
-        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-        cur = conn.cursor()
+        with closing(sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)) as conn:
+            cur = conn.cursor()
 
-        cur.execute("SELECT path FROM files WHERE name='BASE_PATH' LIMIT 1")
-        row = cur.fetchone()
-        base = row[0] if row else ""
+            cur.execute("SELECT path FROM files WHERE name='BASE_PATH' LIMIT 1")
+            row = cur.fetchone()
+            base = row[0] if row else ""
 
-        rp = rel_path
-        if not rp and doc_number:
-            cur.execute(
-                "SELECT path FROM files WHERE doc_number=? AND name!='BASE_PATH' LIMIT 1",
-                (doc_number,),
-            )
-            r = cur.fetchone()
-            rp = r[0] if r else ""
-        conn.close()
+            rp = rel_path
+            if not rp and doc_number:
+                cur.execute(
+                    "SELECT path FROM files WHERE doc_number=? AND name!='BASE_PATH' LIMIT 1",
+                    (doc_number,),
+                )
+                r = cur.fetchone()
+                rp = r[0] if r else ""
 
         if not rp:
             return None
@@ -383,21 +383,20 @@ def verify_quote(db_path: str, doc_number: str, quote: str) -> bool:
     if not db_path or not doc_number or len(q) < 8:
         return False
     try:
-        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT c.content FROM chunks c JOIN files f ON f.id=c.file_id "
-            "WHERE f.doc_number=?",
-            (doc_number,),
-        )
-        rows = cur.fetchall()
-        if not rows:
+        with closing(sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)) as conn:
+            cur = conn.cursor()
             cur.execute(
-                "SELECT content FROM files WHERE doc_number=? AND name!='BASE_PATH'",
+                "SELECT c.content FROM chunks c JOIN files f ON f.id=c.file_id "
+                "WHERE f.doc_number=?",
                 (doc_number,),
             )
             rows = cur.fetchall()
-        conn.close()
+            if not rows:
+                cur.execute(
+                    "SELECT content FROM files WHERE doc_number=? AND name!='BASE_PATH'",
+                    (doc_number,),
+                )
+                rows = cur.fetchall()
     except Exception:
         return False
 
