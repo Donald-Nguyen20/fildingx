@@ -10,6 +10,7 @@ import subprocess
 import sys
 from contextlib import closing
 from pathlib import Path
+from typing import NamedTuple
 
 import paths
 
@@ -171,49 +172,67 @@ class _HighlightWorker(QThread):
         self.found.emit(_query_search_paths(self._db_path, self._keyword))
 
 
-def _query_total_docs(db_path: str) -> int:
-    """Count total files in the DB so the orb can scale neuron density to data size."""
+class _DbSnapshot(NamedTuple):
+    """Everything the orb needs from a DB, read in a single pass.
+
+    `error` is the whole point of this type: an unreadable DB and an empty one
+    both yield zero documents, but they must not look alike in the UI. Without
+    the distinction a wrong or corrupt file reports itself as loaded while the
+    orb falls back to its full-density decorative layout -- so the app appears
+    to hold more data than a real DB does, and the user has no way to tell.
+    """
+
+    total_docs: int
+    files: list[tuple[str, str]]
+    base_path: str
+    error: str  # "" when the DB was read successfully
+
+
+def _read_db_snapshot(db_path: str, safety_cap: int = 50000) -> _DbSnapshot:
+    """Read document count, file list and BASE_PATH over one connection.
+
+    Every file is fetched (not sampled) so the orb can assign all of them to
+    neurons -- grouping several files per neuron when there are more files than
+    neurons -- and none get dropped. safety_cap only guards against an
+    unexpectedly huge DB.
+    """
     try:
-        conn = sqlite3.connect(db_path)
-        cur = conn.cursor()
-        cur.execute("SELECT COUNT(*) FROM files WHERE name != 'BASE_PATH'")
-        total = cur.fetchone()[0]
-        conn.close()
-        return total or 0
-    except Exception:
-        return 0
+        with closing(sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)) as conn:
+            cur = conn.cursor()
+
+            cur.execute("SELECT COUNT(*) FROM files WHERE name != 'BASE_PATH'")
+            row = cur.fetchone()
+            total = (row[0] if row else 0) or 0
+
+            cur.execute(
+                "SELECT name, path FROM files WHERE name != 'BASE_PATH' LIMIT ?",
+                (safety_cap,),
+            )
+            files = cur.fetchall()
+
+            cur.execute("SELECT path FROM files WHERE name = 'BASE_PATH'")
+            row = cur.fetchone()
+            base = row[0] if row else ""
+
+        return _DbSnapshot(total, files, base, "")
+    except Exception as exc:
+        return _DbSnapshot(0, [], "", str(exc) or exc.__class__.__name__)
 
 
-def _query_all_files(db_path: str, safety_cap: int = 50000) -> list[tuple[str, str]]:
-    """Fetch every file (name, path) so the orb can assign all of them to neurons
-    (grouping several files per neuron when needed) -- every file stays reachable
-    through the orb, none get dropped like the old random-sample approach did.
-    safety_cap is just a guard against an unexpectedly huge DB."""
-    try:
-        conn = sqlite3.connect(db_path)
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT name, path FROM files WHERE name != 'BASE_PATH' LIMIT ?",
-            (safety_cap,),
-        )
-        rows = cur.fetchall()
-        conn.close()
-        return rows
-    except Exception:
-        return []
+_EMPTY_DB_SNAPSHOT = _DbSnapshot(0, [], "", "")
+
+# (text, background, border) for each state the DB label can be in.
+_DB_LABEL_NONE = ("#94a3b8", "#f8fafc", "#e2e8f0")  # nothing selected
+_DB_LABEL_OK = ("#334155", "#f0fdf4", "#86efac")    # readable, has documents
+_DB_LABEL_BAD = ("#7c2d12", "#fff7ed", "#fdba74")   # unreadable, or indexed nothing
 
 
-def _query_base_path(db_path: str) -> str:
-    """Fetch the root BASE_PATH to join with relative paths when opening a file from the orb."""
-    try:
-        conn = sqlite3.connect(db_path)
-        cur = conn.cursor()
-        cur.execute("SELECT path FROM files WHERE name = 'BASE_PATH'")
-        row = cur.fetchone()
-        conn.close()
-        return row[0] if row else ""
-    except Exception:
-        return ""
+def _db_label_style(fg: str, bg: str, border: str) -> str:
+    return (
+        f"color: {fg}; font-size: 11px;"
+        f"background: {bg}; border: 1px solid {border};"
+        "border-radius: 6px; padding: 2px 8px;"
+    )
 
 
 def _bundled_claude() -> str:
@@ -338,7 +357,7 @@ class ClaudeAssistantWidget(QWidget):
 
         self._orb = PulsingOrb()
 
-        lbl_title = QLabel("Claude Assistant")
+        lbl_title = QLabel("Assistant")
         lbl_title.setFont(QFont("Segoe UI", 13, QFont.Bold))
         lbl_title.setStyleSheet("color: #88ccff; background: transparent;")
 
@@ -683,41 +702,55 @@ class ClaudeAssistantWidget(QWidget):
         """Cập nhật state + UI + (tuỳ chọn) lưu xuống JSON. path='' = clear."""
         self._db_path = path
         self._diag_panel.set_db_path(path)
-        if path:
-            self._lbl_db.setText(os.path.basename(path))
-            self._lbl_db.setStyleSheet("""
-                color: #334155; font-size: 11px;
-                background: #f0fdf4; border: 1px solid #86efac;
-                border-radius: 6px; padding: 2px 8px;
-            """)
-            self._lbl_db.setToolTip(path)
-        else:
-            self._lbl_db.setText("No DB selected")
-            self._lbl_db.setStyleSheet("""
-                color: #94a3b8; font-size: 11px;
-                background: #f8fafc; border: 1px solid #e2e8f0;
-                border-radius: 6px; padding: 2px 8px;
-            """)
-            self._lbl_db.setToolTip("")
+
+        snap = _read_db_snapshot(path) if path else _EMPTY_DB_SNAPSHOT
+        self._show_db_status(path, snap)
+
         if persist:
             _save_db_path(path)
         if self._orb_view is not None:
-            if path:
-                self._orb_base_path = _query_base_path(path)
-                total = _query_total_docs(path)
-                files = _query_all_files(path)
-                self._doc_lookup = _build_doc_lookup(files)
-                self._orb_view.set_documents(total, files)
-            else:
-                self._orb_base_path = ""
-                self._doc_lookup = []
-                self._orb_view.set_documents(0, [])
+            self._orb_base_path = snap.base_path
+            self._doc_lookup = _build_doc_lookup(snap.files)
+            self._orb_view.set_documents(snap.total_docs, snap.files)
             self._update_orb_legend()
             self._clear_answer_sources()
 
+    def _show_db_status(self, path: str, snap: _DbSnapshot) -> None:
+        """Put the DB label in the state the data actually justifies.
+
+        A DB that failed to open, and one that opened with nothing indexed in
+        it, must not look like a loaded DB. The orb falls back to its default
+        decorative layout in both cases -- which is denser than a real small DB
+        renders -- so a green "selected" label beside it would read as "loaded"
+        when in fact no document is reachable.
+        """
+        if not path:
+            text, tip, colors = "No DB selected", "", _DB_LABEL_NONE
+        elif snap.error:
+            text = f"⚠ {os.path.basename(path)}"
+            tip = f"{path}\n\nCould not read this database:\n{snap.error}"
+            colors = _DB_LABEL_BAD
+        elif snap.total_docs == 0:
+            text = f"⚠ {os.path.basename(path)}"
+            tip = f"{path}\n\nOpened, but it contains no indexed documents."
+            colors = _DB_LABEL_BAD
+        else:
+            text = os.path.basename(path)
+            tip = f"{path}\n\n{snap.total_docs:,} documents indexed."
+            colors = _DB_LABEL_OK
+        self._lbl_db.setText(text)
+        self._lbl_db.setToolTip(tip)
+        self._lbl_db.setStyleSheet(_db_label_style(*colors))
+
     def _update_orb_legend(self) -> None:
         """Render the folder breakdown below the orb from
-        self._orb_view.folder_legend (name, color, file_count)."""
+        self._orb_view.folder_legend (name, colour, file_count).
+
+        The COUNT carries the folder's colour, not a separate swatch: it is the
+        number the eye is hunting for, and colouring it lets one folder's total
+        be picked out of the row without a dot competing for the same space.
+        Folder names stay on the label's own grey so the colours read as
+        row markers rather than as emphasis on some folders over others."""
         legend = self._orb_view.folder_legend if self._orb_view is not None else []
         if not legend:
             self._legend_lbl.setVisible(False)
@@ -725,12 +758,10 @@ class ClaudeAssistantWidget(QWidget):
             return
         rows = []
         for name, color, count in legend:
-            swatch = (
-                f'<span style="color:rgb({color.red()},{color.green()},{color.blue()});">'
-                "●</span>"
-            )
-            rows.append(f"{swatch} {html.escape(name)} ({count})")
-        self._legend_lbl.setText("&nbsp;&nbsp;".join(rows))
+            tint = (f'<span style="color:rgb({color.red()},{color.green()},'
+                    f'{color.blue()});font-weight:600;">{count:,}</span>')
+            rows.append(f"{html.escape(name)} ({tint})")
+        self._legend_lbl.setText("&nbsp;&nbsp;·&nbsp;&nbsp;".join(rows))
         self._legend_lbl.setVisible(True)
 
     def _open_orb_file(self, name: str, relative_path: str) -> None:
@@ -973,7 +1004,7 @@ class ClaudeAssistantWidget(QWidget):
             f'<p style="color:#4f46e5;margin:8px 0 2px 0">'
             f'<b>You:</b> {safe_msg}</p><br>'
         )
-        self._append('<p style="color:#166534;margin:2px 0"><b>Claude:</b> ')
+        self._append('<p style="color:#166534;margin:2px 0"><b>Assistant:</b> ')
 
     def _run_agent(self, prompt: str, options):
         self._stream_chars = 0
@@ -1125,7 +1156,7 @@ class ClaudeAssistantWidget(QWidget):
             '<p style="color:#94a3b8;margin:6px 0;font-size:11px">'
             '↻ Reformatting result…</p>'
         )
-        self._append('<p style="color:#166534;margin:2px 0"><b>Claude:</b> ')
+        self._append('<p style="color:#166534;margin:2px 0"><b>Assistant:</b> ')
         prompt = copilot.build_retry_json_prompt(self._resp_buffer)
         self._resp_buffer = ""
         options = make_options(system_prompt="Bạn là trợ lý định dạng JSON chính xác.")

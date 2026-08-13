@@ -32,28 +32,50 @@ _NEURON_COUNT_MIN = 180
 _NEURON_COUNT_MAX = 420
 _NEURON_SCALE_REF = 4000
 
-# Qualitative palette for the folder legend. Folders beyond this many (ranked
-# by file count) are lumped into one grey "Other" bucket so the legend never
-# grows unreadably long, no matter how many folders the underlying DB has.
+# How many folders the legend names before the rest collapse into a single
+# "Other" row, so it never grows unreadably long however many folders the DB
+# holds.
+_FOLDER_LEGEND_MAX = 8
+
+# One colour per folder row, so the counts can be told apart at a glance instead
+# of reading as one undifferentiated grey line. These are legend-local: the orb
+# clusters folders by ANGLE, not by hue, so the colours separate ROWS from each
+# other and nothing more.
+#
+# Chosen by measurement against the legend's own #06090f background, not picked
+# by eye. Every entry clears a 6.7:1 contrast ratio (10px text needs 4.5:1) and
+# the closest pair sits at CIEDE2000 20.4. The previous palette failed both:
+# mediumvioletred #c71585 managed only 3.68:1 — unreadable at this size, which
+# is what made the row hard to scan — and gold/orange collided at dE 17.4.
+# Warm and cool alternate down the list so neighbouring rows never share a
+# family even before the numbers are considered.
 _FOLDER_PALETTE = [
-    QColor(255, 99, 71),    # tomato
-    QColor(255, 215, 0),    # gold
-    QColor(50, 205, 50),    # limegreen
-    QColor(30, 144, 255),   # dodgerblue
-    QColor(238, 130, 238),  # violet
-    QColor(255, 165, 0),    # orange
-    QColor(64, 224, 208),   # turquoise
-    QColor(199, 21, 133),   # mediumvioletred
+    QColor(255, 99, 71),     # tomato
+    QColor(64, 224, 208),    # turquoise
+    QColor(240, 230, 120),   # lemon
+    QColor(210, 140, 255),   # orchid
+    QColor(50, 205, 50),     # limegreen
+    QColor(255, 170, 200),   # pink
+    QColor(120, 200, 255),   # sky
+    QColor(255, 165, 0),     # orange
 ]
-_FOLDER_OTHER_COLOR = QColor(110, 118, 130)
 
-# Warm gold for search hits — every state palette is cool-toned, so this
-# stays distinguishable no matter which state the orb is in.
-_HIGHLIGHT_COLOR = (255, 214, 92)
+# The "Other" bucket is a leftover, not a folder, so it stays neutral: no hue to
+# suggest it belongs in the sequence above, but light enough (8.4:1) to read.
+_FOLDER_OTHER_COLOR = QColor(158, 170, 188)
 
-# Orange for the documents an answer actually cited. Separate from the search
-# gold on purpose: the two mean different things (a topic's region vs the exact
-# files the answer rests on) and must never be mistaken for each other.
+# Search hits. Every state colour is heavily saturated, so the way to stay
+# separable from all of them is low saturation rather than another hue: this
+# pale tint holds a worst-case CIEDE2000 of ~33 against the ten state colours,
+# where the previous warm gold fell to 6.4 against state 4 — indistinguishable.
+# It also widens the gap to the citation orange below, from 29.5 to 40.5.
+_HIGHLIGHT_COLOR = (255, 210, 255)
+
+# Orange for the documents an answer actually cited. Held far from the search
+# tint above on purpose: the two mean different things (a topic's region vs the
+# exact files the answer rests on) and must never be mistaken for each other —
+# which is exactly what happened while the search tint was gold and the orb was
+# in a warm state.
 _SOURCE_COLOR = (255, 126, 46)
 _SOURCE_COLOR_HEX = "#%02x%02x%02x" % _SOURCE_COLOR
 
@@ -412,9 +434,8 @@ class NeuralOrbWidget(QWidget):
         adjacent neurons. Net effect: files from the same folder cluster
         together on the orb instead of being scattered uniformly.
 
-        Also computes a legend (self.folder_legend: name, color, file_count)
-        so the folder breakdown is readable at a glance instead of only on
-        hover.
+        Also computes a legend (self.folder_legend: name, colour, file_count) so
+        the folder breakdown is readable at a glance instead of only on hover.
 
         Pass total_docs=0, files=[] to fall back to the default decorative
         (no-DB) layout."""
@@ -439,7 +460,7 @@ class NeuralOrbWidget(QWidget):
             folder_counts = Counter(_top_folder(p) for _, p in files)
             other_count = 0
             for rank, (name, cnt) in enumerate(folder_counts.most_common()):
-                if rank < len(_FOLDER_PALETTE):
+                if rank < _FOLDER_LEGEND_MAX:
                     self.folder_legend.append((name, _FOLDER_PALETTE[rank], cnt))
                 else:
                     other_count += cnt
@@ -861,9 +882,12 @@ class NeuralOrbWidget(QWidget):
                 p.drawEllipse(QPointF(n.x, n.y), max(.4, sz * .80), max(.4, sz * .80))
 
     def _paint_highlights(self, p: QPainter) -> None:
-        """Pulsing warm ring around neurons holding current search hits.
-        Warm gold is used because every state palette is cool-toned
-        (cyan/blue/violet/green/red), so hits stay readable in any state."""
+        """Pulsing pale ring around neurons holding current search hits.
+
+        The tint is low-saturation on purpose. Four of the ten state colours are
+        warm (states 2-4 run through magenta, gold and red), so no saturated hue
+        survives every state — a desaturated one is the only choice that stays
+        readable against all of them, and against the citation orange."""
         if not self._highlight:
             return
         pulse = .5 + .5 * math.sin(self._t * 4.0)
