@@ -292,6 +292,30 @@ class FileSearchApp(QMainWindow):
         self.btn_group.clicked.connect(self._run_group)
         h.addWidget(self.btn_group)
 
+        # Next to Group rather than in the sidebar, because the panel it opens is
+        # part of this page: it sits in the File Search splitter and exists on no
+        # other tab. From the sidebar the button was reachable from all four tabs
+        # and did nothing on three of them.
+        self.btn_preview = QPushButton("📄 Preview")
+        self.btn_preview.setMinimumWidth(110)
+        self.btn_preview.setMinimumHeight(40)
+        self.btn_preview.setCheckable(True)
+        self.btn_preview.setToolTip(
+            "Show or hide the PDF preview beside the results")
+        # Only the checked state is styled here; the rest of the button is left to
+        # the app theme, which has no :checked rule of its own and would otherwise
+        # give a pressed toggle the same face as an idle one.
+        self.btn_preview.setStyleSheet("""
+            QPushButton:checked {
+                background: qlineargradient(x1:0,y1:0,x2:1,y2:0,
+                    stop:0 rgba(70,190,140,255), stop:1 rgba(40,155,110,255));
+                border: 1.5px solid rgba(35,140,95,200);
+                color: white;
+            }
+        """)
+        self.btn_preview.toggled.connect(self._set_preview_visible)
+        h.addWidget(self.btn_preview)
+
         h.addStretch(1)
 
         return toolbar
@@ -340,7 +364,7 @@ class FileSearchApp(QMainWindow):
         from PySide6.QtGui import QFont as _QFont
 
         for emoji, tip, idx in [("🗂️","Containers",0),("🛠️","Tools",1),
-                                 ("🧩","Add-ons",2),("📄","Preview",3)]:
+                                 ("🧩","Add-ons",2)]:
             btn = QPushButton()
             btn.setFixedSize(72, 72)
             btn.setToolTip(tip)
@@ -462,7 +486,7 @@ class FileSearchApp(QMainWindow):
         self.notebooklm_widget = NotebookLMWidget()
         self._search_tabs.addTab(self.notebooklm_widget, "📓 NotebookLM")
         self.claude_assistant_widget = ClaudeAssistantWidget()
-        self._search_tabs.addTab(self.claude_assistant_widget, "🤖 Claude")
+        self._search_tabs.addTab(self.claude_assistant_widget, "🤖 Data Brain")
         self.notebooklm_widget.open_preview.connect(self._open_preview_from_nlm)
         self.notebooklm_widget.goto_page_signal.connect(self.pdf_preview.goto_page)
         self.notebooklm_widget.request_mindmap.connect(self._mindmap_from_nlm_source)
@@ -487,20 +511,24 @@ class FileSearchApp(QMainWindow):
 
         self.root_layout.addLayout(body)
 
-    def _switch_panel(self, index: int, clicked_btn: QPushButton):
-        if index == 3:                          # Preview → toggle splitter
-            is_on = self.pdf_preview.isVisible()
-            if is_on:
-                self.pdf_preview.hide()
-                self._splitter.setSizes([10000, 0])
-                clicked_btn.setChecked(False)
-            else:
-                total = self._splitter.width()
-                self._splitter.setSizes([total // 2, total // 2])
-                self.pdf_preview.show()
-                clicked_btn.setChecked(True)
-            return
+    def _set_preview_visible(self, on: bool) -> None:
+        """Open or close the PDF preview beside the results tree.
 
+        Driven by the button's own checked state. The old sidebar version read
+        pdf_preview.isVisible() instead, and that answers False whenever another
+        tab is in front no matter what the preview was last told to do -- so from
+        any tab but this one the toggle took the "turn it on" branch forever, left
+        the button stuck lit, and showed nothing.
+        """
+        if on:
+            total = self._splitter.width()
+            self._splitter.setSizes([total // 2, total // 2])
+            self.pdf_preview.show()
+        else:
+            self.pdf_preview.hide()
+            self._splitter.setSizes([10000, 0])
+
+    def _switch_panel(self, index: int, clicked_btn: QPushButton):
         already_visible = self._right_stack.isVisible()
         already_same    = self._right_stack.currentIndex() == index
         if already_visible and already_same:
@@ -1354,8 +1382,10 @@ class FileSearchApp(QMainWindow):
         """Đảm bảo pdf_preview thực sự nhìn thấy được: chuyển _search_tabs về
         tab "🔍 File Search" (nơi pdf_preview thực sự nằm trong splitter) rồi mới show."""
         self._search_tabs.setCurrentIndex(0)
-        if not self.pdf_preview.isVisible():
-            self.pdf_preview.show()
+        # Through the button, so the Preview toggle on this page matches what the
+        # page is actually showing; opening the panel behind its back would leave
+        # the button unlit and its next press would try to open an open panel.
+        self.btn_preview.setChecked(True)
         self._splitter.setSizes([6000, 4000])
 
     def _open_preview_from_nlm(self, file_path: str, page_num):
