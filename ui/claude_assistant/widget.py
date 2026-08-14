@@ -1,7 +1,6 @@
 """ui/claude_assistant/widget.py — Chat UI dùng claude_agent_sdk (Claude Code session)."""
 from __future__ import annotations
 
-import html
 import json
 import os
 import re
@@ -16,18 +15,24 @@ import paths
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QSplitter,
-    QPushButton, QLabel, QLineEdit, QTextEdit, QFileDialog,
-    QDialog, QMessageBox,
+    QPushButton, QToolButton, QLabel, QLineEdit, QTextEdit, QFileDialog,
+    QDialog, QMessageBox, QSizePolicy, QTextBrowser,
 )
-from PySide6.QtCore import Qt, QTimer, QThread, Signal
-from PySide6.QtGui import QFont, QTextCursor
+from PySide6.QtCore import Qt, QRectF, QSize, QTimer, QThread, Signal
+from PySide6.QtGui import (
+    QFont, QFontMetrics, QIcon, QPainter, QPixmap, QTextCursor,
+)
 
 from ui.claude_assistant.agent import make_options
 from ui.claude_assistant.worker import AgentWorker
 from ui.claude_assistant.animations import PulsingOrb
 from ui.claude_assistant.diagnosis_panel import DiagnosisPanel
-from ui.claude_assistant.neural_orb_widget import NeuralOrbWidget
-from ui.claude_assistant import copilot
+from ui.claude_assistant.neural_orb_widget import (
+    _CANVAS_H, _CANVAS_W, NeuralOrbWidget,
+)
+from ui.claude_assistant.orb_controls import OrbControls
+from ui.claude_assistant.sources_panel import CitedSource, CitedSourcesPanel
+from ui.claude_assistant import chat_render, copilot
 
 def _load_saved_db_path() -> str:
     """Đọc đường dẫn DB đã lưu (nếu file còn tồn tại)."""
@@ -74,6 +79,129 @@ _DOC_CODE_RE = re.compile(r"\b([A-Z][A-Z0-9]{1,9}(?:-[A-Z0-9][A-Z0-9.]{0,9}){2,}
 # as though the answer had rested on all of it.
 _MAX_PATHS_PER_CITATION = 25
 
+# Workspace splitter columns: modes | orb | chat | diagnosis.
+#
+# The orb column is pinned to the same width in every state, diagnosis included.
+# NeuralOrbWidget draws at min(w/620, h/560), and _OrbColumn hands it a box of
+# exactly that aspect, so the width term is what the orb ends up drawn at: this
+# number IS the orb's size. Letting another panel take width from this column
+# resizes the orb, so width is taken from the chat column instead.
+#
+# The mode column is the width of proposal E's left rail, which is what makes
+# its two-column grid of modes fit: 236 less the 14px side padding leaves 208
+# for two 100px tiles and the 7px between them. At the 168 it used to be, a
+# label like "Make Report" -- 66px at 11px type -- had no room beside its
+# neighbour, which is why the modes used to run one per row.
+_MODES_COL_W = 236
+# It can still be dragged narrower than that, but not past the point where a
+# tile stops holding its label: "Make Report" is 66px at 11px type, a tile pads
+# it by 3px a side, and the column adds a 7px gutter and 14px margins.
+_MODES_COL_MIN_W = 2 * (66 + 6) + 7 + 28
+_ORB_COL_W = 700
+_CHAT_COL_W = 600
+# Chat and diagnosis split what is left when the diagnosis column is open.
+_CHAT_COL_W_DIAG = 340
+_DIAG_COL_W = 400
+
+# The orb's own drawing aspect, taken from its canvas so the two cannot drift.
+_ORB_ASPECT = _CANVAS_H / _CANVAS_W
+
+# Column width less its 14px side margins and the DB label's own 8px padding
+# and 1px border.
+_DB_NAME_W = _MODES_COL_W - 48
+
+# (icon, label, input prefix, orb state, mode) for the mode column.
+_ACTIONS = [
+    ("🔍", "Find Docs",   "Find in document DB about: ",    1, "chat"),
+    ("📝", "Make Report", "Create operation report about: ", 3, "chat"),
+    ("🔬", "Diagnose",    "",                                2, "diagnose"),
+    ("💬", "Ask",         "",                                0, "chat"),
+    # 📇 rather than the 🪪 this used to carry: Segoe UI Emoji has no glyph for
+    # 🪪, so it drew as an empty box. This is also the icon proposal E gives it.
+    ("📇", "Quick Card",  "",                                1, "quickcard"),
+    ("🔧", "Work Pack",   "",                                1, "workpackage"),
+    # State 5 rather than the 2 this used to share with Diagnose: it is the warm
+    # red->yellow one, and Trend Data was the mode with no look of its own.
+    ("📈", "Trend Data",  "",                                5, "trend"),
+]
+
+# What a mode button puts in front of the question. It is an instruction to
+# Claude, not something to look for in the documents, so the orb's highlight
+# takes it back off: searching for "Find in document DB about: X" asks the DB
+# for files containing the word "Find", which is noise at best and, when every
+# word has to match, drowns out X entirely.
+_MODE_PREFIXES = tuple(sorted(
+    (prefix for _icon, _label, prefix, _state, _mode in _ACTIONS if prefix),
+    key=len, reverse=True,
+))
+
+
+def _strip_mode_prefix(msg: str) -> str:
+    """The question a mode button asked, without the instruction it added."""
+    for prefix in _MODE_PREFIXES:
+        if msg.startswith(prefix):
+            return msg[len(prefix):].strip()
+    return msg
+
+# Given the full width of the column and its own accent colour rather than a
+# slot in the grid: it is the mode the tab opens in and the one every other mode
+# falls back to when it finishes or is refused.
+_PRIMARY_MODE = "Ask"
+
+# Tile geometry, from proposal E: a 44px primary over a 2-column grid of 52px
+# tiles with 7px between them.
+_MODE_PRIMARY_H = 44
+_MODE_TILE_H = 52
+_MODE_GAP = 7
+_MODE_ICON_PX = 15
+
+# Colours are proposal E's tokens: panel #111823 on line #1e2b3a, labels in
+# ink-2 #93a7bd, and the accent gradient for the primary. E paints one tile in
+# its "hot" state -- border #2a4a63, label lifted to ink #e6eef8 -- which is the
+# treatment used on hover here, since a still mockup has no other way to show a
+# tile responding to the pointer.
+_MODE_STYLE = """
+    QToolButton {
+        background: #111823; color: #93a7bd;
+        border: 1px solid #1e2b3a; border-radius: 10px;
+        font-size: 11px; padding: 0 3px;
+    }
+    QToolButton:hover   { background: #16202e; border-color: #2a4a63;
+                          color: #e6eef8; }
+    QToolButton:pressed { background: #0d141d; }
+"""
+
+_PRIMARY_MODE_STYLE = """
+    QPushButton {
+        background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                                    stop: 0 #2ad0b8, stop: 1 #17a894);
+        color: #05201c; border: none; border-radius: 10px;
+        font-size: 14px; font-weight: 600;
+    }
+    QPushButton:hover   {
+        background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                                    stop: 0 #43e0c8, stop: 1 #1cbda6);
+    }
+    QPushButton:pressed { background: #17a894; }
+"""
+
+_DB_BTN_STYLE = """
+    QPushButton {
+        background: #0d2236; color: #7dd3fc;
+        border: 1px solid #1e4d72; border-radius: 5px; font-size: 12px;
+    }
+    QPushButton:hover { background: #1a3a5c; }
+"""
+
+_DB_BTN_CLEAR_STYLE = """
+    QPushButton {
+        background: #0d1b2a; color: #64809c;
+        border: 1px solid #1a2535; border-radius: 5px; font-size: 12px;
+    }
+    QPushButton:hover { background: #2a1215; color: #f87171;
+                        border-color: #5c2a2f; }
+"""
+
 
 def _extract_doc_codes(text: str) -> list[str]:
     """Document codes cited in an answer, in first-mention order, deduplicated."""
@@ -94,11 +222,16 @@ def _build_doc_lookup(files: list[tuple[str, str]]) -> list[tuple[str, str]]:
     return [(name.upper(), path) for name, path in files if name and path]
 
 
-def _resolve_cited_paths(
+def _resolve_cited_sources(
     lookup: list[tuple[str, str]], codes: list[str]
-) -> list[str]:
-    """Paths of the files whose name carries one of the cited codes."""
-    resolved: list[str] = []
+) -> list[tuple[str, str]]:
+    """(code, path) for the files whose name carries one of the cited codes.
+
+    The code travels with the path so the orb markers and the cards under it are
+    built from one traversal: two passes could disagree about which citations
+    landed, and the panel would then be captioning dots that are not there.
+    """
+    resolved: list[tuple[str, str]] = []
     seen: set[str] = set()
     for code in codes:
         hits = [path for name, path in lookup if code in name]
@@ -107,8 +240,61 @@ def _resolve_cited_paths(
         for path in hits:
             if path not in seen:
                 seen.add(path)
-                resolved.append(path)
+                resolved.append((code, path))
     return resolved
+
+
+def _diagnosis_sources(data: dict) -> list[CitedSource]:
+    """Evidence from every cause in tree order, one card per distinct quote.
+
+    The same document is often cited by more than one cause; the quote is what
+    makes an entry worth its own card, so that is what deduplicates.
+    """
+    out: list[CitedSource] = []
+    seen: set[tuple[str, str]] = set()
+    for cause in (data.get("causes") or []):
+        for e in (cause.get("evidence") or []):
+            code = str(e.get("doc_number") or "").strip()
+            quote = str(e.get("quote") or "").strip()
+            if not code or (code, quote) in seen:
+                continue
+            seen.add((code, quote))
+            out.append(CitedSource(
+                code=code,
+                section=str(e.get("section") or "").strip(),
+                quote=quote,
+                verified=e.get("verified"),
+            ))
+    return out
+
+
+# A word carrying no search value once it is on its own: FTS5 reads ":" as a
+# column filter and the rest as operators, so a term containing one is a syntax
+# error that takes the whole query down with it rather than just itself.
+_FTS_PUNCT = ':"()*^-,.?!;'
+
+# Words per LIKE scan. Each one is another substring pass over an 800MB content
+# column, and past a handful the scan costs more than the extra precision buys.
+_MAX_LIKE_WORDS = 6
+
+
+def _fts_terms(keyword: str) -> list[str]:
+    """The words of a search, cleaned of characters FTS5 reads as syntax."""
+    return [w for w in (t.strip(_FTS_PUNCT) for t in keyword.split()) if w]
+
+
+def _like_paths(cur, words: list[str], joiner: str, limit: int) -> list[str]:
+    """Files whose name or content contains the words, all of them or any."""
+    cond = f" {joiner} ".join(["(f.name LIKE ? OR f.content LIKE ?)"] * len(words))
+    args: list = []
+    for w in words:
+        args += [f"%{w}%", f"%{w}%"]
+    cur.execute(
+        f"SELECT f.path FROM files f WHERE ({cond}) AND f.name != 'BASE_PATH' "
+        f"LIMIT ?",
+        (*args, limit),
+    )
+    return [r[0] for r in cur.fetchall() if r[0]]
 
 
 def _query_search_paths(db_path: str, keyword: str, limit: int = 8000) -> list[str]:
@@ -116,8 +302,20 @@ def _query_search_paths(db_path: str, keyword: str, limit: int = 8000) -> list[s
 
     The cap is deliberately high: the highlight has to show truthfully where
     hits sit across the whole document set, and a small cap would silently
-    under-light entire regions of the orb."""
-    fts_query = " OR ".join(f"{w}*" for w in keyword.split() if w)
+    under-light entire regions of the orb.
+
+    Two routes, because the DBs this opens are not all built alike. One carries
+    chunks and an FTS index; the one in daily use is a single `files` table with
+    no index at all, so on that one the FTS query raises and every search comes
+    down to the LIKE below. That made the fallback the main path, and it was
+    matching the whole question as one literal substring -- so anything longer
+    than a phrase that appears verbatim in a document found nothing at all and
+    the orb went dark. Matching word by word is what makes a real question
+    answerable: all of the words first, and only if nothing holds all of them,
+    any of them.
+    """
+    terms = _fts_terms(keyword)
+    fts_query = " OR ".join(f"{w}*" for w in terms)
     try:
         with closing(sqlite3.connect(db_path)) as conn:
             cur = conn.cursor()
@@ -144,12 +342,13 @@ def _query_search_paths(db_path: str, keyword: str, limit: int = 8000) -> list[s
             except Exception:
                 pass
 
-            cur.execute(
-                "SELECT path FROM files WHERE (name LIKE ? OR content LIKE ?) "
-                "AND name != 'BASE_PATH' LIMIT ?",
-                (f"%{keyword}%", f"%{keyword}%", limit),
-            )
-            return [r[0] for r in cur.fetchall() if r[0]]
+            words = terms[:_MAX_LIKE_WORDS] or [keyword.strip()]
+            # Narrow first. A file holding every word of the question is what
+            # was asked for; widening to any of them is the consolation prize,
+            # and offering it first would light half the orb on the strength of
+            # one common word.
+            return (_like_paths(cur, words, "AND", limit)
+                    or _like_paths(cur, words, "OR", limit))
     except Exception:
         return []
 
@@ -222,9 +421,44 @@ def _read_db_snapshot(db_path: str, safety_cap: int = 50000) -> _DbSnapshot:
 _EMPTY_DB_SNAPSHOT = _DbSnapshot(0, [], "", "")
 
 # (text, background, border) for each state the DB label can be in.
-_DB_LABEL_NONE = ("#94a3b8", "#f8fafc", "#e2e8f0")  # nothing selected
-_DB_LABEL_OK = ("#334155", "#f0fdf4", "#86efac")    # readable, has documents
-_DB_LABEL_BAD = ("#7c2d12", "#fff7ed", "#fdba74")   # unreadable, or indexed nothing
+# Dark palette: the DB row sits under the orb, on the dark column, because the
+# orb IS this database drawn out -- the label naming it belongs beside it rather
+# than at the top of the white chat pane.
+_DB_LABEL_NONE = ("#64809c", "#0d1b2a", "#1a2535")  # nothing selected
+_DB_LABEL_OK = ("#c3d3e3", "#0d2236", "#1e4d72")    # readable, has documents
+_DB_LABEL_BAD = ("#fbbf24", "#231603", "#4a3a14")   # unreadable, or indexed nothing
+
+
+def _column_header(text: str) -> QLabel:
+    """Section caption in the left column ("SOURCE", "MODE")."""
+    lbl = QLabel(text)
+    lbl.setStyleSheet(
+        "color: #64809c; font-size: 10px; font-weight: 600;"
+        "letter-spacing: 1px; background: transparent; padding-left: 2px;"
+    )
+    return lbl
+
+
+def _emoji_icon(ch: str, px: int) -> QIcon:
+    """An emoji as an icon, so a mode tile can size its glyph apart from its label.
+
+    A button carries one font for the whole of its text, so an "icon over
+    label" string would draw both at the same size -- and proposal E draws the
+    glyph at 15px over an 11px label. Handing the glyph over as an icon lets
+    setIconSize decide it. Rendered at twice the size and marked as such so it
+    stays sharp on a scaled display.
+    """
+    scale = 2
+    pm = QPixmap(px * scale, px * scale)
+    pm.setDevicePixelRatio(scale)
+    pm.fill(Qt.transparent)
+    p = QPainter(pm)
+    font = QFont("Segoe UI Emoji")
+    font.setPixelSize(px)
+    p.setFont(font)
+    p.drawText(QRectF(0, 0, px, px), Qt.AlignCenter, ch)
+    p.end()
+    return QIcon(pm)
 
 
 def _db_label_style(fg: str, bg: str, border: str) -> str:
@@ -247,6 +481,45 @@ def _bundled_claude() -> str:
     except Exception:
         pass
     return "claude"
+
+
+class _OrbColumn(QWidget):
+    """Column that holds the orb to the top at exactly the size it draws.
+
+    NeuralOrbWidget scales to min(w/620, h/560) and centres the result, so a box
+    taller than that ratio pads the orb with dead space above and below. Giving
+    the box the drawing's own aspect removes the padding: the orb sits at the top
+    of the column and every pixel below it is free for the citation cards.
+    """
+
+    # Left below the orb on a short window, so the legend and the cited cards
+    # are not squeezed to nothing before the orb gives anything up.
+    _MIN_BELOW = 150
+
+    def __init__(self, orb: QWidget, parent=None):
+        super().__init__(parent)
+        # Qt fills a stylesheet background for a plain QWidget but not for a
+        # subclass of one, so without this the column's own colour is dropped and
+        # whatever the active theme paints behind it shows through instead.
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self._orb = orb
+        self._orb_h = 0
+
+    def resizeEvent(self, event):  # noqa: N802 - Qt naming
+        super().resizeEvent(event)
+        # Exactly the height the drawing uses at this width, so there is no dead
+        # padding and the orb sits flush at the top -- unless the column is too
+        # short to afford that, in which case the orb shrinks before the cards do.
+        # The floor stays well under _MIN_BELOW so this stays solvable: the
+        # height asked for here is always less than the height it is read from,
+        # which is what keeps the column able to shrink into a short window.
+        h = min(round(self.width() * _ORB_ASPECT),
+                max(80, self.height() - self._MIN_BELOW))
+        # Guarded: setFixedHeight relayouts, and an unguarded write would keep
+        # answering its own resize.
+        if h != self._orb_h:
+            self._orb_h = h
+            self._orb.setFixedHeight(h)
 
 
 class TrendDataDialog(QDialog):
@@ -319,6 +592,13 @@ class ClaudeAssistantWidget(QWidget):
         self._diag_retried: bool = False  # đã thử retry JSON 1 lần chưa
         self._cur_symptom: str = ""       # triệu chứng của lượt chẩn đoán hiện tại
 
+        # Where in the chat document the answer being streamed begins, so that
+        # the plain text shown while it arrives can be swapped for the rendered
+        # markdown once it is complete. -1 means no answer is open.
+        self._ans_start: int = -1
+        self._tool_counts: dict[str, int] = {}   # tools this answer used
+        self._cited_codes: frozenset[str] = frozenset()  # codes that resolved
+
         # Idle timer — sau khi hoàn thành/lỗi, orb tự về REST sau vài giây
         self._idle_timer = QTimer(self)
         self._idle_timer.setSingleShot(True)
@@ -386,84 +666,13 @@ class ClaudeAssistantWidget(QWidget):
         hdr.addWidget(self._lbl_status)
         root.addWidget(hdr_w)
 
-        # ── Splitter: Orb (left) | Chat (right) ──────────────────
+        # ── Splitter: Modes | Orb | Chat | Diagnosis ─────────────
         splitter = QSplitter(Qt.Horizontal)
         splitter.setHandleWidth(1)
         splitter.setStyleSheet("QSplitter::handle { background: #1a2535; }")
 
-        # Left — JARVIS orb + action buttons
-        left = QWidget()
-        left.setStyleSheet("background: #02040b;")
-        left.setMinimumWidth(180)
-        left_lay = QVBoxLayout(left)
-        left_lay.setContentsMargins(0, 0, 0, 0)
-        left_lay.setSpacing(0)
-
-        self._orb_view = NeuralOrbWidget()
-        self._orb_view.neuron_clicked.connect(self._open_orb_file)
-        self._orb_base_path = ""
-        left_lay.addWidget(self._orb_view, 1)
-
-        self._src_lbl = QLabel("")
-        self._src_lbl.setWordWrap(True)
-        self._src_lbl.setStyleSheet(
-            "background: #120c06; color: #ff7e2e; font-size: 10px; "
-            "padding: 5px 10px; border-top: 1px solid #3a220f;"
-        )
-        self._src_lbl.setVisible(False)
-        left_lay.addWidget(self._src_lbl)
-
-        self._legend_lbl = QLabel("")
-        self._legend_lbl.setWordWrap(True)
-        self._legend_lbl.setStyleSheet(
-            "background: #06090f; color: #9fb3c8; font-size: 10px; "
-            "padding: 6px 10px; border-top: 1px solid #1a2535;"
-        )
-        self._legend_lbl.setVisible(False)
-        left_lay.addWidget(self._legend_lbl)
-
-        # Action buttons (thay thế state buttons trong HTML)
-        btn_frame = QWidget()
-        btn_frame.setStyleSheet(
-            "background: #06090f; border-top: 1px solid #1a2535;"
-        )
-        btn_grid = QGridLayout(btn_frame)
-        btn_grid.setContentsMargins(8, 8, 8, 8)
-        btn_grid.setSpacing(6)
-
-        _ACTIONS = [
-            ("🔍", "Find Docs",   "Find in document DB about: ",   1, "chat"),
-            ("📝", "Make Report", "Create operation report about: ", 3, "chat"),
-            ("🔬", "Diagnose",    "",                              2, "diagnose"),
-            ("💬", "Ask",         "",                              0, "chat"),
-            ("🪪", "Quick Card",  "",                              1, "quickcard"),
-            ("🔧", "Work Pack",   "",                              1, "workpackage"),
-            ("📈", "Trend Data",  "",                              2, "trend"),
-        ]
-        _btn_style = """
-            QPushButton {
-                background: #0d1b2a; color: #7ecfff;
-                border: 1px solid #1a3a5c; border-radius: 8px;
-                font-size: 11px; padding: 6px 4px;
-            }
-            QPushButton:hover   { background: #1a2f45; border-color: #4488cc; color: #aaddff; }
-            QPushButton:pressed { background: #0a1520; }
-        """
-        for idx, (icon, label, prefix, state, mode) in enumerate(_ACTIONS):
-            btn = QPushButton(f"{icon}\n{label}")
-            btn.setStyleSheet(_btn_style)
-            btn.setFixedHeight(52)
-            btn.clicked.connect(
-                lambda _checked, p=prefix, s=state, m=mode: self._on_action(p, s, m)
-            )
-            # nút lẻ cuối (số nút lẻ) trải hết 2 cột cho cân đối
-            if idx == len(_ACTIONS) - 1 and len(_ACTIONS) % 2 == 1:
-                btn_grid.addWidget(btn, idx // 2, 0, 1, 2)
-            else:
-                btn_grid.addWidget(btn, idx // 2, idx % 2)
-
-        left_lay.addWidget(btn_frame)
-        splitter.addWidget(left)
+        splitter.addWidget(self._build_modes_column())
+        splitter.addWidget(self._build_orb_column())
 
         # Right — chat panel (white)
         right = QWidget()
@@ -493,50 +702,17 @@ class ClaudeAssistantWidget(QWidget):
         sp_row.addWidget(self._inp_system, 1)
         r_lay.addLayout(sp_row)
 
-        # DB selector row
-        db_row = QHBoxLayout()
-        db_lbl = QLabel("DB:")
-        db_lbl.setFixedWidth(52)
-        db_lbl.setStyleSheet("color: #64748b; font-size: 11px;")
-        self._lbl_db = QLabel("No DB selected")
-        self._lbl_db.setStyleSheet("""
-            color: #94a3b8; font-size: 11px;
-            background: #f8fafc; border: 1px solid #e2e8f0;
-            border-radius: 6px; padding: 2px 8px;
-        """)
-        self._btn_pick_db = QPushButton("📂 Select DB")
-        self._btn_pick_db.setFixedHeight(26)
-        self._btn_pick_db.setStyleSheet("""
-            QPushButton {
-                background: #f1f5f9; border: 1px solid #e2e8f0;
-                border-radius: 5px; font-size: 11px; padding: 0 8px;
-            }
-            QPushButton:hover { background: #e0f2fe; }
-        """)
-        self._btn_pick_db.clicked.connect(self._pick_db)
-        self._btn_clear_db = QPushButton("✕")
-        self._btn_clear_db.setFixedSize(26, 26)
-        self._btn_clear_db.setToolTip("Clear DB")
-        self._btn_clear_db.setStyleSheet("""
-            QPushButton {
-                background: #f1f5f9; border: 1px solid #e2e8f0;
-                border-radius: 5px; color: #94a3b8;
-            }
-            QPushButton:hover { background: #fee2e2; color: #dc2626; }
-        """)
-        self._btn_clear_db.clicked.connect(self._clear_db)
-        db_row.addWidget(db_lbl)
-        db_row.addWidget(self._lbl_db, 1)
-        db_row.addWidget(self._btn_pick_db)
-        db_row.addWidget(self._btn_clear_db)
-        r_lay.addLayout(db_row)
-
-        # Chat history
-        self._chat = QTextEdit()
+        # Chat history. A browser rather than a plain edit: answers carry
+        # document codes, and only a browser reports a click on one so the file
+        # behind it can be opened.
+        self._chat = QTextBrowser()
+        self._chat.setOpenLinks(False)        # 'doc:' is ours, not the shell's
+        self._chat.setOpenExternalLinks(False)
+        self._chat.anchorClicked.connect(self._on_chat_anchor)
         self._chat.setReadOnly(True)
         self._chat.setFont(QFont("Segoe UI", 12))
         self._chat.setStyleSheet("""
-            QTextEdit {
+            QTextBrowser {
                 background: #f8fafc; border: 1px solid #e2e8f0;
                 border-radius: 8px; color: #1e293b; padding: 10px;
             }
@@ -584,7 +760,7 @@ class ClaudeAssistantWidget(QWidget):
                 background: #fee2e2; color: #dc2626; border-color: #fca5a5;
             }
         """)
-        self._btn_clear.clicked.connect(self._chat.clear)
+        self._btn_clear.clicked.connect(self._clear_chat)
 
         input_row.addWidget(self._inp_msg, 1)
         input_row.addWidget(self._btn_send)
@@ -601,8 +777,174 @@ class ClaudeAssistantWidget(QWidget):
         splitter.addWidget(self._diag_panel)
 
         self._splitter = splitter
-        splitter.setSizes([340, 660])
+        # Only the chat column stretches. The two left columns hold a fixed
+        # layout and the orb column IS the orb's size, so growing the window
+        # must not feed width into them.
+        for i, stretch in enumerate((0, 0, 1, 0)):
+            splitter.setStretchFactor(i, stretch)
+        splitter.setSizes([_MODES_COL_W, _ORB_COL_W, _CHAT_COL_W, 0])
         root.addWidget(splitter, 1)
+
+    def _build_modes_column(self) -> QWidget:
+        """The seven modes, lifted out from under the orb into their own column.
+
+        Laid out as proposal E draws them: Ask across the full width in the
+        accent colour, then the other six as a two-column grid of tiles with
+        the icon stacked over the label. Ask is the mode the tab opens in and
+        the one every other mode falls back to, so it reads as the default
+        rather than as the fourth cell of a grid.
+
+        The six keep the order they have in _ACTIONS, which fills the grid the
+        way E has it -- Find Docs beside Make Report, Diagnose beside Quick
+        Card, Work Pack beside Trend Data.
+        """
+        col = QWidget()
+        col.setStyleSheet("background: #06090f;")
+        col.setMinimumWidth(_MODES_COL_MIN_W)
+        lay = QVBoxLayout(col)
+        lay.setContentsMargins(14, 12, 14, 12)
+        lay.setSpacing(_MODE_GAP)
+
+        lay.addWidget(_column_header("SOURCE"))
+        lay.addWidget(self._build_db_row())
+        lay.addSpacing(6)
+        lay.addWidget(_column_header("MODE"))
+
+        by_label = {a[1]: a for a in _ACTIONS}
+        lay.addWidget(self._build_mode_button(by_label[_PRIMARY_MODE]))
+
+        grid = QGridLayout()
+        grid.setContentsMargins(0, 0, 0, 0)  # the column's own spacing sets the gap
+        grid.setSpacing(_MODE_GAP)
+        rest = [a for a in _ACTIONS if a[1] != _PRIMARY_MODE]
+        for i, action in enumerate(rest):
+            grid.addWidget(self._build_mode_button(action), i // 2, i % 2)
+        lay.addLayout(grid)
+
+        lay.addStretch(1)
+        return col
+
+    def _build_mode_button(self, action: tuple) -> QWidget:
+        """One mode: the primary as a wide button, the rest as grid tiles."""
+        icon, label, prefix, state, mode = action
+        if label == _PRIMARY_MODE:
+            btn = QPushButton(f"{icon}  {label}")
+            btn.setFixedHeight(_MODE_PRIMARY_H)
+            btn.setStyleSheet(_PRIMARY_MODE_STYLE)
+        else:
+            btn = QToolButton()
+            btn.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
+            btn.setIcon(_emoji_icon(icon, _MODE_ICON_PX))
+            btn.setIconSize(QSize(_MODE_ICON_PX + 3, _MODE_ICON_PX + 3))
+            btn.setText(label)
+            btn.setFixedHeight(_MODE_TILE_H)
+            btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            btn.setStyleSheet(_MODE_STYLE)
+        btn.setCursor(Qt.PointingHandCursor)
+        btn.clicked.connect(
+            lambda _checked=False, p=prefix, s=state, m=mode:
+            self._on_action(p, s, m)
+        )
+        return btn
+
+    def _build_orb_column(self) -> QWidget:
+        """The orb, and under it the controls that aim it.
+
+        Everything here is about one database: the orb is that DB laid out, and
+        the band below is how you point at part of it -- a search box and a
+        folder legend, both answered in the orb's own highlight. The orb is
+        pinned to the top at its drawn size rather than centred, so the height
+        it is not using goes to the bottom instead of to padding.
+
+        The cited-sources panel survives for diagnoses only. A diagnosis card
+        carries a section, a quote and a verified flag, none of which exist
+        anywhere else; a chat answer's card carried a code the answer text had
+        already printed and linked, so for chat it said nothing twice.
+        """
+        self._orb_view = NeuralOrbWidget()
+        self._orb_view.neuron_clicked.connect(self._open_orb_file)
+        self._orb_base_path = ""
+
+        col = _OrbColumn(self._orb_view)
+        col.setStyleSheet("background: #02040b;")
+        # A minimum, not a fixed width: the splitter handle still works, so the
+        # orb can be made bigger by hand as it always could. What is fixed is
+        # that nothing else takes width from it on its own.
+        col.setMinimumWidth(200)
+        lay = QVBoxLayout(col)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
+
+        # Stretch 0: its height comes from the column's width, not from whatever
+        # is left over once the panels below have taken theirs.
+        lay.addWidget(self._orb_view, 0)
+
+        self._orb_controls = OrbControls()
+        self._orb_controls.search_changed.connect(self._highlight_search_hits)
+        self._orb_controls.folder_picked.connect(self._highlight_folder)
+        lay.addWidget(self._orb_controls, 0)
+
+        self._sources_panel = CitedSourcesPanel()
+        self._sources_panel.set_db_path(self._db_path)
+        # Stretch 1 against a maximum the panel sets from its own content: it
+        # grows to fit its cards and no further, and on a short window the
+        # layout can still take height back from it rather than clip it.
+        lay.addWidget(self._sources_panel, 1)
+
+        # Whatever height none of the three claims ends up here, at the bottom,
+        # rather than being shared out as padding between them.
+        lay.addStretch(0)
+
+        return col
+
+    def _build_db_row(self) -> QWidget:
+        """Which database everything on this tab is answering from.
+
+        Stacked rather than in one row: at this column width a name, a count and
+        two buttons side by side would leave the file name a few dozen pixels and
+        nothing readable in them.
+        """
+        box = QWidget()
+        box.setStyleSheet("background: transparent;")
+        lay = QVBoxLayout(box)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(4)
+
+        self._lbl_db = QLabel("No DB selected")
+        self._lbl_db.setStyleSheet(_db_label_style(*_DB_LABEL_NONE))
+
+        # The document count, stated rather than left in a tooltip: it is what
+        # separates a DB that loaded from one that opened and held nothing.
+        self._lbl_db_count = QLabel("")
+        self._lbl_db_count.setStyleSheet(
+            "color: #64809c; font-size: 10px; background: transparent;"
+            "padding-left: 2px;"
+        )
+
+        self._btn_pick_db = QPushButton("📂  Select DB")
+        self._btn_pick_db.setFixedHeight(26)
+        self._btn_pick_db.setToolTip("Select DB")
+        self._btn_pick_db.setCursor(Qt.PointingHandCursor)
+        self._btn_pick_db.setStyleSheet(_DB_BTN_STYLE)
+        self._btn_pick_db.clicked.connect(self._pick_db)
+
+        self._btn_clear_db = QPushButton("✕")
+        self._btn_clear_db.setFixedSize(26, 26)
+        self._btn_clear_db.setToolTip("Clear DB")
+        self._btn_clear_db.setCursor(Qt.PointingHandCursor)
+        self._btn_clear_db.setStyleSheet(_DB_BTN_CLEAR_STYLE)
+        self._btn_clear_db.clicked.connect(self._clear_db)
+
+        btn_row = QHBoxLayout()
+        btn_row.setContentsMargins(0, 0, 0, 0)
+        btn_row.setSpacing(6)
+        btn_row.addWidget(self._btn_pick_db, 1)
+        btn_row.addWidget(self._btn_clear_db)
+
+        lay.addWidget(self._lbl_db)
+        lay.addWidget(self._lbl_db_count)
+        lay.addLayout(btn_row)
+        return box
 
     # ── JARVIS orb control ────────────────────────────────────────────
     def _set_jarvis(self, state: int):
@@ -691,17 +1033,26 @@ class ClaudeAssistantWidget(QWidget):
         self._inp_msg.setFocus()
 
     def _show_diag_panel(self, show: bool):
+        """Open/close the diagnosis column, taking its width from chat only.
+
+        The orb column keeps _ORB_COL_W in both states: it used to be squeezed
+        to 260 here, which quietly shrank the orb -- and with it the click target
+        on every neuron -- the moment diagnosis opened.
+        """
         if show:
             self._diag_panel.show()
-            self._splitter.setSizes([260, 420, 400])
+            self._splitter.setSizes(
+                [_MODES_COL_W, _ORB_COL_W, _CHAT_COL_W_DIAG, _DIAG_COL_W]
+            )
         else:
             self._diag_panel.hide()
-            self._splitter.setSizes([340, 660])
+            self._splitter.setSizes([_MODES_COL_W, _ORB_COL_W, _CHAT_COL_W, 0])
 
     def _apply_db_path(self, path: str, persist: bool = True):
         """Cập nhật state + UI + (tuỳ chọn) lưu xuống JSON. path='' = clear."""
         self._db_path = path
         self._diag_panel.set_db_path(path)
+        self._sources_panel.set_db_path(path)
 
         snap = _read_db_snapshot(path) if path else _EMPTY_DB_SNAPSHOT
         self._show_db_status(path, snap)
@@ -726,49 +1077,54 @@ class ClaudeAssistantWidget(QWidget):
         """
         if not path:
             text, tip, colors = "No DB selected", "", _DB_LABEL_NONE
+            count = ""
         elif snap.error:
             text = f"⚠ {os.path.basename(path)}"
             tip = f"{path}\n\nCould not read this database:\n{snap.error}"
             colors = _DB_LABEL_BAD
+            count = "could not be read"
         elif snap.total_docs == 0:
             text = f"⚠ {os.path.basename(path)}"
             tip = f"{path}\n\nOpened, but it contains no indexed documents."
             colors = _DB_LABEL_BAD
+            count = "no documents indexed"
         else:
             text = os.path.basename(path)
             tip = f"{path}\n\n{snap.total_docs:,} documents indexed."
             colors = _DB_LABEL_OK
-        self._lbl_db.setText(text)
+            count = f"{snap.total_docs:,} documents"
+
+        # Elided against the column's own width rather than the label's: this
+        # runs before the first layout, when the label does not have one yet.
+        fm = QFontMetrics(self._lbl_db.font())
+        self._lbl_db.setText(fm.elidedText(text, Qt.ElideMiddle, _DB_NAME_W))
         self._lbl_db.setToolTip(tip)
         self._lbl_db.setStyleSheet(_db_label_style(*colors))
+        self._lbl_db_count.setText(count)
+        self._lbl_db_count.setToolTip(tip)
 
     def _update_orb_legend(self) -> None:
-        """Render the folder breakdown below the orb from
-        self._orb_view.folder_legend (name, colour, file_count).
-
-        The COUNT carries the folder's colour, not a separate swatch: it is the
-        number the eye is hunting for, and colouring it lets one folder's total
-        be picked out of the row without a dot competing for the same space.
-        Folder names stay on the label's own grey so the colours read as
-        row markers rather than as emphasis on some folders over others."""
+        """Hand the folder breakdown to the control band under the orb."""
         legend = self._orb_view.folder_legend if self._orb_view is not None else []
-        if not legend:
-            self._legend_lbl.setVisible(False)
-            self._legend_lbl.setText("")
-            return
-        rows = []
-        for name, color, count in legend:
-            tint = (f'<span style="color:rgb({color.red()},{color.green()},'
-                    f'{color.blue()});font-weight:600;">{count:,}</span>')
-            rows.append(f"{html.escape(name)} ({tint})")
-        self._legend_lbl.setText("&nbsp;&nbsp;·&nbsp;&nbsp;".join(rows))
-        self._legend_lbl.setVisible(True)
+        self._orb_controls.set_legend(legend)
+
+    def _abs_source_path(self, relative_path: str) -> str:
+        """Where a file the DB lists actually is on disk.
+
+        `files.path` is stored relative to the BASE_PATH row, so a value taken
+        straight from that column exists nowhere. Everything that opens a source
+        file resolves it here -- the orb's neurons, the cited-source cards and
+        the document codes inside an answer all read the same column, and each
+        place that joined it by hand was one more place to forget to.
+        """
+        if not relative_path or os.path.isabs(relative_path):
+            return relative_path
+        return (os.path.join(self._orb_base_path, relative_path)
+                if self._orb_base_path else relative_path)
 
     def _open_orb_file(self, name: str, relative_path: str) -> None:
-        if not self._orb_base_path:
-            return
-        abs_path = os.path.join(self._orb_base_path, relative_path)
-        if os.path.exists(abs_path):
+        abs_path = self._abs_source_path(relative_path)
+        if abs_path and os.path.exists(abs_path):
             try:
                 os.startfile(abs_path)  # type: ignore[attr-defined]
             except Exception:
@@ -788,10 +1144,12 @@ class ClaudeAssistantWidget(QWidget):
         """Light up the orb neurons holding files that match the search."""
         if self._orb_view is None:
             return
+        keyword = _strip_mode_prefix(keyword.strip())
         keyword = " ".join(_extract_keywords(keyword)) or keyword.strip()
         self._hl_seq += 1
         if not (self._db_path and keyword):
             self._orb_view.clear_highlight()
+            self._orb_controls.set_hits(0)
             return
 
         seq = self._hl_seq
@@ -805,6 +1163,28 @@ class ClaudeAssistantWidget(QWidget):
         if seq != self._hl_seq or self._orb_view is None:
             return
         self._orb_view.highlight_files(paths)
+        # Counted from the orb, not from len(paths): the query can return files
+        # this DB's orb was never built with, and the number under it has to
+        # mean the same set the gold above it does.
+        self._orb_controls.set_hits(len(self._orb_view.highlight_hits()))
+
+    def _highlight_folder(self, name: str) -> None:
+        """Light the region of the orb one legend folder occupies.
+
+        No DB query: the orb was handed every file when it was built, so a
+        folder is answered from memory and lands in the same frame as the click.
+        The sequence still moves, because a search fired a moment ago is still
+        in flight and would otherwise arrive and overwrite this.
+        """
+        if self._orb_view is None:
+            return
+        self._hl_seq += 1
+        if not name:
+            self._orb_view.clear_highlight()
+            self._orb_controls.set_hits(0)
+            return
+        self._orb_view.highlight_files(self._orb_view.folder_files(name))
+        self._orb_controls.set_hits(len(self._orb_view.highlight_hits()))
 
     # ── Answer sources (provenance) ─────────────────────────────────────
     def _show_answer_sources(self) -> None:
@@ -813,38 +1193,68 @@ class ClaudeAssistantWidget(QWidget):
 
         The search highlight is dropped at the same time: it answers a different
         question (where the topic lives) and leaving both on would blur which
-        documents the answer actually rests on."""
+        documents the answer actually rests on. Only when there is something to
+        drop it for, though -- an answer that cites nothing the DB holds would
+        otherwise take the gold away and put nothing in its place, leaving a
+        blank orb after a question that did find its topic."""
         if self._orb_view is None:
             return
         codes = _extract_doc_codes(self._resp_buffer)
-        paths = _resolve_cited_paths(self._doc_lookup, codes) if codes else []
+        cited = _resolve_cited_sources(self._doc_lookup, codes) if codes else []
 
         # Bump the sequence so a search query still in flight cannot land after
         # this and repaint over the sources.
         self._hl_seq += 1
-        self._orb_view.clear_highlight()
-        resolved = self._orb_view.set_source_files(paths)
-        self._set_source_caption(len(resolved))
+        resolved = self._orb_view.set_source_files([p for _, p in cited])
+        if resolved:
+            # Empty the control band that asked for the gold too: a box still
+            # holding a word the orb is no longer showing would be claiming a
+            # highlight it does not own.
+            self._orb_view.clear_highlight()
+            self._orb_controls.reset()
+
+        # Only files this DB actually holds are counted, so the markers on the
+        # orb and the number under it always mean the same set. A code that
+        # resolves to nothing stays silent on purpose: an answer may legitimately
+        # cite an external standard, and flagging those would cry wolf.
+        found = set(resolved)
+        shown = [(code, path) for code, path in cited if path in found]
+        # A count and a tooltip, not a card each. Every code here is already
+        # printed in the answer above and already opens its file when clicked;
+        # what the band adds is how many of them the orange markers stand for.
+        self._orb_controls.set_cited(sorted({code for code, _ in shown}))
+        # Handed to the renderer so a code in the answer text becomes a link
+        # only when there is a file behind it to open.
+        self._cited_codes = frozenset(code for code, _ in shown)
 
     def _clear_answer_sources(self) -> None:
         if self._orb_view is not None:
             self._orb_view.clear_sources()
-        self._set_source_caption(0)
+        self._orb_controls.set_cited([])
+        self._sources_panel.clear()
 
-    def _set_source_caption(self, resolved: int) -> None:
-        """Caption under the orb naming how many cited documents were located.
+    def _on_chat_anchor(self, url) -> None:
+        """Click a document code in an answer → open that file.
 
-        Only files found in this DB are counted. A code that resolves to nothing
-        is left silent on purpose: an answer may legitimately cite a standard or
-        an external document, and flagging those as missing would cry wolf."""
-        if not resolved:
-            self._src_lbl.setVisible(False)
-            self._src_lbl.setText("")
+        Resolved through the same lookup the orb markers and the source cards
+        use, so all three agree on which file a code names.
+        """
+        text = url.toString()
+        if not text.startswith(chat_render.DOC_LINK_SCHEME):
             return
-        self._src_lbl.setText(
-            f"◆ {resolved} source file(s) cited — click a marker to open"
-        )
-        self._src_lbl.setVisible(True)
+        code = text[len(chat_render.DOC_LINK_SCHEME):]
+        hits = _resolve_cited_sources(self._doc_lookup, [code])
+        path = self._abs_source_path(next((p for _, p in hits if p), ""))
+        if not path or not os.path.exists(path):
+            QMessageBox.information(
+                self, "Not found",
+                f"No source file found in this DB for:\n{code}",
+            )
+            return
+        try:
+            os.startfile(path)  # type: ignore[attr-defined]
+        except Exception as e:
+            QMessageBox.warning(self, "Open file error", str(e))
 
     def _load_claude_md(self) -> str:
         """Đọc CLAUDE.md cạnh app (theo paths.APP_DIR) làm system context.
@@ -863,6 +1273,15 @@ class ClaudeAssistantWidget(QWidget):
         self._chat.moveCursor(QTextCursor.End)
         self._chat.insertHtml(html)
         self._chat.moveCursor(QTextCursor.End)
+
+    def _clear_chat(self):
+        """Empty the transcript, and forget where the open answer started.
+
+        The position is an offset into the document that just went away; left
+        behind, the next answer would be written from a stale one.
+        """
+        self._chat.clear()
+        self._ans_start = -1
 
     def _set_busy(self, busy: bool):
         self._inp_msg.setEnabled(not busy)
@@ -896,8 +1315,11 @@ class ClaudeAssistantWidget(QWidget):
 
         self._inp_msg.clear()
         self._echo_user(msg)
-        # The previous answer's sources belong to the previous answer.
+        # The previous answer's sources belong to the previous answer, and so
+        # does anything the control band was still pointing at: the question
+        # about to be sent is what the orb answers from here.
         self._clear_answer_sources()
+        self._orb_controls.reset()
         self._highlight_search_hits(msg)
 
         system = self._inp_system.text().strip()
@@ -993,18 +1415,21 @@ class ClaudeAssistantWidget(QWidget):
         self._run_agent(prompt, options)
 
     def _echo_user(self, msg: str):
-        """In dòng người dùng + mở đoạn trả lời của Claude vào khung chat."""
+        """Print the question as its own block and open a turn for the answer.
+
+        Nothing is opened for the answer here: it is streamed as plain text and
+        replaced by the rendered document in _finalize_answer, so the turn's
+        start is recorded at the first thing that actually arrives.
+        """
         self._set_busy(True)
         self._orb.set_active(True)
         self._set_jarvis(2)          # THINK — đang xử lý
         self._response_started = False
         self._resp_buffer = ""
-        safe_msg = msg.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-        self._append(
-            f'<p style="color:#4f46e5;margin:8px 0 2px 0">'
-            f'<b>You:</b> {safe_msg}</p><br>'
-        )
-        self._append('<p style="color:#166534;margin:2px 0"><b>Assistant:</b> ')
+        self._tool_counts = {}
+        self._cited_codes = frozenset()
+        self._ans_start = -1
+        self._append(chat_render.user_turn_html(msg) + chat_render.spacer_html(8))
 
     def _run_agent(self, prompt: str, options):
         self._stream_chars = 0
@@ -1016,9 +1441,24 @@ class ClaudeAssistantWidget(QWidget):
         self._worker.error.connect(self._on_error)
         self._worker.start()
 
+    def _mark_answer_start(self):
+        """Remember where this answer begins, at the first thing it prints.
+
+        Recorded lazily rather than in _echo_user because a retry runs the agent
+        again without echoing anything, and it must get a region of its own
+        instead of overwriting the answer above it.
+        """
+        if self._ans_start < 0:
+            self._chat.moveCursor(QTextCursor.End)
+            self._ans_start = self._chat.textCursor().position()
+
     def _on_text_chunk(self, text: str):
         self._resp_buffer += text
         self._stream_chars += len(text)   # nuôi orb intensity (throttle 200ms)
+        # Streamed as plain text on purpose: markdown cannot be rendered from a
+        # half-arrived table or heading. _finalize_answer replaces this whole
+        # region with the rendered document once the answer is complete.
+        self._mark_answer_start()
         safe = (text.replace("&", "&amp;")
                     .replace("<", "&lt;")
                     .replace(">", "&gt;")
@@ -1026,12 +1466,46 @@ class ClaudeAssistantWidget(QWidget):
         self._append(f'<span style="color:#1e293b">{safe}</span>')
 
     def _on_tool_used(self, tool_name: str):
+        """Count the call, and show it on a line of its own while it happens.
+
+        The line is live feedback only -- it sits in the region _finalize_answer
+        replaces, and comes back as a single chip above the answer. It used to be
+        appended into the answer's own paragraph, which put one ``⚙ Bash`` per
+        call in front of the first word of the reply.
+        """
+        self._tool_counts[tool_name] = self._tool_counts.get(tool_name, 0) + 1
+        self._mark_answer_start()
         self._append(
-            f'<span style="color:#b45309;font-size:11px"> ⚙️ {tool_name}</span>'
+            f'<p style="color:#b45309;font-size:11px;margin:1px 0">'
+            f'⚙️ {tool_name}</p>'
         )
 
+    def _finalize_answer(self):
+        """Swap the streamed plain text for the rendered document.
+
+        One replacement over the region the answer occupies: the markdown is
+        only complete now, and re-rendering per chunk would reflow the pane on
+        every keystroke of output.
+        """
+        if self._ans_start < 0:
+            return
+        body = chat_render.markdown_to_html(self._resp_buffer, self._cited_codes)
+        if not body and not self._tool_counts:
+            self._ans_start = -1
+            return
+        cursor = self._chat.textCursor()
+        cursor.setPosition(self._ans_start)
+        cursor.movePosition(QTextCursor.End, QTextCursor.KeepAnchor)
+        cursor.removeSelectedText()
+        cursor.insertHtml(
+            chat_render.tool_chip_html(self._tool_counts)
+            + body
+            + chat_render.spacer_html(14)
+        )
+        self._ans_start = -1
+        self._chat.moveCursor(QTextCursor.End)
+
     def _on_done(self):
-        self._append("</p><br>")
         self._stream_timer.stop()
         self._stream_chars = 0
         self._set_busy(False)
@@ -1039,7 +1513,10 @@ class ClaudeAssistantWidget(QWidget):
         self._set_jarvis(1)          # FOCUS — hoàn thành
         self._schedule_idle()        # vài giây sau tự về REST
         self._inp_msg.setFocus()
+        # Sources first: it resolves the cited codes against the DB, and only a
+        # code that resolved is worth turning into a link in the text below.
         self._show_answer_sources()  # orb marks the documents the answer cited
+        self._finalize_answer()
 
         # Chẩn đoán: parse khối JSON cây nguyên nhân → đổ vào panel
         if self._mode == "diagnose":
@@ -1055,6 +1532,9 @@ class ClaudeAssistantWidget(QWidget):
                 data = copilot.verify_diagnosis(self._db_path, data)  # #1
                 copilot.append_history(data)                          # #5 lưu lịch sử
                 self._diag_panel.refresh_history()
+                # Diagnosis carries section, quote and a verified flag, none of
+                # which a scraped code has; replace the shallow cards with it.
+                self._sources_panel.set_sources(_diagnosis_sources(data))
             self._diag_panel.set_diagnosis(data or {})
         elif self._mode == "report":
             self._mode = "chat"
@@ -1163,6 +1643,10 @@ class ClaudeAssistantWidget(QWidget):
         self._run_agent(prompt, options)
 
     def _on_error(self, msg: str):
+        # Render whatever did arrive before the error, and close the region:
+        # left open, the next answer would replace from here and take the error
+        # message down with it.
+        self._finalize_answer()
         safe = msg.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
         self._append(
             f'<p style="color:#dc2626;margin:4px 0"><b>Error:</b> {safe}</p>'

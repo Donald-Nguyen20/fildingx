@@ -26,6 +26,10 @@ _CX, _CY = 310.0, 280.0
 _NEURON_COUNT = 320
 _BG_COLOR = QColor("#02040b")
 
+# Furthest a neuron is ever placed from the centre. Also the scale the colour
+# ramp is measured against, so the outermost neurons are the ones wearing colB.
+_NEURON_REACH = 275.0
+
 # Neuron count scales with the real DB document count (sqrt so it grows
 # gently instead of exploding on huge DBs), clamped to a safe render range.
 _NEURON_COUNT_MIN = 180
@@ -64,12 +68,30 @@ _FOLDER_PALETTE = [
 # suggest it belongs in the sequence above, but light enough (8.4:1) to read.
 _FOLDER_OTHER_COLOR = QColor(158, 170, 188)
 
-# Search hits. Every state colour is heavily saturated, so the way to stay
-# separable from all of them is low saturation rather than another hue: this
-# pale tint holds a worst-case CIEDE2000 of ~33 against the ten state colours,
-# where the previous warm gold fell to 6.4 against state 4 — indistinguishable.
-# It also widens the gap to the citation orange below, from 29.5 to 40.5.
-_HIGHLIGHT_COLOR = (255, 210, 255)
+# Search hits. This gold was once replaced by a pale pink on the grounds that it
+# fell to a CIEDE2000 of 6.4 against state 4 — but the colour it collided with
+# was a colB, and at the time colB was never painted (see _STATES). The
+# collision it was rejected for could not happen on screen. It could once the
+# ramp started being drawn, which is why those two colB values were changed
+# rather than this one.
+#
+# Re-measured against the colours that do reach the screen — every step of every
+# ramp and the firing colour of each — gold held a worst case of 36.7
+# where the pink held 35.9, so it is the better separated of the two,
+# not the worse. Its one real cost is the citation orange below: 29.5 against
+# the pink's 40.5. Still a clear difference, and the two are drawn as different
+# shapes (a soft pulsing halo whose brightness carries hit density, against a
+# hard filled dot and crisp ring), which is what keeps them apart when the orb
+# is in a warm state.
+#
+# Both markers keep those colours now only because of the halo below. Measured
+# against a palette that includes the red->yellow of state 5, the gold clears
+# the field by 3.8 and the orange by 2.6 — both far inside the 20 that would
+# make them unmistakable, and a sweep of the whole wheel found nothing better
+# than a pair of pale near-whites at 25.8 that are hard to tell from each other.
+# The halo is what makes the hue distance stop mattering.
+_HIGHLIGHT_COLOR = (255, 214, 92)
+_HIGHLIGHT_HEX = "#%02x%02x%02x" % _HIGHLIGHT_COLOR
 
 # Orange for the documents an answer actually cited. Held far from the search
 # tint above on purpose: the two mean different things (a topic's region vs the
@@ -79,6 +101,52 @@ _HIGHLIGHT_COLOR = (255, 210, 255)
 _SOURCE_COLOR = (255, 126, 46)
 _SOURCE_COLOR_HEX = "#%02x%02x%02x" % _SOURCE_COLOR
 
+# The ground colour again, near-opaque, drawn as a band underneath each marker
+# before the marker itself goes down.
+#
+# This is what a map does with a place name that has to sit on any colour the
+# terrain happens to be: separate the mark from its background with a gap rather
+# than trust the two colours to differ. It is here because the palette ran out
+# of room. The states span most of the wheel, and the warm band from hue 15 to
+# 65 — every yellow, amber and orange there is — is where these two markers
+# live, so a warm state and a hue-separated marker cannot both exist. Measured:
+# no colour in that band clears 20 from both markers, the closest being 20.2/4.2.
+#
+# With the halo the question stops being "can the eye separate these two hues"
+# and becomes "can the eye find this edge", which it can against anything. It
+# also sharpened the markers on the cool states, where there was no problem to
+# solve — the dark band reads as a deliberate outline rather than a fix.
+_MARK_HALO = (2, 4, 11, 210)
+
+# Neuron colours, over the black ground above. Each state spans two hues: colA
+# at the core, colB at the rim, every neuron holding a fixed place on that ramp
+# (see _Neuron.mix). colB used to be carried through _FrameState and
+# interpolated on every state change without any paint routine reading it, so
+# the orb was one flat hue per state; it is painted now, which is where the
+# extra colour comes from.
+#
+# The colA values are deliberately left alone. They were once brightened to
+# answer a complaint that the orb read dark, and the result was worse: measured
+# in HSV, (130, 0, 255) already sits at S=100 V=100 -- the corner of the sRGB
+# cube, with no direction left that is not paler or darker -- so the extra
+# luminance came entirely out of saturation, dropping state 2 from S=100 to
+# S=53 and state 1 from S=92 to S=63. On black, a desaturated hue reads as
+# washed out rather than as bright, which is the opposite of what was wanted.
+#
+# The dimness was never in these numbers. It is in the alpha the ink is painted
+# at (see _paint_synapses, _paint_dendrites, _paint_cell_bodies) and in the
+# radial fade that thins everything away from the centre -- which is where it
+# gets fixed, because raising opacity makes the same hue read brighter *and*
+# deeper, while the palette can only trade one for the other.
+#
+# When the ramp was first painted, states 3 and 4 had to give up their amber and
+# yellow rims: nothing had ever checked colB against the reserved gold and orange
+# below, because nothing checked colours that never reached the screen, and those
+# two sat at CIEDE2000 6.4 and 3.0 from the search gold. They stay changed. What
+# has changed is why — with _MARK_HALO under the markers the distance is no
+# longer what protects them, so the warm band is available again, and state 5
+# spends it on one deliberate red->yellow rather than scattering warm rims
+# through states that read better cool.
 _STATES = [
     {"colA": (0, 200, 215), "colB": (30, 90, 255), "speed": .50, "fire": .18,
      "conn": 55, "axon_spd": .65, "wave_amp": .60, "drift_mul": 1.2},
@@ -86,11 +154,42 @@ _STATES = [
      "conn": 85, "axon_spd": 1.3, "wave_amp": .78, "drift_mul": 1.8},
     {"colA": (130, 0, 255), "colB": (230, 0, 190), "speed": 2.4, "fire": .72,
      "conn": 118, "axon_spd": 2.2, "wave_amp": 1.08, "drift_mul": 2.8},
-    {"colA": (0, 210, 160), "colB": (240, 175, 0), "speed": 1.7, "fire": .58,
+    {"colA": (0, 210, 160), "colB": (20, 60, 235), "speed": 1.7, "fire": .58,
      "conn": 98, "axon_spd": 1.7, "wave_amp": .95, "drift_mul": 2.2},
-    {"colA": (255, 30, 30), "colB": (255, 220, 0), "speed": 4.0, "fire": .98,
+    # Red throughout, hot orange at the rim. This is the error state, and the
+    # magenta rim it carried for one revision was only ever a way round the
+    # marker collision; with _MARK_HALO doing that job it can be the red it
+    # should have been.
+    {"colA": (255, 30, 30), "colB": (255, 110, 0), "speed": 4.0, "fire": .98,
      "conn": 150, "axon_spd": 3.8, "wave_amp": 1.50, "drift_mul": 4.0},
+    # Amber core out to yellow. The one warm state reachable in normal use —
+    # state 4 above is warm too but only an error gets there — so it is wired to
+    # Trend Data, which had been drawing state 2 as a copy of Diagnose. Its
+    # connection count and drift are near state 3's rather than state 4's: this
+    # is a working mode, not an alarm, and the two must not be confused at a
+    # glance when both are warm.
+    {"colA": (255, 170, 0), "colB": (255, 240, 80), "speed": 2.0, "fire": .62,
+     "conn": 105, "axon_spd": 2.0, "wave_amp": 1.00, "drift_mul": 2.4},
 ]
+
+# How many colours the colA->colB ramp is cut into. A neuron's place on it never
+# changes, so the alternative is lerping a colour -- and deriving the brighter
+# one it fires in -- for every neuron and every synapse on every frame. Twelve
+# steps is finer than the eye separates over a span this short, and costs twelve
+# conversions per frame instead of several hundred.
+_COL_STEPS = 12
+
+
+def _radial_fade(dist: float, reach: float) -> float:
+    """How much of its ink a neuron keeps at `dist` from the centre.
+
+    The fade used to be linear, which is far steeper than it looks: a neuron
+    two-thirds of the way out kept a third of its alpha, so the outer half of
+    the orb -- most of its area -- was painted at almost nothing. Raising it to
+    a fractional power keeps the falloff shape while lifting the middle of the
+    curve, so the rim stays visibly lit instead of dissolving into the ground.
+    """
+    return max(0.0, min(1.0, 1.0 - dist / reach)) ** 0.45
 
 
 def _rnd(n: float, s: float = 1.0) -> float:
@@ -143,27 +242,41 @@ class _Neuron:
     __slots__ = (
         "ox", "oy", "x", "y", "sz", "phase", "fire_spd",
         "firing", "fire_cooldown", "drift_a", "drift_b", "drift_c",
-        "drift_spd", "drift_r", "dendrites",
+        "drift_spd", "drift_r", "dendrites", "mix",
     )
 
 
 class _Synapse:
-    __slots__ = ("src", "dst", "pulses", "phase", "dist", "curv")
+    __slots__ = ("src", "dst", "pulses", "phase", "dist", "curv", "mix")
 
-    def __init__(self, src: int, dst: int, phase: float, dist: float, curv: float):
+    def __init__(self, src: int, dst: int, phase: float, dist: float, curv: float,
+                 mix: float = 0.0):
         self.src, self.dst = src, dst
         self.pulses: list = []
         self.phase, self.dist, self.curv = phase, dist, curv
+        # Halfway between the two neurons it joins, so a connection never wears
+        # a colour neither of its ends does.
+        self.mix = mix
 
 
 class _FrameState:
-    __slots__ = ("col_a", "col_b", "spd", "fire_rate", "conn_c", "axon_spd", "wave_amp", "drift_mul", "col_fire")
+    __slots__ = ("col_a", "col_b", "spd", "fire_rate", "conn_c", "axon_spd",
+                 "wave_amp", "drift_mul", "ramp")
 
     def __init__(self, col_a, col_b, spd, fire_rate, conn_c, axon_spd, wave_amp, drift_mul):
         self.col_a, self.col_b = col_a, col_b
         self.spd, self.fire_rate, self.conn_c = spd, fire_rate, conn_c
         self.axon_spd, self.wave_amp, self.drift_mul = axon_spd, wave_amp, drift_mul
-        self.col_fire = _fire_color(tuple(round(c) for c in col_a))
+        # The whole core-to-rim ramp, resting colour and firing colour together,
+        # built once for the frame so the paint routines only ever index it.
+        self.ramp = []
+        for k in range(_COL_STEPS):
+            c = tuple(round(v) for v in _lerp_color(col_a, col_b, k / (_COL_STEPS - 1)))
+            self.ramp.append((c, _fire_color(c)))
+
+    def col(self, mix: float) -> tuple[tuple, tuple]:
+        """Resting and firing colour for something sitting at `mix` on the ramp."""
+        return self.ramp[round(max(0.0, min(1.0, mix)) * (_COL_STEPS - 1))]
 
 
 def _make_dendrites(ni: int) -> list[_Dendrite]:
@@ -202,6 +315,18 @@ def _make_neuron(i: int, a: float, r: float) -> _Neuron:
     n.drift_spd = .2 + _rnd(i, 8) * .9
     n.drift_r = 12 + _rnd(i, 9) * 32
     n.dendrites = _make_dendrites(i)
+    # Where this neuron sits on the state's colour ramp: its distance from the
+    # centre, so the second hue arrives as a rim wash and the core keeps the
+    # colour the centre tint and the core dot are already painted in.
+    #
+    # Squared, and jittered around that rather than upward from it, because a
+    # straight r/reach put the average neuron halfway along the ramp and the
+    # second hue simply took the orb over -- the loud state came out pink with a
+    # trace of red in the middle instead of red with a pink corona. Neurons are
+    # spread evenly along the radius, so the square is what keeps most of them
+    # near colA; the jitter is what stops the result reading as a printed
+    # gradient, letting hues interleave at every radius the way a stain does.
+    n.mix = max(0.0, min(1.0, (r / _NEURON_REACH) ** 2 + (_rnd(i, 14) - .5) * .30))
     return n
 
 
@@ -252,30 +377,30 @@ def _build_neurons(total_docs: int | None = None) -> list[_Neuron]:
     neurons: list[_Neuron] = []
     for i in range(count):
         a = _rnd(i, 1) * math.tau
-        r = 10 + _rnd(i, 2) * 265
+        r = 10 + _rnd(i, 2) * (_NEURON_REACH - 10)
         neurons.append(_make_neuron(i, a, r))
     return neurons
 
 
-_SOURCE_ICON: QIcon | None = None
+_MARK_ICONS: dict[tuple[int, int, int], QIcon] = {}
 
 
-def _source_icon() -> QIcon:
-    """The orange diamond marking cited files in the picker.
+def _mark_icon(color: tuple[int, int, int]) -> QIcon:
+    """A diamond in a marker colour, for the file picker.
 
     Painted rather than typed as a "◆" character so it carries the marker
     colour: in a menu of twenty siblings a plain glyph in the label text is too
-    quiet to find. Built lazily and cached -- a QPixmap needs a live
+    quiet to find. Built lazily and cached per colour -- a QPixmap needs a live
     QGuiApplication, which does not exist at import time."""
-    global _SOURCE_ICON
-    if _SOURCE_ICON is None:
+    icon = _MARK_ICONS.get(color)
+    if icon is None:
         size = 14
         pm = QPixmap(size, size)
         pm.fill(Qt.transparent)
         p = QPainter(pm)
         p.setRenderHint(QPainter.Antialiasing, True)
         p.setPen(Qt.NoPen)
-        p.setBrush(QColor(*_SOURCE_COLOR))
+        p.setBrush(QColor(*color))
         mid, edge = size / 2, size * .12
         diamond = QPainterPath()
         diamond.moveTo(mid, edge)
@@ -285,28 +410,34 @@ def _source_icon() -> QIcon:
         diamond.closeSubpath()
         p.drawPath(diamond)
         p.end()
-        _SOURCE_ICON = QIcon(pm)
-    return _SOURCE_ICON
+        icon = QIcon(pm)
+        _MARK_ICONS[color] = icon
+    return icon
 
 
-class _CitedFileRow(QWidget):
-    """A file-picker row for a cited document, name and all in marker colour.
+class _MarkedFileRow(QWidget):
+    """A file-picker row for a marked document, name and all in marker colour.
 
     A plain QAction cannot carry a text colour and a stylesheet cannot single
-    out one menu item, so a cited row has to be a real widget. That costs the
+    out one menu item, so a marked row has to be a real widget. That costs the
     two things a normal action gives for free -- the hover background and
-    click-to-trigger -- which are reimplemented below."""
+    click-to-trigger -- which are reimplemented below.
+
+    The colour is passed in because a neuron holds two kinds of marked file and
+    they must not be confused: orange for a document the answer cited, gold for
+    one the current search or folder matched."""
 
     activated = Signal()
 
-    def __init__(self, name: str, parent=None):
+    def __init__(self, name: str, color: tuple[int, int, int], parent=None):
         super().__init__(parent)
+        self._color = color
         lay = QHBoxLayout(self)
         lay.setContentsMargins(10, 5, 16, 5)
         lay.setSpacing(7)
 
         mark = QLabel()
-        mark.setPixmap(_source_icon().pixmap(11, 11))
+        mark.setPixmap(_mark_icon(color).pixmap(11, 11))
         mark.setStyleSheet("background: transparent;")
 
         label = QLabel(name)
@@ -314,7 +445,8 @@ class _CitedFileRow(QWidget):
         font.setBold(True)
         label.setFont(font)
         label.setStyleSheet(
-            f"color: {_SOURCE_COLOR_HEX}; background: transparent;"
+            f"color: #{color[0]:02x}{color[1]:02x}{color[2]:02x};"
+            f" background: transparent;"
         )
 
         lay.addWidget(mark)
@@ -335,7 +467,7 @@ class _CitedFileRow(QWidget):
     def paintEvent(self, event) -> None:
         if self._hover:
             p = QPainter(self)
-            p.fillRect(self.rect(), QColor(*_SOURCE_COLOR, 46))
+            p.fillRect(self.rect(), QColor(*self._color, 46))
         super().paintEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:
@@ -365,7 +497,8 @@ def _build_synapses(neurons: list[_Neuron]) -> list[_Synapse]:
             if any(s.src == i and s.dst == j for s in synapses):
                 continue
             curv = (_rnd(i * 10 + c, 36) - .5) * .36
-            synapses.append(_Synapse(i, j, _rnd(i * 10 + c, 35) * math.tau, d, curv))
+            synapses.append(_Synapse(i, j, _rnd(i * 10 + c, 35) * math.tau, d, curv,
+                                     (ni.mix + neurons[j].mix) / 2))
     return synapses
 
 
@@ -385,9 +518,14 @@ class NeuralOrbWidget(QWidget):
         self._neuron_files: list[list[tuple[str, str]]] = []
         self._path_to_neuron: dict[str, int] = {}
         self._highlight: dict[int, float] = {}
+        # The individual files behind the highlight. _highlight is per-neuron and
+        # a neuron holds dozens of files, so without this the orb could say a
+        # region matched but never which document in it did.
+        self._highlight_paths: set[str] = set()
         self._source_paths: set[str] = set()
         self._source_neurons: set[int] = set()
         self.folder_legend: list[tuple[str, QColor, int]] = []
+        self._folder_paths: dict[str, list[str]] = {}
         self._cur = 0
         self._nxt = 0
         self._bl = 1.0
@@ -444,6 +582,7 @@ class NeuralOrbWidget(QWidget):
         n = len(self._neurons)
         groups: list[list[tuple[str, str]]] = [[] for _ in range(n)]
         self.folder_legend = []
+        self._folder_paths = {}
         if n and files:
             angular_order = sorted(
                 range(n),
@@ -459,13 +598,24 @@ class NeuralOrbWidget(QWidget):
 
             folder_counts = Counter(_top_folder(p) for _, p in files)
             other_count = 0
+            named: set[str] = set()
             for rank, (name, cnt) in enumerate(folder_counts.most_common()):
                 if rank < _FOLDER_LEGEND_MAX:
                     self.folder_legend.append((name, _FOLDER_PALETTE[rank], cnt))
+                    named.add(name)
                 else:
                     other_count += cnt
             if other_count:
                 self.folder_legend.append(("Other", _FOLDER_OTHER_COLOR, other_count))
+
+            # Keyed by the name the legend shows, not by the folder on disk, so
+            # a click on a legend row can be answered with the exact set of
+            # files that row counted -- including "Other", which is not a folder
+            # at all but every folder past _FOLDER_LEGEND_MAX collapsed into one.
+            for _, p in files:
+                key = _top_folder(p)
+                self._folder_paths.setdefault(
+                    key if key in named else "Other", []).append(p)
         self._neuron_files = groups
         self._path_to_neuron = {
             path: idx for idx, group in enumerate(groups) for _, path in group
@@ -473,6 +623,7 @@ class NeuralOrbWidget(QWidget):
         self._highlight = {}
         # Neuron indices are rebuilt above, so any marker pointing at the old
         # layout is now meaningless.
+        self._highlight_paths = set()
         self._source_paths = set()
         self._source_neurons = set()
 
@@ -490,7 +641,14 @@ class NeuralOrbWidget(QWidget):
         baseline keeps the reading the same at any breadth -- lit means "denser
         here than this query's average", not "matched at all"."""
         lookup = self._path_to_neuron
-        hits = Counter(lookup[p] for p in paths if p in lookup)
+        # Kept file by file as well as counted per neuron. Lighting a region
+        # answers "where does this live"; the set answers the question that comes
+        # straight after it -- which of the files in here is the one -- when a
+        # neuron is hovered or clicked. Every match is kept, including ones in
+        # neurons too sparse to light: the file matched either way, and a match
+        # the user can never reach is worse than one whose neuron is dim.
+        self._highlight_paths = {p for p in paths if p in lookup}
+        hits = Counter(lookup[p] for p in self._highlight_paths)
         total_files = len(lookup)
         matched = sum(hits.values())
         if not (hits and total_files and matched):
@@ -516,6 +674,20 @@ class NeuralOrbWidget(QWidget):
 
     def clear_highlight(self) -> None:
         self._highlight = {}
+        self._highlight_paths = set()
+
+    def highlight_hits(self) -> set[str]:
+        """The file paths behind the current highlight."""
+        return set(self._highlight_paths)
+
+    def folder_files(self, name: str) -> list[str]:
+        """Every file path the legend counts under one of its folder names.
+
+        Answered here rather than recomputed by the caller because this is the
+        end that built the legend: which folders were named and which fell into
+        "Other" is decided above and nowhere else.
+        """
+        return list(self._folder_paths.get(name, ()))
 
     # ── Answer sources (provenance) ─────────────────────────────────────
     def set_source_files(self, paths) -> list[str]:
@@ -559,36 +731,53 @@ class NeuralOrbWidget(QWidget):
                 best_idx = i
         return best_idx
 
+    @staticmethod
+    def _marked_rows(names: list[str], color_hex: str, more: str) -> str:
+        """Name the marked files in a neuron, in the colour they were marked in.
+
+        Rich text so the names carry the marker colour, the same cue as the orb
+        and the picker icon. Names come from the DB and really do contain "&"
+        (folder 12_O&M), so escape them. Capped at six: past that the tooltip is
+        taller than it is useful, and the picker is the place to read the rest.
+        """
+        rows = "".join(
+            f'<div style="color:{color_hex}">◆ <b>{html.escape(n)}</b></div>'
+            for n in names[:6]
+        )
+        if len(names) > 6:
+            rows += (f'<div style="color:{color_hex}">'
+                     f"… +{len(names) - 6} {more}</div>")
+        return rows
+
+    def _neuron_tooltip(self, group: list[tuple[str, str]]) -> str:
+        """What a neuron says when hovered.
+
+        A neuron holds dozens of files, so a marked one names the files behind
+        the mark outright -- otherwise the orb says "it is somewhere in here"
+        and leaves the user to hunt through the picker for it.
+        """
+        cited = [n for n, p in group if p in self._source_paths]
+        hits = [n for n, p in group if p in self._highlight_paths
+                and p not in self._source_paths]
+        if cited or hits:
+            rows = self._marked_rows(cited, _SOURCE_COLOR_HEX, "more cited")
+            rows += self._marked_rows(hits, _HIGHLIGHT_HEX, "more matching")
+            others = len(group) - len(cited) - len(hits)
+            if others:
+                rows += (f'<div style="color:#9fb3c8">'
+                         f"+{others} other file(s) here</div>")
+            return rows
+        if len(group) == 1:
+            return group[0][0]
+        label = _common_folder_label([p for _, p in group])
+        return f"{label} ({len(group)} files)"
+
     def mouseMoveEvent(self, event) -> None:
         idx = self._neuron_at(event.position())
         group = self._neuron_files[idx] if 0 <= idx < len(self._neuron_files) else []
         if group:
-            # A neuron can hold dozens of files, so on a marked neuron name the
-            # cited ones outright -- otherwise the marker says "the answer came
-            # from somewhere in here" and leaves the user to hunt.
-            cited = [name for name, path in group if path in self._source_paths]
-            if cited:
-                # Rich text so the cited names carry the marker colour, the same
-                # cue as the orb marker and the picker icon. Names come from the
-                # DB and really do contain "&" (folder 12_O&M), so escape them.
-                rows = "".join(
-                    f'<div style="color:{_SOURCE_COLOR_HEX}">◆ <b>'
-                    f"{html.escape(name)}</b></div>"
-                    for name in cited[:6]
-                )
-                if len(cited) > 6:
-                    rows += (f'<div style="color:{_SOURCE_COLOR_HEX}">'
-                             f"… +{len(cited) - 6} more cited</div>")
-                others = len(group) - len(cited)
-                if others:
-                    rows += f'<div style="color:#9fb3c8">+{others} other file(s) here</div>'
-                text = rows
-            elif len(group) == 1:
-                text = group[0][0]
-            else:
-                label = _common_folder_label([p for _, p in group])
-                text = f"{label} ({len(group)} files)"
-            QToolTip.showText(event.globalPosition().toPoint(), text, self)
+            QToolTip.showText(event.globalPosition().toPoint(),
+                              self._neuron_tooltip(group), self)
         else:
             QToolTip.hideText()
         super().mouseMoveEvent(event)
@@ -617,34 +806,43 @@ class NeuralOrbWidget(QWidget):
             "QMenu::separator { height: 1px; background: #1a2535;"
             " margin: 4px 10px; }"
         )
-        # Cited files go to the top: clicking a marked neuron is how the user
-        # opens the source behind a number in the answer, and burying it in an
-        # alphabetical list of twenty siblings would defeat that.
+        # Marked files go to the top: clicking a lit neuron is how the user gets
+        # from "the answer came from around here" or "the phrase is in this
+        # region" to the actual document, and burying it in an alphabetical list
+        # of twenty siblings would defeat that. Cited outranks matched -- a
+        # citation is what the answer rested on, a match is only where a word
+        # occurs -- and a file that is both is listed once, as cited.
         cited = [f for f in group if f[1] in self._source_paths]
-        rest = [f for f in group if f[1] not in self._source_paths]
-        for name, rel_path in cited:
-            row = _CitedFileRow(name, menu)
-            action = QWidgetAction(menu)
-            action.setDefaultWidget(row)
+        hits = [f for f in group if f[1] in self._highlight_paths
+                and f[1] not in self._source_paths]
+        marked = {f[1] for f in cited} | {f[1] for f in hits}
+        rest = [f for f in group if f[1] not in marked]
 
-            # A widget action is opened by two different routes: the menu never
-            # triggers it on a click, so the row reports that itself, but the
-            # arrow keys do still land on it, and that path only reaches the
-            # action. Both are wired; the latch keeps a platform that happens to
-            # deliver both from opening the file twice.
-            opened: list[bool] = []
+        for bucket, color in ((cited, _SOURCE_COLOR), (hits, _HIGHLIGHT_COLOR)):
+            for name, rel_path in bucket:
+                row = _MarkedFileRow(name, color, menu)
+                action = QWidgetAction(menu)
+                action.setDefaultWidget(row)
 
-            def _open(_checked=False, n=name, p=rel_path, m=menu, once=opened):
-                if once:
-                    return
-                once.append(True)
-                m.close()
-                self.neuron_clicked.emit(n, p)
+                # A widget action is opened by two different routes: the menu
+                # never triggers it on a click, so the row reports that itself,
+                # but the arrow keys do still land on it, and that path only
+                # reaches the action. Both are wired; the latch keeps a platform
+                # that happens to deliver both from opening the file twice.
+                opened: list[bool] = []
 
-            row.activated.connect(_open)
-            action.triggered.connect(_open)
-            menu.addAction(action)
-        if cited and rest:
+                def _open(_checked=False, n=name, p=rel_path, m=menu, once=opened):
+                    if once:
+                        return
+                    once.append(True)
+                    m.close()
+                    self.neuron_clicked.emit(n, p)
+
+                row.activated.connect(_open)
+                action.triggered.connect(_open)
+                menu.addAction(action)
+
+        if marked and rest:
             menu.addSeparator()
         for name, rel_path in rest:
             action = menu.addAction(name)
@@ -779,14 +977,13 @@ class NeuralOrbWidget(QWidget):
     def _paint_synapses(self, p: QPainter, fr: _FrameState) -> None:
         drawn = 0
         max_drawn = fr.conn_c * 3
-        ra, ga, ba = (round(c) for c in fr.col_a)
         for s in self._synapses:
             if drawn >= max_drawn:
                 break
             na, nb = self._neurons[s.src], self._neurons[s.dst]
-            bright = .10 + math.sin(self._t * fr.spd * .5 + s.phase) * fr.wave_amp * .14
-            dist_fade = max(0.0, 1 - s.dist / 155)
-            alpha = min(.50, bright * dist_fade * 5.0)
+            bright = .17 + math.sin(self._t * fr.spd * .5 + s.phase) * fr.wave_amp * .14
+            dist_fade = _radial_fade(s.dist, 175)
+            alpha = min(.62, bright * dist_fade * 5.0)
             drawn += 1
             if alpha < .018:
                 continue
@@ -794,6 +991,7 @@ class NeuralOrbWidget(QWidget):
             mx = (na.x + nb.x) / 2 + (na.y - nb.y) * s.curv
             my = (na.y + nb.y) / 2 + (nb.x - na.x) * s.curv
 
+            (ra, ga, ba), col_fire = fr.col(s.mix)
             pen = QPen(QColor(ra, ga, ba, round(max(0.0, alpha) * 255)))
             pen.setWidthF(1.1)
             p.setPen(pen)
@@ -805,8 +1003,8 @@ class NeuralOrbWidget(QWidget):
                 mt = pulse["prog"]
                 px = na.x * (1 - mt) ** 2 + mx * 2 * mt * (1 - mt) + nb.x * mt * mt
                 py = na.y * (1 - mt) ** 2 + my * 2 * mt * (1 - mt) + nb.y * mt * mt
-                df = max(0.0, 1 - math.hypot(px - _CX, py - _CY) / 285)
-                self._glow_dot(p, px, py, 2.2 + fr.wave_amp * .8, fr.col_fire, .90 * df, 8 + fr.wave_amp * 4)
+                df = _radial_fade(math.hypot(px - _CX, py - _CY), 285)
+                self._glow_dot(p, px, py, 2.2 + fr.wave_amp * .8, col_fire, .90 * df, 8 + fr.wave_amp * 4)
 
     def _wavy_path(self, x1: float, y1: float, x2: float, y2: float, amp: float, phase: float) -> QPainterPath | None:
         dx, dy = x2 - x1, y2 - y1
@@ -828,15 +1026,15 @@ class NeuralOrbWidget(QWidget):
         return path
 
     def _paint_dendrites(self, p: QPainter, fr: _FrameState) -> None:
-        ra, ga, ba = (round(c) for c in fr.col_a)
         pen = QPen()
         for n in self._neurons:
             dist_c = math.hypot(n.x - _CX, n.y - _CY)
-            fade = max(0.0, 1 - dist_c / 285)
+            fade = _radial_fade(dist_c, 285)
             if fade < .05:
                 continue
             fire_g = math.sin(n.firing * math.pi) if 0 < n.firing < 1 else 0.0
-            alpha = max(0.0, min(1.0, (.32 + fire_g * .55) * fade))
+            alpha = max(0.0, min(1.0, (.46 + fire_g * .48) * fade))
+            (ra, ga, ba), _ = fr.col(n.mix)
             pen.setColor(QColor(ra, ga, ba, round(alpha * 255)))
 
             for d in n.dendrites:
@@ -862,19 +1060,19 @@ class NeuralOrbWidget(QWidget):
                         p.drawPath(sub_path)
 
     def _paint_cell_bodies(self, p: QPainter, fr: _FrameState) -> None:
-        ra, ga, ba = (round(c) for c in fr.col_a)
         for n in sorted(self._neurons, key=lambda n: n.firing):
-            fade = max(0.0, 1 - math.hypot(n.x - _CX, n.y - _CY) / 280)
+            fade = _radial_fade(math.hypot(n.x - _CX, n.y - _CY), 280)
             if fade < .05:
                 continue
             is_firing = 0 < n.firing < 1
             fire_g = math.sin(n.firing * math.pi) if is_firing else 0.0
             pulse = .28 + math.sin(self._t * fr.spd * n.fire_spd + n.phase) * fr.wave_amp * .28
             sz = n.sz * (.55 + pulse * .50 + fire_g * .90)
-            alpha = min(.95, (.48 + pulse * .42 + fire_g * .88) * fade)
+            alpha = min(.98, (.60 + pulse * .40 + fire_g * .88) * fade)
+            (ra, ga, ba), col_fire = fr.col(n.mix)
 
             if fire_g > .06:
-                self._glow_dot(p, n.x, n.y, max(.4, sz * .80), fr.col_fire, alpha,
+                self._glow_dot(p, n.x, n.y, max(.4, sz * .80), col_fire, alpha,
                                 sz * 12 * (1 + fr.wave_amp * .25) * fire_g)
             else:
                 p.setPen(Qt.NoPen)
@@ -882,15 +1080,20 @@ class NeuralOrbWidget(QWidget):
                 p.drawEllipse(QPointF(n.x, n.y), max(.4, sz * .80), max(.4, sz * .80))
 
     def _paint_highlights(self, p: QPainter) -> None:
-        """Pulsing pale ring around neurons holding current search hits.
+        """Pulsing gold ring around neurons holding current search hits.
 
-        The tint is low-saturation on purpose. Four of the ten state colours are
-        warm (states 2-4 run through magenta, gold and red), so no saturated hue
-        survives every state — a desaturated one is the only choice that stays
-        readable against all of them, and against the citation orange."""
+        Warm on purpose, and it no longer has to apologise for it: the ring is
+        laid on a band of _MARK_HALO, so it reads against the cool states and
+        against the red->yellow of state 5 alike. The halo goes down at the same
+        radius and slightly thicker, which puts a dark edge on both sides of the
+        gold rather than only outside it."""
         if not self._highlight:
             return
         pulse = .5 + .5 * math.sin(self._t * 4.0)
+        # Built once rather than per neuron: a broad query lights ~80 of them and
+        # this runs every frame, so the colours that do not vary should not be
+        # rebuilt 80 times for each one that does.
+        halo, gold = QColor(*_MARK_HALO), QColor(*_HIGHLIGHT_COLOR)
         for idx, weight in self._highlight.items():
             if not 0 <= idx < len(self._neurons):
                 continue
@@ -900,10 +1103,13 @@ class NeuralOrbWidget(QWidget):
             r = 3.0 + w * 5.0 + pulse * w * 2.5
             self._glow_dot(p, n.x, n.y, .8 + w * 1.4, _HIGHLIGHT_COLOR,
                            (.25 + w * .55) * (.6 + pulse * .4), 4 + w * 8)
+            centre = QPointF(n.x, n.y)
             p.setBrush(Qt.NoBrush)
-            p.setPen(QPen(QColor(*_HIGHLIGHT_COLOR,
-                                 round((60 + w * 170) * (.65 + pulse * .35))), 1.0 + w))
-            p.drawEllipse(QPointF(n.x, n.y), r, r)
+            p.setPen(QPen(halo, 2.4 + w * 1.6))
+            p.drawEllipse(centre, r, r)
+            gold.setAlpha(round((60 + w * 170) * (.65 + pulse * .35)))
+            p.setPen(QPen(gold, 1.0 + w))
+            p.drawEllipse(centre, r, r)
 
     def _paint_sources(self, p: QPainter) -> None:
         """Solid orange markers on the neurons holding the documents the last
@@ -916,21 +1122,36 @@ class NeuralOrbWidget(QWidget):
         if not self._source_neurons:
             return
         pulse = .5 + .5 * math.sin(self._t * 2.2)
+        # Ring sized to _neuron_at's hit radius so it shows what to click, and
+        # large enough to stay findable once the orb panel scales the 620px
+        # canvas down to the ~300px it actually gets on screen.
+        r = 9.5 + pulse * 2.0
+        # Nothing here varies between citations -- they are a binary mark, and
+        # the pulse is the same for all of them -- so every pen and brush is
+        # built once for the frame instead of once per citation.
+        halo = QColor(*_MARK_HALO)
+        halo_pen = QPen(halo, 3.4)
+        ring_pen = QPen(QColor(*_SOURCE_COLOR, round(175 + pulse * 80)), 2.1)
+        dot = QColor(*_SOURCE_COLOR, 240)
         for idx in self._source_neurons:
             if not 0 <= idx < len(self._neurons):
                 continue
             n = self._neurons[idx]
             self._glow_dot(p, n.x, n.y, 2.2, _SOURCE_COLOR, .5 + pulse * .3, 13)
-            p.setPen(Qt.NoPen)
-            p.setBrush(QColor(*_SOURCE_COLOR, 240))
-            p.drawEllipse(QPointF(n.x, n.y), 3.0, 3.0)
-            # Ring sized to _neuron_at's hit radius so it shows what to click,
-            # and large enough to stay findable once the orb panel scales the
-            # 620px canvas down to the ~300px it actually gets on screen.
+            centre = QPointF(n.x, n.y)
+            # Halo under both parts, so the gap the eye reads is the whole mark
+            # -- ring and dot together -- rather than the ring alone.
             p.setBrush(Qt.NoBrush)
-            p.setPen(QPen(QColor(*_SOURCE_COLOR, round(175 + pulse * 80)), 2.1))
-            r = 9.5 + pulse * 2.0
-            p.drawEllipse(QPointF(n.x, n.y), r, r)
+            p.setPen(halo_pen)
+            p.drawEllipse(centre, r, r)
+            p.setPen(Qt.NoPen)
+            p.setBrush(halo)
+            p.drawEllipse(centre, 4.6, 4.6)
+            p.setBrush(dot)
+            p.drawEllipse(centre, 3.0, 3.0)
+            p.setBrush(Qt.NoBrush)
+            p.setPen(ring_pen)
+            p.drawEllipse(centre, r, r)
 
     def _paint_core(self, p: QPainter, fr: _FrameState) -> None:
         from PySide6.QtGui import QRadialGradient

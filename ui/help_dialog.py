@@ -361,7 +361,7 @@ class HelpDialog(QDialog):
           <tr><td>🔍 <b>Find Docs</b></td><td>Tìm trong DB tài liệu</td><td>Cần tra cứu nhanh nội dung/tài liệu liên quan 1 chủ đề</td></tr>
           <tr><td>📝 <b>Make Report</b></td><td>Soạn báo cáo vận hành</td><td>Cần bản nháp báo cáo về 1 chủ đề/sự kiện</td></tr>
           <tr><td>🔬 <b>Diagnose</b></td><td>Chẩn đoán sự cố (Co-Pilot)</td><td>Có triệu chứng bất thường, cần tìm nguyên nhân gốc</td></tr>
-          <tr><td>🪪 <b>Quick Card</b></td><td>Thẻ tra cứu nhanh thiết bị</td><td>Cần tóm tắt thông số/thông tin 1 thiết bị</td></tr>
+          <tr><td>📇 <b>Quick Card</b></td><td>Thẻ tra cứu nhanh thiết bị</td><td>Cần tóm tắt thông số/thông tin 1 thiết bị</td></tr>
           <tr><td>🔧 <b>Work Pack</b></td><td>Gói chuẩn bị công việc</td><td>Sắp làm 1 công việc (VD thay bearing IDF-A), cần gom đủ procedure + drawing + setpoint + safety</td></tr>
           <tr><td>📈 <b>Trend Data</b></td><td>Chẩn đoán kèm số liệu trend/log</td><td>Có bảng số liệu DCS/log sheet, cần phân tích và đối chiếu setpoint trước khi tìm nguyên nhân</td></tr>
         </table>
