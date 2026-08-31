@@ -12,13 +12,27 @@ from pathlib import Path
 DEFAULT_OLLAMA_MODEL     = "llama3.1:8b"
 DEFAULT_OPENROUTER_MODEL = "google/gemma-4-31b-it:free"
 DEFAULT_GROQ_MODEL       = "openai/gpt-oss-120b"
-DEFAULT_GEMINI_MODEL     = "gemini-3.5-flash"
+DEFAULT_GEMINI_MODEL     = "gemini-3.6-flash"
 
 # Reading a drawing needs a model that accepts images. Groq had one and no
 # longer does -- of the models it still serves, none take image input at all --
 # so vision has to name its own model instead of borrowing the chat one.
-DEFAULT_VISION_GEMINI_MODEL     = "gemini-3.5-flash"
+DEFAULT_VISION_GEMINI_MODEL     = "gemini-3.6-flash"
 DEFAULT_VISION_OPENROUTER_MODEL = "google/gemma-4-31b-it:free"
+
+LEGACY_MODEL_REPLACEMENTS = {
+    "groq_model": {
+        "llama-3.3-70b-versatile": DEFAULT_GROQ_MODEL,
+        "llama-3.1-8b-instant": "openai/gpt-oss-20b",
+        "qwen/qwen3-32b": DEFAULT_GROQ_MODEL,
+        "meta-llama/llama-4-scout-17b-16e-instruct": DEFAULT_GROQ_MODEL,
+    },
+    "gemini_model": {
+        "gemini-2.0-flash": DEFAULT_GEMINI_MODEL,
+        "gemini-2.5-flash": DEFAULT_GEMINI_MODEL,
+        "gemini-3.5-flash": DEFAULT_GEMINI_MODEL,
+    },
+}
 
 DEFAULT_CONFIG = {
     "openrouter_api_key": "",
@@ -78,6 +92,9 @@ def load_llm_config() -> Dict[str, Any]:
     cfg = dict(DEFAULT_CONFIG)
     if isinstance(data, dict):
         cfg.update({k: v for k, v in data.items() if k in cfg})
+    for key, replacements in LEGACY_MODEL_REPLACEMENTS.items():
+        model = str(cfg.get(key) or "").strip()
+        cfg[key] = replacements.get(model, model or DEFAULT_CONFIG[key])
     return cfg
 
 

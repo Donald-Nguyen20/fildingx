@@ -1,9 +1,16 @@
 """core/ai_grouper.py — AI-powered grouping of file search results."""
 from __future__ import annotations
 
+import re
+
 from PySide6.QtCore import QThread, Signal
 
 _MAX_FILES = 100  # cap to avoid token overflow
+_LINE_RE = re.compile(
+    r"^\s*(?:[-*]|\d+[\.)])?\s*(GROUP|DUPE)\s*:\s*(.*?)\s*\|\s*([^|]+?)\s*$",
+    re.IGNORECASE,
+)
+_INDEX_RE = re.compile(r"\d+")
 
 
 def _build_prompt(filenames: list[str]) -> str:
@@ -18,7 +25,7 @@ def _build_prompt(filenames: list[str]) -> str:
         "Commissioning, Calculation, etc.).\n"
         "2. Identify sets that appear to be multiple revisions of the same document "
         "(same document number, different revision codes like rev.A / rev.01 / Rev.AB0).\n\n"
-        "Reply ONLY using these exact line formats — no explanation, no numbering:\n"
+        "Reply ONLY using these exact line formats -- no explanation, no numbering:\n"
         "GROUP: <Category Name> | <comma-separated indices>\n"
         "DUPE: <Base Document Name> | <comma-separated indices>\n\n"
         "Example:\n"
@@ -35,24 +42,18 @@ def _parse_response(text: str, filenames: list[str]) -> dict:
 
     for line in text.strip().splitlines():
         line = line.strip()
-        if ":" not in line or "|" not in line:
+        if not line or line.startswith("```"):
             continue
-        colon_pos = line.index(":")
-        kind = line[:colon_pos].strip().upper()
-        if kind not in ("GROUP", "DUPE"):
+        match = _LINE_RE.match(line)
+        if not match:
             continue
-        rest = line[colon_pos + 1:]
-        if "|" not in rest:
-            continue
-        label_part, idx_part = rest.rsplit("|", 1)
-        label = label_part.strip()
+        kind = match.group(1).upper()
+        label = match.group(2).strip()
         indices = []
-        for tok in idx_part.split(","):
-            tok = tok.strip()
-            if tok.isdigit():
-                idx = int(tok)
-                if 0 <= idx < len(filenames):
-                    indices.append(idx)
+        for tok in _INDEX_RE.findall(match.group(3)):
+            idx = int(tok)
+            if 0 <= idx < len(filenames) and idx not in indices:
+                indices.append(idx)
         if not indices:
             continue
         files = [(filenames[i], i) for i in indices]
@@ -82,10 +83,43 @@ class GroupWorker(QThread):
         try:
             from core.llm_client import create_llm_client
             filenames = [n for n, _ in self._pairs]
-            client    = create_llm_client(self._provider)
-            response  = client.generate(_build_prompt(filenames))
+            prompt = _build_prompt(filenames)
+            errors: list[str] = []
+            response = ""
+            for provider in self._provider_order():
+                try:
+                    client = create_llm_client(provider)
+                    response = client.generate(prompt)
+                    if response.strip():
+                        break
+                    errors.append(f"{provider}: empty response")
+                except Exception as exc:
+                    errors.append(f"{provider}: {exc}")
+            else:
+                raise RuntimeError("; ".join(errors) or "No LLM provider returned a response.")
             result    = _parse_response(response, filenames)
             result["pairs"] = self._pairs
             self.done.emit(result)
         except Exception as exc:
             self.error.emit(str(exc))
+
+    def _provider_order(self) -> list[str]:
+        from core.llm_config import load_llm_config
+
+        cfg = load_llm_config()
+        selected = (self._provider or "gemini").strip().lower()
+        order = [selected, "gemini", "groq", "openrouter", "ollama"]
+        seen: set[str] = set()
+        available: list[str] = []
+        for provider in order:
+            if provider in seen:
+                continue
+            seen.add(provider)
+            if provider == "gemini" and not (cfg.get("gemini_api_key") or "").strip():
+                continue
+            if provider == "groq" and not (cfg.get("groq_api_key") or "").strip():
+                continue
+            if provider == "openrouter" and not (cfg.get("openrouter_api_key") or "").strip():
+                continue
+            available.append(provider)
+        return available or [selected]

@@ -829,7 +829,7 @@ class HelpDialog(QDialog):
         <p>Bấm <b>⚙</b> trong tab Notes → <b>LLM Settings</b>. Có thể nhập key và <b>chỉnh model</b> cho từng provider:</p>
         <table>
           <tr><th>Provider</th><th>Model mặc định</th><th>Ghi chú</th></tr>
-          <tr><td>Gemini</td><td>gemini-3.5-flash</td><td>Hỗ trợ Vision AI cho bản vẽ — provider Vision chính</td></tr>
+          <tr><td>Gemini</td><td>gemini-3.6-flash</td><td>Hỗ trợ Vision AI cho bản vẽ — provider Vision chính</td></tr>
           <tr><td>Groq</td><td>openai/gpt-oss-120b</td><td>Nhanh, chỉ text — <b>không</b> nhận ảnh</td></tr>
           <tr><td>OpenRouter</td><td>google/gemma-4-31b-it:free</td><td>Free tier, có Vision — dự phòng</td></tr>
           <tr><td>Ollama</td><td>llama3.1:8b</td><td>Chạy local, không cần key, không cần internet</td></tr>
