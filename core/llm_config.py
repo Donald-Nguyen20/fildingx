@@ -3,15 +3,32 @@ import json, os, sys
 from typing import Dict, Any
 from pathlib import Path
 
+# Default model per provider, named once here rather than repeated in every
+# fallback that needs one. Cloud providers retire models without warning, and
+# the name then rots in as many places as it was written: the three this file
+# shipped with -- llama-3.3-70b-versatile, gemini-2.0-flash and
+# llama-3.3-70b-instruct:free -- had all been withdrawn by August 2026, and
+# every call was answering 404 in six different spots. One name, one edit.
+DEFAULT_OLLAMA_MODEL     = "llama3.1:8b"
+DEFAULT_OPENROUTER_MODEL = "google/gemma-4-31b-it:free"
+DEFAULT_GROQ_MODEL       = "openai/gpt-oss-120b"
+DEFAULT_GEMINI_MODEL     = "gemini-3.5-flash"
+
+# Reading a drawing needs a model that accepts images. Groq had one and no
+# longer does -- of the models it still serves, none take image input at all --
+# so vision has to name its own model instead of borrowing the chat one.
+DEFAULT_VISION_GEMINI_MODEL     = "gemini-3.5-flash"
+DEFAULT_VISION_OPENROUTER_MODEL = "google/gemma-4-31b-it:free"
+
 DEFAULT_CONFIG = {
     "openrouter_api_key": "",
     "groq_api_key": "",
     "gemini_api_key": "",
     "ollama_host": "http://localhost:11434",
-    "ollama_model": "llama3.1:8b",
-    "openrouter_model": "meta-llama/llama-3.3-70b-instruct:free",
-    "groq_model": "llama-3.3-70b-versatile",
-    "gemini_model": "gemini-2.0-flash",
+    "ollama_model": DEFAULT_OLLAMA_MODEL,
+    "openrouter_model": DEFAULT_OPENROUTER_MODEL,
+    "groq_model": DEFAULT_GROQ_MODEL,
+    "gemini_model": DEFAULT_GEMINI_MODEL,
     "translate_provider": "gemini",
 }
 

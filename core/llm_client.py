@@ -2,7 +2,11 @@
 import time
 import requests
 from typing import List, Tuple
-from core.llm_config import load_llm_config
+from core.llm_config import (
+    load_llm_config,
+    DEFAULT_OLLAMA_MODEL, DEFAULT_OPENROUTER_MODEL,
+    DEFAULT_GROQ_MODEL, DEFAULT_GEMINI_MODEL,
+)
 
 # Generation limits
 _OLLAMA_NUM_PREDICT = 700
@@ -98,7 +102,7 @@ class LLMClientGemini(BaseLLMClient):
     """Google Gemini via REST API (không cần SDK)."""
     BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 
-    def __init__(self, api_key: str, model: str = "gemini-2.0-flash", timeout: int = 180):
+    def __init__(self, api_key: str, model: str = DEFAULT_GEMINI_MODEL, timeout: int = 180):
         if not api_key:
             raise ValueError("Missing API key.")
         self.api_key = api_key
@@ -106,14 +110,23 @@ class LLMClientGemini(BaseLLMClient):
         self.timeout = timeout
 
     def generate(self, prompt: str) -> str:
-        url = f"{self.BASE}/{self.model}:generateContent?key={self.api_key}"
+        # The key goes in a header, not in the URL as "?key=". requests copies the
+        # full URL into every HTTPError it raises, and callers show that text to
+        # the user as-is -- so with the key in the URL, a plain 404 printed the
+        # whole API key on screen. Google accepts either form; only one of them
+        # keeps the key out of error messages, logs and proxy records.
+        url = f"{self.BASE}/{self.model}:generateContent"
+        headers = {
+            "x-goog-api-key": self.api_key,
+            "Content-Type": "application/json",
+        }
         payload = {
             "contents": [{"parts": [{"text": prompt}]}],
             "generationConfig": {"temperature": 0.2, "maxOutputTokens": _MAX_TOKENS_GEMINI},
         }
         delays = [15, 30, 60]
         for attempt, wait in enumerate(delays + [None]):
-            r = requests.post(url, json=payload, timeout=self.timeout)
+            r = requests.post(url, headers=headers, json=payload, timeout=self.timeout)
             if r.status_code == 429 and wait is not None:
                 time.sleep(wait)
                 continue
@@ -133,26 +146,26 @@ def create_llm_client(provider_key: str, model_override: str = "") -> BaseLLMCli
     model_override = (model_override or "").strip()
 
     if provider_key == "ollama":
-        model = (model_override or cfg.get("ollama_model") or "llama3.1:8b").strip()
+        model = (model_override or cfg.get("ollama_model") or DEFAULT_OLLAMA_MODEL).strip()
         host = (cfg.get("ollama_host") or "http://localhost:11434").strip()
         return LLMClientOllama(model=model, host=host)
 
     if provider_key == "openrouter":
         api_key = (cfg.get("openrouter_api_key") or "").strip()
-        model = model_override or cfg.get("openrouter_model", "meta-llama/llama-3.3-70b-instruct:free")
+        model = model_override or cfg.get("openrouter_model", DEFAULT_OPENROUTER_MODEL)
         return LLMClientOpenRouter(api_key=api_key, model=model)
 
     if provider_key == "groq":
         api_key = (cfg.get("groq_api_key") or "").strip()
-        model = model_override or cfg.get("groq_model", "llama-3.3-70b-versatile")
+        model = model_override or cfg.get("groq_model", DEFAULT_GROQ_MODEL)
         return LLMClientGroq(api_key=api_key, model=model)
 
     if provider_key == "gemini":
         api_key = (cfg.get("gemini_api_key") or "").strip()
-        model = model_override or cfg.get("gemini_model", "gemini-2.0-flash")
+        model = model_override or cfg.get("gemini_model", DEFAULT_GEMINI_MODEL)
         return LLMClientGemini(api_key=api_key, model=model)
 
     # fallback
-    model = (cfg.get("ollama_model") or "llama3.1:8b").strip()
+    model = (cfg.get("ollama_model") or DEFAULT_OLLAMA_MODEL).strip()
     host = (cfg.get("ollama_host") or "http://localhost:11434").strip()
     return LLMClientOllama(model=model, host=host)
