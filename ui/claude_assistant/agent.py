@@ -10,10 +10,12 @@ def make_options(
     allowed_tools: list[str] | None = None,
     cwd: str | None = None,
     db_path: str = "",
+    dcs_folder: str = "",
 ) -> ClaudeAgentOptions:
     from paths import APP_DIR
-    if db_path:
-        # DB mode: dùng Bash để chạy db_query.py, bỏ file-browsing tools
+    if db_path or dcs_folder:
+        # DB mode: dùng Bash để chạy db_query.py / logic_query.py, bỏ file-browsing
+        # tools. Folder logic cũng cần Bash — không có thì công cụ tra logic vô dụng.
         tools = allowed_tools or ["Bash", "WebSearch", "WebFetch"]
     else:
         tools = allowed_tools or ["Read", "Glob", "Grep", "WebSearch", "WebFetch"]

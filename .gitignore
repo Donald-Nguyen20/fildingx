@@ -201,3 +201,11 @@ reports/
 create_index2.1.py
 maunotebooklm.py
 query_ecc.py
+
+# Tài liệu nhà máy và nội dung trích từ manual nhà cung cấp — repo này public,
+# nên các file dưới đây chỉ nằm trên máy, không đưa lên git.
+# ui/dcs_logic cần macro_catalog.json và macro_manual.json lúc chạy: giữ bản
+# sao ở nơi khác và chép vào đây sau khi clone.
+*.pdf
+ui/dcs_logic/macro_catalog.json
+ui/dcs_logic/macro_manual.json

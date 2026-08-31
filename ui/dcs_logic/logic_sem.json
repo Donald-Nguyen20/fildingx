@@ -1,0 +1,584 @@
+{
+"4003": {
+"op": "AND",
+"nin": 5,
+"nout": 1,
+"name": "AND5"
+},
+"40A4": {
+"op": "CONST",
+"val": 1,
+"nin": 0,
+"nout": 1,
+"name": "EVO"
+},
+"4080": {
+"op": "PASS",
+"nin": 1,
+"nout": 2,
+"name": "DIL3"
+},
+"407C": {
+"op": "PASS",
+"nin": 2,
+"nout": 1,
+"name": "DI2"
+},
+"4134": {
+"op": "AND",
+"nin": 6,
+"nout": 1,
+"name": "AND6E"
+},
+"4137": {
+"op": "OR",
+"nin": 2,
+"nout": 1,
+"name": "OR2E"
+},
+"409E": {
+"op": "PASS",
+"nin": 1,
+"nout": 1,
+"name": "ATA"
+},
+"4141": {
+"op": "SR",
+"set": 0,
+"reset": 1,
+"priority": "reset",
+"nin": 2,
+"nout": 1,
+"name": "FLIP1_NT"
+},
+"4130": {
+"op": "AND",
+"nin": 2,
+"nout": 1,
+"name": "AND2E"
+},
+"40BB": {
+"op": "SR",
+"set": 0,
+"reset": 1,
+"priority": "set",
+"nin": 2,
+"nout": 1,
+"name": "40BB"
+},
+"413C": {
+"op": "OR",
+"nin": 7,
+"nout": 1,
+"name": "OR7E"
+},
+"4002": {
+"op": "AND",
+"nin": 4,
+"nout": 1,
+"name": "AND4"
+},
+"4006": {
+"op": "AND",
+"nin": 8,
+"nout": 1,
+"name": "AND8"
+},
+"4133": {
+"op": "AND",
+"nin": 5,
+"nout": 1,
+"name": "AND5E"
+},
+"413D": {
+"op": "OR",
+"nin": 8,
+"nout": 1,
+"name": "OR8E"
+},
+"4135": {
+"op": "AND",
+"nin": 7,
+"nout": 1,
+"name": "AND7E"
+},
+"4010": {
+"op": "NOT",
+"nin": 1,
+"nout": 1,
+"name": "NOT"
+},
+"404E": {
+"op": "CMP",
+"rel": ">=",
+"nin": 1,
+"nout": 1,
+"name": "SHI1"
+},
+"40A5": {
+"op": "CONST",
+"val": 0,
+"nin": 0,
+"nout": 1,
+"name": "EVF"
+},
+"4012": {
+"op": "SR",
+"set": 0,
+"reset": 1,
+"priority": "set",
+"nin": 2,
+"nout": 1,
+"name": "FLIP2"
+},
+"4000": {
+"op": "AND",
+"nin": 2,
+"nout": 1,
+"name": "AND2"
+},
+"413B": {
+"op": "OR",
+"nin": 6,
+"nout": 1,
+"name": "OR6E"
+},
+"4132": {
+"op": "AND",
+"nin": 4,
+"nout": 1,
+"name": "AND4E"
+},
+"4001": {
+"op": "AND",
+"nin": 3,
+"nout": 1,
+"name": "AND3"
+},
+"400F": {
+"op": "XOR",
+"nin": 2,
+"nout": 1,
+"name": "XOR"
+},
+"4011": {
+"op": "SR",
+"set": 0,
+"reset": 1,
+"priority": "reset",
+"nin": 2,
+"nout": 1,
+"name": "FLIP1"
+},
+"4016": {
+"op": "PASS",
+"note": "timer/pulse",
+"nin": 1,
+"nout": 1,
+"name": "PO"
+},
+"400D": {
+"op": "OR",
+"nin": 8,
+"nout": 1,
+"name": "OR8"
+},
+"4015": {
+"op": "PASS",
+"note": "timer/pulse",
+"nin": 1,
+"nout": 1,
+"name": "DT"
+},
+"4008": {
+"op": "OR",
+"nin": 3,
+"nout": 1,
+"name": "OR3"
+},
+"407B": {
+"op": "SR",
+"set": 0,
+"reset": 1,
+"priority": "reset",
+"nin": 2,
+"nout": 1,
+"name": "FLIP3"
+},
+"4131": {
+"op": "AND",
+"nin": 3,
+"nout": 1,
+"name": "AND3E"
+},
+"413A": {
+"op": "OR",
+"nin": 5,
+"nout": 1,
+"name": "OR5E"
+},
+"4136": {
+"op": "AND",
+"nin": 8,
+"nout": 1,
+"name": "AND8E"
+},
+"404F": {
+"op": "CMP",
+"rel": ">=",
+"nin": 3,
+"nout": 1,
+"name": "SHI2"
+},
+"400B": {
+"op": "OR",
+"nin": 6,
+"nout": 1,
+"name": "OR6"
+},
+"400C": {
+"op": "OR",
+"nin": 7,
+"nout": 1,
+"name": "OR7"
+},
+"4005": {
+"op": "AND",
+"nin": 7,
+"nout": 1,
+"name": "AND7"
+},
+"4051": {
+"op": "CMP",
+"rel": "<=",
+"nin": 3,
+"nout": 1,
+"name": "SLO2"
+},
+"4142": {
+"op": "SR",
+"set": 0,
+"reset": 1,
+"priority": "set",
+"nin": 2,
+"nout": 1,
+"name": "FLIP2_NT"
+},
+"4004": {
+"op": "AND",
+"nin": 6,
+"nout": 1,
+"name": "AND6"
+},
+"4009": {
+"op": "OR",
+"nin": 4,
+"nout": 1,
+"name": "OR4"
+},
+"4138": {
+"op": "OR",
+"nin": 3,
+"nout": 1,
+"name": "OR3E"
+},
+"407D": {
+"op": "PASS",
+"nin": 1,
+"nout": 2,
+"name": "DI3"
+},
+"4017": {
+"op": "PASS",
+"note": "timer/pulse",
+"nin": 1,
+"nout": 1,
+"name": "TDWO"
+},
+"4007": {
+"op": "OR",
+"nin": 2,
+"nout": 1,
+"name": "OR2"
+},
+"4013": {
+"op": "PASS",
+"note": "timer/pulse",
+"nin": 1,
+"nout": 1,
+"name": "DI"
+},
+"4050": {
+"op": "CMP",
+"rel": "<=",
+"nin": 1,
+"nout": 1,
+"name": "SLO1"
+},
+"4014": {
+"op": "PASS",
+"note": "timer/pulse",
+"nin": 1,
+"nout": 1,
+"name": "DIL"
+},
+"4139": {
+"op": "OR",
+"nin": 4,
+"nout": 1,
+"name": "OR4E"
+},
+"40CA": {
+"op": "PASS",
+"nin": 2,
+"nout": 1,
+"name": "40CA"
+},
+"409D": {
+"op": "PASS",
+"nin": 1,
+"nout": 1,
+"name": "DTD"
+},
+"4018": {
+"op": "CONST",
+"val": 0,
+"nin": 0,
+"nout": 1,
+"name": "D_CONS"
+},
+"400A": {
+"op": "OR",
+"nin": 5,
+"nout": 1,
+"name": "OR5"
+},
+"0001": {
+"op": "AND",
+"nin": 2,
+"nout": 1,
+"name": "AND2"
+},
+"0002": {
+"op": "AND",
+"nin": 3,
+"nout": 1,
+"name": "AND3"
+},
+"0003": {
+"op": "AND",
+"nin": 4,
+"nout": 1,
+"name": "AND4"
+},
+"001D": {
+"op": "OR",
+"nin": 2,
+"nout": 1,
+"name": "OR2"
+},
+"001E": {
+"op": "OR",
+"nin": 3,
+"nout": 1,
+"name": "OR3"
+},
+"001F": {
+"op": "OR",
+"nin": 4,
+"nout": 1,
+"name": "OR4"
+},
+"0039": {
+"op": "NOT",
+"nin": 1,
+"nout": 1,
+"name": "NOT"
+},
+"0060": {
+"op": "AND",
+"nin": 5,
+"nout": 1,
+"name": "AND5"
+},
+"0061": {
+"op": "AND",
+"nin": 6,
+"nout": 1,
+"name": "AND6"
+},
+"0062": {
+"op": "AND",
+"nin": 7,
+"nout": 1,
+"name": "AND7"
+},
+"0063": {
+"op": "AND",
+"nin": 8,
+"nout": 1,
+"name": "AND8"
+},
+"0064": {
+"op": "OR",
+"nin": 5,
+"nout": 1,
+"name": "OR5"
+},
+"0065": {
+"op": "OR",
+"nin": 6,
+"nout": 1,
+"name": "OR6"
+},
+"0066": {
+"op": "OR",
+"nin": 7,
+"nout": 1,
+"name": "OR7"
+},
+"0067": {
+"op": "OR",
+"nin": 8,
+"nout": 1,
+"name": "OR8"
+},
+"1007": {
+"op": "OR",
+"nin": 2,
+"nout": 1,
+"name": "ORR"
+},
+"40BE": {
+"op": "OR",
+"nin": 2,
+"nout": 1,
+"name": "OR"
+},
+"40BF": {
+"op": "OR",
+"nin": 1,
+"nout": 1,
+"name": "OR"
+},
+"5000": {
+"op": "AND",
+"nin": 1,
+"nout": 1,
+"name": "AND1"
+},
+"5001": {
+"op": "AND",
+"nin": 2,
+"nout": 1,
+"name": "AND2"
+},
+"5002": {
+"op": "AND",
+"nin": 3,
+"nout": 1,
+"name": "AND3"
+},
+"5003": {
+"op": "AND",
+"nin": 4,
+"nout": 1,
+"name": "AND4"
+},
+"5004": {
+"op": "AND",
+"nin": 5,
+"nout": 1,
+"name": "AND5"
+},
+"5005": {
+"op": "AND",
+"nin": 6,
+"nout": 1,
+"name": "AND6"
+},
+"5006": {
+"op": "AND",
+"nin": 7,
+"nout": 1,
+"name": "AND7"
+},
+"5007": {
+"op": "AND",
+"nin": 8,
+"nout": 1,
+"name": "AND8"
+},
+"5008": {
+"op": "OR",
+"nin": 1,
+"nout": 1,
+"name": "OR1"
+},
+"5009": {
+"op": "OR",
+"nin": 2,
+"nout": 1,
+"name": "OR2"
+},
+"500A": {
+"op": "OR",
+"nin": 3,
+"nout": 1,
+"name": "OR3"
+},
+"500B": {
+"op": "OR",
+"nin": 4,
+"nout": 1,
+"name": "OR4"
+},
+"500C": {
+"op": "OR",
+"nin": 5,
+"nout": 1,
+"name": "OR5"
+},
+"500D": {
+"op": "OR",
+"nin": 6,
+"nout": 1,
+"name": "OR6"
+},
+"500E": {
+"op": "OR",
+"nin": 7,
+"nout": 1,
+"name": "OR7"
+},
+"500F": {
+"op": "OR",
+"nin": 8,
+"nout": 1,
+"name": "OR8"
+},
+"501F": {
+"op": "OR",
+"nin": 2,
+"nout": 1,
+"name": "ORR"
+},
+"5020": {
+"op": "OR",
+"nin": 3,
+"nout": 1,
+"name": "ORR"
+},
+"5021": {
+"op": "OR",
+"nin": 2,
+"nout": 1,
+"name": "ORR"
+},
+"5022": {
+"op": "OR",
+"nin": 3,
+"nout": 1,
+"name": "ORR"
+}
+}

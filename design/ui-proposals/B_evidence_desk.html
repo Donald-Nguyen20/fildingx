@@ -1,0 +1,196 @@
+<meta charset="utf-8">
+<title>Proposal B — Evidence Desk</title>
+<style>
+  :root{
+    --bg:#0a0d12; --panel:#10151d; --line:#1c2532; --line-2:#141b24;
+    --ink:#e8eef6; --ink-2:#93a4b8; --ink-3:#586777;
+    --accent:#6ea8fe; --cite:#ff7e2e; --ok:#3ddc97; --warn:#ffc043;
+    --mono:"Consolas","Cascadia Mono",monospace;
+    --ui:"Segoe UI",system-ui,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{width:1600px;height:950px;background:var(--bg);color:var(--ink);
+       font-family:var(--ui);font-size:14px;overflow:hidden;display:flex;flex-direction:column}
+
+  .bar{height:42px;display:flex;align-items:center;gap:16px;padding:0 16px;
+       border-bottom:1px solid var(--line);background:#0d1219}
+  .tag{font-family:var(--mono);font-size:11px;padding:3px 9px;border-radius:4px;
+       background:#15202c;color:var(--ink-2);border:1px solid var(--line)}
+  .tag.hot{color:var(--warn);border-color:rgba(255,192,67,.3);background:rgba(255,192,67,.07)}
+  .title{font-weight:600;font-size:14.5px}
+  .bar .r{margin-left:auto;display:flex;gap:8px;align-items:center;
+          font-size:11.5px;color:var(--ink-3);font-family:var(--mono)}
+
+  .grid{flex:1;display:grid;grid-template-columns:1fr 1fr 340px;min-height:0}
+
+  /* ── left: reasoning / answer ── */
+  .col{display:flex;flex-direction:column;min-width:0;min-height:0}
+  .col+.col{border-left:1px solid var(--line)}
+  .ch{height:38px;display:flex;align-items:center;gap:9px;padding:0 16px;
+      border-bottom:1px solid var(--line);background:#0c1117}
+  .ch h3{font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:var(--ink-3);font-weight:600}
+  .ch .r{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--ink-3)}
+  .cb{flex:1;overflow:hidden;padding:18px 20px}
+
+  .turn{margin-bottom:20px}
+  .who{font-family:var(--mono);font-size:10.5px;letter-spacing:.8px;color:var(--ink-3);
+       text-transform:uppercase;margin-bottom:7px}
+  .you{background:#141c26;border-left:2px solid var(--accent);padding:11px 14px;
+       border-radius:0 7px 7px 0;font-size:14px;color:#dbe6f2}
+  .txt{font-size:14px;line-height:1.75;color:#ccd8e5}
+  .txt p{margin-bottom:12px}
+  .txt b{color:#fff}
+  .pin{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:11px;
+       color:var(--cite);background:rgba(255,126,46,.1);border:1px solid rgba(255,126,46,.28);
+       border-radius:4px;padding:1px 7px;vertical-align:middle}
+  .pin.on{background:var(--cite);color:#1a0a00;border-color:var(--cite)}
+  .kv{display:grid;grid-template-columns:auto 1fr;gap:5px 16px;margin:4px 0 14px;
+      font-size:13px;padding:12px 14px;background:#0e141c;border:1px solid var(--line-2);border-radius:8px}
+  .kv dt{color:var(--ink-3);font-size:12.5px}
+  .kv dd{font-family:var(--mono);color:var(--ok)}
+  .note{font-size:12.5px;line-height:1.6;color:var(--ink-2);border-left:2px solid var(--warn);
+        padding:2px 0 2px 12px}
+
+  /* ── middle: document ── */
+  .doc{background:#0e131a;flex:1;display:flex;flex-direction:column;padding:14px 16px;overflow:hidden}
+  .page{background:#f5f2ea;color:#1c1a17;border-radius:3px;flex:1;padding:34px 40px;
+        font-family:"Georgia",serif;font-size:12.5px;line-height:1.85;overflow:hidden;
+        box-shadow:0 10px 34px rgba(0,0,0,.55)}
+  .page h5{font-family:var(--ui);font-size:13px;font-weight:700;margin-bottom:14px;letter-spacing:.3px}
+  .page h6{font-family:var(--ui);font-size:11.5px;font-weight:700;margin:16px 0 7px;color:#3a352d}
+  .page p{margin-bottom:11px;text-align:justify}
+  .page .hl{background:#ffe08a;box-shadow:0 0 0 4px #ffe08a;border-radius:1px}
+  .page table{border-collapse:collapse;width:100%;font-family:var(--ui);font-size:11px;margin:12px 0}
+  .page th,.page td{border:1px solid #cdc6b6;padding:5px 8px;text-align:left}
+  .page th{background:#e8e3d6;font-weight:700}
+  .page .sel td{background:#ffe08a}
+  .pgnav{display:flex;align-items:center;gap:10px;margin-top:12px;font-family:var(--mono);
+         font-size:11px;color:var(--ink-3)}
+  .pgnav .b{border:1px solid var(--line);border-radius:5px;padding:4px 10px;color:var(--ink-2)}
+  .pgnav .bar2{flex:1;height:3px;background:var(--line);border-radius:2px;position:relative}
+  .pgnav .bar2 i{position:absolute;left:62%;width:9%;top:0;bottom:0;background:var(--cite);border-radius:2px}
+
+  /* ── right: report builder ── */
+  .rep{background:#0c1117;display:flex;flex-direction:column}
+  .step{padding:12px 16px;border-bottom:1px solid var(--line-2);display:flex;gap:11px;align-items:flex-start}
+  .num{width:20px;height:20px;border-radius:50%;border:1px solid var(--line);flex:none;
+       display:flex;align-items:center;justify-content:center;font-family:var(--mono);
+       font-size:10.5px;color:var(--ink-3);margin-top:1px}
+  .step.done .num{background:var(--ok);border-color:var(--ok);color:#04180f}
+  .step.cur .num{border-color:var(--accent);color:var(--accent)}
+  .step .t{font-size:13px;color:var(--ink-2);line-height:1.45}
+  .step.done .t{color:var(--ink)}
+  .step .s{font-size:11.5px;color:var(--ink-3);margin-top:3px;font-family:var(--mono)}
+  .step.cur .t{color:#fff}
+  .drop{margin:14px 16px;border:1px dashed var(--line);border-radius:9px;padding:18px 14px;
+        text-align:center;font-size:12px;color:var(--ink-3);line-height:1.6}
+  .att{margin:0 16px 8px;background:#101720;border:1px solid var(--line-2);border-radius:7px;
+       padding:9px 12px;display:flex;align-items:center;gap:9px}
+  .att .id{font-family:var(--mono);font-size:11px;color:var(--cite)}
+  .att .x{margin-left:auto;color:var(--ink-3);font-size:12px}
+  .repf{margin-top:auto;padding:14px 16px;border-top:1px solid var(--line)}
+  .btn{display:block;text-align:center;padding:11px;border-radius:8px;font-size:13px;font-weight:600;
+       background:linear-gradient(180deg,#7fb4ff,#4d8de8);color:#04162e}
+  .btn.ghost{background:none;border:1px solid var(--line);color:var(--ink-2);margin-top:8px;font-weight:500}
+</style>
+
+<div class="bar">
+  <div class="title">Bàn chứng cứ</div>
+  <div class="tag hot">SỰ CỐ ĐANG MỞ</div>
+  <div class="tag">IDF-B · rung ổ đỡ cao</div>
+  <div class="tag">13.08.2026 04:12</div>
+  <div class="r">bản nháp tự lưu · 2 phút trước</div>
+</div>
+
+<div class="grid">
+  <!-- answer -->
+  <div class="col">
+    <div class="ch"><h3>Phân tích</h3><div class="r">claude · 8,052 tài liệu</div></div>
+    <div class="cb">
+      <div class="turn">
+        <div class="who">Kỹ sư</div>
+        <div class="you">IDF B rung 6.2 mm/s, tăng dần 3 ngày nay. Ngưỡng là bao nhiêu và
+        tôi còn bao lâu trước khi trip?</div>
+      </div>
+      <div class="turn">
+        <div class="who">Phân tích</div>
+        <div class="txt">
+          <p>Ở <b>6.2 mm/s</b> quạt đã vượt alarm và còn <b>0.9 mm/s</b> nữa là chạm trip.</p>
+          <dl class="kv">
+            <dt>Alarm</dt><dd>4.5 mm/s &nbsp;— đã vượt</dd>
+            <dt>Trip</dt><dd>7.1 mm/s &nbsp;— còn 12.7%</dd>
+            <dt>Trễ trip</dt><dd>3 s</dd>
+            <dt>Nghiệm thu 11/2024</dt><dd>3.1 mm/s</dd>
+          </dl>
+          <p>Giá trị hiện tại gấp <b>đôi</b> mức nghiệm thu, nên đây là suy giảm thật chứ
+          không phải sai số đo <span class="pin on">HNC-50056 §7.4</span>.</p>
+          <p>Xu hướng tăng đều trong 3 ngày ở tốc độ không đổi hướng tới mòn ổ đỡ hoặc
+          bám bẩn cánh, không phải mất cân bằng đột ngột — mất cân bằng do rơi cánh sẽ
+          nhảy bậc chứ không dốc dần <span class="pin">HNC-50056 §9.1</span>.</p>
+          <div class="note">Ngoại suy tuyến tính từ 3 điểm cho ra khoảng <b>4–6 ngày</b> tới ngưỡng
+          trip. Đây là ước lượng thô: dữ liệu rung hiếm khi tuyến tính ở gần cuối đời ổ đỡ,
+          thường dốc lên nhanh hơn.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- document -->
+  <div class="col">
+    <div class="ch"><h3>Tài liệu gốc</h3><div class="r">HNC-50056 · Rev.D · tr. 214/486</div></div>
+    <div class="doc">
+      <div class="page">
+        <h5>7.4 &nbsp; VIBRATION MONITORING AND PROTECTION</h5>
+        <p>Each fan bearing housing is fitted with a velocity transducer mounted radially
+        in the horizontal plane. Signals are routed to the vibration monitoring rack in
+        the electrical building and from there to the DCS.</p>
+        <h6>7.4.2 &nbsp; Protection settings</h6>
+        <p><span class="hl">Alarm is set at 4.5 mm/s RMS and trip at 7.1 mm/s RMS</span>,
+        in accordance with ISO 10816-3 zone boundaries for Group 1 machines on rigid
+        foundations. Both channels are voted 1-out-of-2 for alarm and 2-out-of-2 for trip.</p>
+        <table>
+          <tr><th>Point</th><th>Tag</th><th>Alarm</th><th>Trip</th></tr>
+          <tr><td>Fan DE bearing</td><td>HNC-VI-101A</td><td>4.5</td><td>7.1</td></tr>
+          <tr class="sel"><td>Fan NDE bearing</td><td>HNC-VI-101B</td><td>4.5</td><td>7.1</td></tr>
+          <tr><td>Motor bearing</td><td>HNC-VI-102</td><td>3.8</td><td>6.3</td></tr>
+        </table>
+        <p>Where the measured value exceeds the alarm level, the fan may continue in
+        service provided the rate of increase is monitored and does not exceed
+        0.5 mm/s per week.</p>
+      </div>
+      <div class="pgnav">
+        <div class="b">‹</div><div class="b">›</div>
+        <span>214 / 486</span>
+        <div class="bar2"><i></i></div>
+        <span>3 đoạn khớp</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- report -->
+  <div class="col rep">
+    <div class="ch"><h3>Báo cáo KV-OP</h3><div class="r">4/7</div></div>
+    <div class="step done"><div class="num">✓</div><div><div class="t">Introduction</div>
+      <div class="s">tự điền từ nhật ký sự cố</div></div></div>
+    <div class="step done"><div class="num">✓</div><div><div class="t">Abnormal Status</div>
+      <div class="s">3 điểm dữ liệu · đồ thị xu hướng</div></div></div>
+    <div class="step done"><div class="num">✓</div><div><div class="t">Analysis</div>
+      <div class="s">2 trích dẫn đã đối chiếu</div></div></div>
+    <div class="step cur"><div class="num">4</div><div><div class="t">Suggestion</div>
+      <div class="s">đang soạn…</div></div></div>
+    <div class="step"><div class="num">5</div><div><div class="t">Execution Plan</div></div></div>
+    <div class="step"><div class="num">6</div><div><div class="t">Conclusion</div></div></div>
+    <div class="step"><div class="num">7</div><div><div class="t">Attachment</div></div></div>
+
+    <div class="drop">Kéo đoạn văn bản từ tài liệu<br>vào đây để thành trích dẫn</div>
+    <div class="att"><span style="color:var(--cite)">◆</span><div>
+        <div class="id">HNC-50056 §7.4.2</div></div><div class="x">×</div></div>
+    <div class="att"><span style="color:var(--cite)">◆</span><div>
+        <div class="id">HNC-50061 §4.2</div></div><div class="x">×</div></div>
+
+    <div class="repf">
+      <div class="btn">Xuất .docx</div>
+      <div class="btn ghost">Xem trước toàn bộ</div>
+    </div>
+  </div>
+</div>

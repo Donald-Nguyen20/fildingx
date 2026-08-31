@@ -1,6 +1,7 @@
 """ui/claude_assistant/widget.py — Chat UI dùng claude_agent_sdk (Claude Code session)."""
 from __future__ import annotations
 
+import glob
 import json
 import os
 import re
@@ -34,21 +35,30 @@ from ui.claude_assistant.orb_controls import OrbControls
 from ui.claude_assistant.sources_panel import CitedSource, CitedSourcesPanel
 from ui.claude_assistant import chat_render, copilot
 
-def _load_saved_db_path() -> str:
-    """Đọc đường dẫn DB đã lưu (nếu file còn tồn tại)."""
+def _load_saved_paths() -> dict:
+    """Đọc các đường dẫn đã lưu, bỏ đường dẫn không còn tồn tại."""
     try:
         with open(paths.CLAUDE_DB_FILE, "r", encoding="utf-8") as f:
-            path = (json.load(f) or {}).get("db_path", "")
-        return path if path and os.path.exists(path) else ""
+            saved = json.load(f) or {}
     except Exception:
-        return ""
+        return {}
+    return {k: v for k, v in saved.items() if v and os.path.exists(v)}
 
 
-def _save_db_path(path: str):
-    """Lưu đường dẫn DB để lần sau khỏi import lại."""
+def _save_path(key: str, path: str):
+    """Lưu MỘT đường dẫn, giữ nguyên các key khác trong file.
+
+    Ghi đè cả file sẽ làm mất đường dẫn kia: hai ô chọn dùng chung một file.
+    """
+    try:
+        with open(paths.CLAUDE_DB_FILE, "r", encoding="utf-8") as f:
+            saved = json.load(f) or {}
+    except Exception:
+        saved = {}
+    saved[key] = path
     try:
         with open(paths.CLAUDE_DB_FILE, "w", encoding="utf-8") as f:
-            json.dump({"db_path": path}, f, ensure_ascii=False, indent=2)
+            json.dump(saved, f, ensure_ascii=False, indent=2)
     except Exception:
         pass
 
@@ -584,6 +594,7 @@ class ClaudeAssistantWidget(QWidget):
         self._worker: AgentWorker | None = None
         self._response_started = False
         self._db_path: str = ""
+        self._dcs_folder: str = ""   # DCS logic databases (one .db per controller)
         self._orb_view: NeuralOrbWidget | None = None
         self._hl_seq: int = 0
         self._doc_lookup: list[tuple[str, str]] = []  # (UPPERCASE name, path)
@@ -612,10 +623,12 @@ class ClaudeAssistantWidget(QWidget):
 
         self._build_ui()
 
-        # Khôi phục DB đã import lần trước (không ghi lại file)
-        saved = _load_saved_db_path()
-        if saved:
-            self._apply_db_path(saved, persist=False)
+        # Khôi phục DB / folder logic đã chọn lần trước (không ghi lại file)
+        saved = _load_saved_paths()
+        if saved.get("db_path"):
+            self._apply_db_path(saved["db_path"], persist=False)
+        if saved.get("dcs_folder"):
+            self._apply_dcs_folder(saved["dcs_folder"], persist=False)
 
     # ── Build UI ──────────────────────────────────────────────────────
     def _build_ui(self):
@@ -944,6 +957,56 @@ class ClaudeAssistantWidget(QWidget):
         lay.addWidget(self._lbl_db)
         lay.addWidget(self._lbl_db_count)
         lay.addLayout(btn_row)
+        lay.addSpacing(8)
+        lay.addWidget(self._build_dcs_row())
+        return box
+
+    def _build_dcs_row(self) -> QWidget:
+        """Which folder of DCS engineering databases the logic tool reads.
+
+        Kept beside the document DB rather than in its own tab: the two are
+        answered from in the same turn -- the manual says what a trip is for,
+        the logic databases say what actually asserts it -- and a source the
+        assistant silently has is a source nobody can check.
+        """
+        box = QWidget()
+        box.setStyleSheet("background: transparent;")
+        lay = QVBoxLayout(box)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(4)
+
+        self._lbl_dcs = QLabel("No logic folder")
+        self._lbl_dcs.setStyleSheet(_db_label_style(*_DB_LABEL_NONE))
+
+        self._lbl_dcs_count = QLabel("")
+        self._lbl_dcs_count.setStyleSheet(
+            "color: #64809c; font-size: 10px; background: transparent;"
+            "padding-left: 2px;"
+        )
+
+        self._btn_pick_dcs = QPushButton("📁  Select logic")
+        self._btn_pick_dcs.setFixedHeight(26)
+        self._btn_pick_dcs.setToolTip("Select the folder of DCS logic databases")
+        self._btn_pick_dcs.setCursor(Qt.PointingHandCursor)
+        self._btn_pick_dcs.setStyleSheet(_DB_BTN_STYLE)
+        self._btn_pick_dcs.clicked.connect(self._pick_dcs)
+
+        self._btn_clear_dcs = QPushButton("✕")
+        self._btn_clear_dcs.setFixedSize(26, 26)
+        self._btn_clear_dcs.setToolTip("Clear logic folder")
+        self._btn_clear_dcs.setCursor(Qt.PointingHandCursor)
+        self._btn_clear_dcs.setStyleSheet(_DB_BTN_CLEAR_STYLE)
+        self._btn_clear_dcs.clicked.connect(self._clear_dcs)
+
+        btn_row = QHBoxLayout()
+        btn_row.setContentsMargins(0, 0, 0, 0)
+        btn_row.setSpacing(6)
+        btn_row.addWidget(self._btn_pick_dcs, 1)
+        btn_row.addWidget(self._btn_clear_dcs)
+
+        lay.addWidget(self._lbl_dcs)
+        lay.addWidget(self._lbl_dcs_count)
+        lay.addLayout(btn_row)
         return box
 
     # ── JARVIS orb control ────────────────────────────────────────────
@@ -1058,7 +1121,7 @@ class ClaudeAssistantWidget(QWidget):
         self._show_db_status(path, snap)
 
         if persist:
-            _save_db_path(path)
+            _save_path("db_path", path)
         if self._orb_view is not None:
             self._orb_base_path = snap.base_path
             self._doc_lookup = _build_doc_lookup(snap.files)
@@ -1139,6 +1202,55 @@ class ClaudeAssistantWidget(QWidget):
 
     def _clear_db(self):
         self._apply_db_path("")
+
+    def _apply_dcs_folder(self, path: str, persist: bool = True):
+        """Update state + label + (optionally) persist. path='' clears it.
+
+        A folder with no .db in it is kept out of the system prompt entirely
+        rather than handed over as a source that answers nothing: the assistant
+        would then cite a tool that fails on every call.
+        """
+        count = 0
+        if path and os.path.isdir(path):
+            try:
+                count = len(glob.glob(os.path.join(path, "*.db")))
+            except OSError:
+                count = 0
+
+        self._dcs_folder = path if count else ""
+        self._show_dcs_status(path, count)
+        if persist:
+            _save_path("dcs_folder", path)
+
+    def _show_dcs_status(self, path: str, count: int) -> None:
+        if not path:
+            text, tip, colors, sub = "No logic folder", "", _DB_LABEL_NONE, ""
+        elif not count:
+            text = f"⚠ {os.path.basename(path.rstrip(os.sep))}"
+            tip = f"{path}\n\nNo .db file here — no control logic to read."
+            colors, sub = _DB_LABEL_BAD, "no logic database"
+        else:
+            text = os.path.basename(path.rstrip(os.sep))
+            tip = f"{path}\n\n{count} controller databases."
+            colors = _DB_LABEL_OK
+            sub = f"{count} controllers"
+
+        fm = QFontMetrics(self._lbl_dcs.font())
+        self._lbl_dcs.setText(fm.elidedText(text, Qt.ElideMiddle, _DB_NAME_W))
+        self._lbl_dcs.setToolTip(tip)
+        self._lbl_dcs.setStyleSheet(_db_label_style(*colors))
+        self._lbl_dcs_count.setText(sub)
+        self._lbl_dcs_count.setToolTip(tip)
+
+    def _pick_dcs(self):
+        path = QFileDialog.getExistingDirectory(
+            self, "Select the folder of DCS logic databases", self._dcs_folder or ""
+        )
+        if path:
+            self._apply_dcs_folder(path)
+
+    def _clear_dcs(self):
+        self._apply_dcs_folder("")
 
     def _highlight_search_hits(self, keyword: str) -> None:
         """Light up the orb neurons holding files that match the search."""
@@ -1331,18 +1443,15 @@ class ClaudeAssistantWidget(QWidget):
             self._diag_panel.set_analyzing(msg)
             diag_system = copilot.build_diagnosis_system_prompt(self._db_path, claude_md)
             merged_system = (diag_system + "\n" + system).strip()
-            options = make_options(system_prompt=merged_system, db_path=self._db_path)
             precedent = copilot.build_precedent_block(msg)   # hop ⑤ — đối chiếu ca cũ
             prompt = copilot.build_diagnosis_prompt(msg, precedent)
         elif self._mode == "quickcard":
             qc_system = copilot.build_quickcard_system_prompt(self._db_path, claude_md)
             merged_system = (qc_system + "\n" + system).strip()
-            options = make_options(system_prompt=merged_system, db_path=self._db_path)
             prompt = copilot.build_quickcard_prompt(msg)
         elif self._mode == "workpackage":
             wp_system = copilot.build_workpackage_system_prompt(self._db_path, claude_md)
             merged_system = (wp_system + "\n" + system).strip()
-            options = make_options(system_prompt=merged_system, db_path=self._db_path)
             prompt = copilot.build_workpackage_prompt(msg)
         elif self._db_path:
             db_system = (
@@ -1364,14 +1473,23 @@ class ClaudeAssistantWidget(QWidget):
             if claude_md:
                 db_system = claude_md + "\n\n" + db_system
             merged_system = (db_system + "\n" + system).strip()
-            options = make_options(system_prompt=merged_system, db_path=self._db_path)
             prompt = msg
         else:
             merged_system = system
-            options = make_options(system_prompt=merged_system)
             prompt = msg
 
+        # Appended in every mode rather than made a mode of its own: a trip is
+        # explained by the manual and asserted by the logic, and the answer is
+        # only right when both are on the table. Empty when no folder is set.
+        options = make_options(system_prompt=self._with_logic(merged_system),
+                               db_path=self._db_path,
+                               dcs_folder=self._dcs_folder)
         self._run_agent(prompt, options)
+
+    def _with_logic(self, system: str) -> str:
+        """The system prompt plus the control-logic instructions, if a folder is set."""
+        logic = copilot.build_logic_block(self._dcs_folder)
+        return (system + "\n" + logic).strip() if logic else system
 
     def _run_trend_diagnosis(self, symptom: str, data_text: str):
         """📈 Trend Data: chẩn đoán kèm dữ liệu trend/log — tái dùng pipeline diagnose."""
@@ -1389,7 +1507,9 @@ class ClaudeAssistantWidget(QWidget):
         claude_md = self._load_claude_md()
         diag_system = copilot.build_diagnosis_system_prompt(self._db_path, claude_md)
         merged_system = (diag_system + "\n" + system).strip()
-        options = make_options(system_prompt=merged_system, db_path=self._db_path)
+        options = make_options(system_prompt=self._with_logic(merged_system),
+                               db_path=self._db_path,
+                               dcs_folder=self._dcs_folder)
 
         precedent = copilot.build_precedent_block(symptom)
         trend = copilot.build_trend_block(data_text)

@@ -1,0 +1,176 @@
+<meta charset="utf-8">
+<title>Proposal D — Orb as Navigator</title>
+<style>
+  :root{
+    --bg:#04070d; --panel:#0a1017; --line:#17222f;
+    --ink:#e4edf7; --ink-2:#8fa4ba; --ink-3:#53657a;
+    --accent:#43e0c8; --cite:#ff7e2e; --hl:#ffd2ff;
+    --mono:"Consolas","Cascadia Mono",monospace;
+    --ui:"Segoe UI",system-ui,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{width:1600px;height:950px;background:var(--bg);color:var(--ink);
+       font-family:var(--ui);font-size:14px;overflow:hidden;position:relative}
+
+  /* orb fills the stage */
+  .stage{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}
+  .stage img{width:880px;height:880px;object-fit:contain;opacity:.95}
+  .vig{position:absolute;inset:0;background:
+       radial-gradient(circle at 50% 50%,transparent 34%,rgba(4,7,13,.72) 68%,#04070d 88%)}
+
+  /* top bar floats over */
+  .top{position:absolute;top:0;left:0;right:0;height:52px;display:flex;align-items:center;
+       gap:18px;padding:0 20px;background:linear-gradient(180deg,rgba(4,7,13,.94),transparent)}
+  .brand{font-weight:600;letter-spacing:.3px;display:flex;align-items:center;gap:9px}
+  .brand i{width:8px;height:8px;border-radius:50%;background:var(--accent);
+           box-shadow:0 0 14px var(--accent);display:block}
+  .top .r{margin-left:auto;display:flex;gap:9px;align-items:center}
+  .chip{font-family:var(--mono);font-size:11px;padding:4px 10px;border-radius:5px;
+        border:1px solid var(--line);color:var(--ink-2);background:rgba(10,16,23,.8)}
+  .chip.a{color:var(--accent);border-color:#1d5f57}
+
+  /* floating command bar */
+  .cmd{position:absolute;top:88px;left:50%;transform:translateX(-50%);width:660px;
+       background:rgba(10,16,23,.9);border:1px solid #26374a;border-radius:12px;
+       padding:14px 18px;display:flex;align-items:center;gap:13px;
+       box-shadow:0 18px 50px rgba(0,0,0,.65),0 0 0 3px rgba(67,224,200,.05)}
+  .cmd .q{flex:1;font-size:16px}
+  .cmd .k{font-family:var(--mono);font-size:11px;color:var(--ink-3);
+          border:1px solid var(--line);border-radius:4px;padding:2px 7px}
+  .cmdsub{position:absolute;top:146px;left:50%;transform:translateX(-50%);
+          display:flex;gap:8px;font-family:var(--mono);font-size:11px}
+  .cmdsub div{padding:4px 11px;border-radius:16px;border:1px solid var(--line);
+              background:rgba(10,16,23,.75);color:var(--ink-3)}
+  .cmdsub div.on{color:var(--hl);border-color:rgba(255,210,255,.4)}
+
+  /* region labels around the orb */
+  .lbl{position:absolute;font-family:var(--mono);font-size:11.5px;color:var(--ink-2);
+       display:flex;align-items:center;gap:7px;white-space:nowrap}
+  .lbl b{color:var(--ink);font-weight:600;font-family:var(--ui);font-size:12.5px}
+  .lbl .n{color:var(--ink-3)}
+  .lbl .sw{width:8px;height:8px;border-radius:2px}
+  .lbl .ln{position:absolute;height:1px;background:linear-gradient(90deg,transparent,var(--line))}
+  .lbl.hot{color:var(--hl)}
+  .lbl.hot b{color:var(--hl)}
+
+  /* left inspector */
+  .side{position:absolute;left:0;top:52px;bottom:0;width:290px;
+        background:linear-gradient(90deg,rgba(4,7,13,.96) 65%,transparent);
+        padding:26px 22px;display:flex;flex-direction:column;gap:20px}
+  .side h4{font-size:10px;letter-spacing:1.4px;text-transform:uppercase;color:var(--ink-3);
+           font-weight:700;margin-bottom:10px}
+  .stat{display:flex;align-items:baseline;gap:9px;margin-bottom:7px}
+  .stat .v{font-family:var(--mono);font-size:22px;color:var(--ink);letter-spacing:-.5px}
+  .stat .u{font-size:12px;color:var(--ink-3)}
+  .lg{display:flex;align-items:center;gap:9px;font-size:12.5px;color:var(--ink-2);padding:4px 0}
+  .lg .sw{width:8px;height:8px;border-radius:2px;flex:none}
+  .lg .n{margin-left:auto;font-family:var(--mono);font-size:11px}
+
+  /* right result drawer */
+  .drawer{position:absolute;right:0;top:52px;bottom:0;width:392px;
+          background:linear-gradient(270deg,rgba(6,10,16,.97) 72%,transparent);
+          padding:26px 22px;display:flex;flex-direction:column}
+  .card{border:1px solid var(--line);border-radius:10px;background:rgba(10,16,23,.85);
+        margin-bottom:11px;overflow:hidden}
+  .card.act{border-color:rgba(255,126,46,.5)}
+  .ch{padding:10px 13px;display:flex;align-items:center;gap:8px;border-bottom:1px solid #141d28}
+  .ch .id{font-family:var(--mono);font-size:11.5px;color:var(--cite)}
+  .ch .pg{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--ink-3)}
+  .cbd{padding:10px 13px;font-size:12px;line-height:1.6;color:var(--ink-2)}
+  .cbd mark{background:rgba(255,210,255,.14);color:var(--hl);padding:1px 2px;border-radius:2px}
+  .foot{margin-top:auto;padding-top:14px;border-top:1px solid var(--line)}
+  .cta{display:block;text-align:center;padding:11px;border-radius:9px;font-size:13px;
+       font-weight:600;background:linear-gradient(180deg,#2ad0b8,#17a894);color:#05201c}
+  .hint{position:absolute;bottom:18px;left:50%;transform:translateX(-50%);
+        font-family:var(--mono);font-size:11px;color:var(--ink-3);
+        background:rgba(10,16,23,.8);border:1px solid var(--line);border-radius:20px;padding:6px 16px}
+</style>
+
+<div class="stage"><img src="_orb.png"></div>
+<div class="vig"></div>
+
+<div class="top">
+  <div class="brand"><i></i>Finding · Bản đồ tri thức</div>
+  <div class="r">
+    <div class="chip">8,052 tài liệu · 420 cụm</div>
+    <div class="chip a">● 260 khớp</div>
+    <div class="chip" style="color:var(--cite);border-color:#3a220f">◆ 5 trích dẫn</div>
+  </div>
+</div>
+
+<div class="cmd">
+  <span style="color:var(--accent);font-family:var(--mono)">›</span>
+  <div class="q">rung ổ đỡ · toàn nhà máy</div>
+  <div class="k">Enter</div>
+</div>
+<div class="cmdsub">
+  <div class="on">◇ 260 tài liệu sáng lên</div>
+  <div>tập trung ở 3 vùng</div>
+  <div>bấm vào vùng để lọc</div>
+</div>
+
+<!-- region labels -->
+<div class="lbl" style="left:318px;top:250px"><div class="sw" style="background:#ff6347"></div>
+  <b>Lot 3 · BOP</b><span class="n">1,982</span></div>
+<div class="lbl hot" style="left:296px;top:392px"><div class="sw" style="background:#40e0d0"></div>
+  <b>12_O&amp;M</b><span class="n">1,835 · 118 khớp</span></div>
+<div class="lbl" style="left:330px;top:620px"><div class="sw" style="background:#f0e678"></div>
+  <b>Lot 4 · Xây dựng</b><span class="n">1,786</span></div>
+<div class="lbl" style="left:1064px;top:240px"><div class="sw" style="background:#d28cff"></div>
+  <b>Lot 2 · Tuabin</b><span class="n">848</span></div>
+<div class="lbl hot" style="left:1082px;top:404px"><div class="sw" style="background:#32cd32"></div>
+  <b>11_Training</b><span class="n">717 · 74 khớp</span></div>
+<div class="lbl" style="left:1058px;top:640px"><div class="sw" style="background:#ffaac8"></div>
+  <b>Lot 1 · Lò hơi</b><span class="n">384</span></div>
+<div class="lbl hot" style="left:700px;top:770px"><div class="sw" style="background:#78c8ff"></div>
+  <b>Chạy thử</b><span class="n">310 · 68 khớp</span></div>
+
+<div class="side">
+  <div>
+    <h4>Vùng đang trỏ</h4>
+    <div class="stat"><div class="v">118</div><div class="u">tài liệu khớp</div></div>
+    <div class="stat"><div class="v">1,835</div><div class="u">tổng trong vùng</div></div>
+    <div style="font-size:12.5px;color:var(--ink-2);line-height:1.6;margin-top:8px">
+      Cụm <b style="color:var(--ink)">12_O&amp;M</b> chứa mật độ khớp cao nhất —
+      6.4% tài liệu trong vùng nhắc tới rung ổ đỡ, so với 3.2% toàn kho.
+    </div>
+  </div>
+  <div>
+    <h4>Toàn kho</h4>
+    <div class="lg"><div class="sw" style="background:#ff6347"></div>Lot 3 AB DWG<div class="n">1,982</div></div>
+    <div class="lg"><div class="sw" style="background:#40e0d0"></div>12_O&amp;M<div class="n">1,835</div></div>
+    <div class="lg"><div class="sw" style="background:#f0e678"></div>Lot 4 AB DWG<div class="n">1,786</div></div>
+    <div class="lg"><div class="sw" style="background:#d28cff"></div>Lot 2 AB DWG<div class="n">848</div></div>
+    <div class="lg"><div class="sw" style="background:#32cd32"></div>11_Training<div class="n">717</div></div>
+    <div class="lg"><div class="sw" style="background:#ffaac8"></div>Lot 1 AB DWG<div class="n">384</div></div>
+    <div class="lg"><div class="sw" style="background:#78c8ff"></div>Comissioning<div class="n">310</div></div>
+  </div>
+</div>
+
+<div class="drawer">
+  <h4 style="font-size:10px;letter-spacing:1.4px;text-transform:uppercase;color:var(--ink-3);
+             font-weight:700;margin-bottom:13px">Trích dẫn đã dùng · 5</h4>
+
+  <div class="card act">
+    <div class="ch"><div class="id">VP1-C-L3-G-HNC-50056</div><div class="pg">tr. 214</div></div>
+    <div class="cbd">7.4.2 — <mark>Alarm 4.5 mm/s RMS, trip 7.1 mm/s RMS</mark> theo ISO 10816-3.</div>
+  </div>
+  <div class="card act">
+    <div class="ch"><div class="id">VP1-C-L3-I-HNC-50061</div><div class="pg">tr. 8 · quét</div></div>
+    <div class="cbd">Interlock 4.2 — trip sau <mark>trễ 3 giây</mark>, bỏ qua khi đóng damper.</div>
+  </div>
+  <div class="card">
+    <div class="ch"><div class="id">VP1-C-L3-F-HNC-50210</div><div class="pg">tr. 3</div></div>
+    <div class="cbd">Nghiệm thu 11/2024 — <mark>2.8 / 3.1 mm/s</mark> ở đầy tải.</div>
+  </div>
+  <div class="card">
+    <div class="ch"><div class="id">VP1-C-L2-G-BFP-40112</div><div class="pg">tr. 61</div></div>
+    <div class="cbd">Ngưỡng rung bơm cấp nước — đối chiếu tham khảo.</div>
+  </div>
+
+  <div class="foot">
+    <div class="cta">Dựng báo cáo KV-OP</div>
+  </div>
+</div>
+
+<div class="hint">Cuộn để phóng vùng · bấm cụm để lọc · Space để quay về toàn cảnh</div>

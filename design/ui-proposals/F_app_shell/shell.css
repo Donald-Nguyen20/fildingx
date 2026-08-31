@@ -1,0 +1,93 @@
+/* ─────────────────────────────────────────────────────────────
+   F — App shell dùng chung cho cả 4 công cụ.
+   MỘT file này thay cho 163 mã màu / 99 lần setStyleSheet / 7 giá
+   trị bo góc / 10 cỡ chữ đang rải rác trong ui/.
+   4 công cụ VẪN chạy riêng lẻ — chỉ dùng chung ngôn ngữ thị giác.
+   ───────────────────────────────────────────────────────────── */
+:root{
+  --bg:#0b0f14; --panel:#111823; --panel-2:#0d141d; --raise:#16202c;
+  --line:#1e2b3a; --line-2:#2a3b4f;
+  --ink:#e6eef8; --ink-2:#93a7bd; --ink-3:#5c7086;
+  --accent:#43e0c8; --accent-ink:#05201c; --accent-dim:#1d5f57;
+  --cite:#ff7e2e; --warn:#f0b23c; --bad:#ff6b5e;
+  --r-sm:6px; --r-md:10px; --r-lg:14px;
+  --t-xs:11px; --t-sm:12.5px; --t-md:14px; --t-lg:17px; --t-xl:24px;
+  --mono:"Consolas","Cascadia Mono",monospace;
+  --ui:"Segoe UI",system-ui,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{width:1600px;height:950px;background:var(--bg);color:var(--ink);
+     font-family:var(--ui);font-size:var(--t-md);overflow:hidden;
+     display:grid;grid-template-columns:212px 1fr}
+
+/* ── MỘT thanh điều hướng duy nhất, thay cho rail + tab bar ── */
+.nav{background:var(--panel-2);border-right:1px solid var(--line);
+     display:flex;flex-direction:column;padding:14px 10px;gap:4px;overflow:hidden}
+.logo{display:flex;align-items:center;gap:9px;padding:4px 8px 14px;font-weight:600;
+      font-size:15px;letter-spacing:.2px}
+.logo i{width:9px;height:9px;border-radius:50%;background:var(--accent);
+        box-shadow:0 0 12px var(--accent)}
+.navh{font-size:10px;letter-spacing:1.3px;text-transform:uppercase;color:var(--ink-3);
+      font-weight:700;padding:14px 8px 7px}
+.ni{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:var(--r-md);
+    color:var(--ink-2);font-size:var(--t-sm);position:relative}
+.ni b{font-weight:400}
+.ni .ic{width:17px;text-align:center;font-size:14px;line-height:1}
+.ni .n{margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--ink-3)}
+.ni.on{background:var(--raise);color:var(--ink)}
+.ni.on::before{content:"";position:absolute;left:-10px;top:8px;bottom:8px;width:3px;
+               border-radius:0 3px 3px 0;background:var(--accent)}
+.ni.on .n{color:var(--accent)}
+
+/* trạng thái kho — luôn hiện, ở đáy nav, dùng chung cả 4 công cụ */
+.navfoot{margin-top:auto;border-top:1px solid var(--line);padding:12px 8px 4px}
+.kv{display:flex;justify-content:space-between;font-size:var(--t-xs);color:var(--ink-3);
+    padding:3px 0}
+.kv b{color:var(--ink-2);font-family:var(--mono);font-weight:400}
+.bar{height:4px;border-radius:2px;background:#1a2635;overflow:hidden;margin:7px 0 5px}
+.bar i{display:block;height:100%;background:var(--accent)}
+.warnline{font-size:10px;color:var(--warn);line-height:1.5}
+
+/* ── vùng làm việc ── */
+.main{display:flex;flex-direction:column;overflow:hidden}
+.top{height:52px;display:flex;align-items:center;gap:12px;padding:0 20px;
+     border-bottom:1px solid var(--line);background:var(--panel-2)}
+.top h1{font-size:var(--t-lg);font-weight:600}
+.top .sub{font-size:var(--t-xs);color:var(--ink-3);font-family:var(--mono)}
+.top .r{margin-left:auto;display:flex;align-items:center;gap:8px}
+
+/* các nguyên tố dùng lại — MỘT định nghĩa cho cả app */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;height:34px;
+     padding:0 14px;border-radius:var(--r-md);font-size:var(--t-sm);
+     background:var(--panel);border:1px solid var(--line);color:var(--ink-2)}
+.btn.primary{background:linear-gradient(180deg,#2ad0b8,#17a894);color:var(--accent-ink);
+             border:0;font-weight:600}
+.btn.ghost{background:transparent}
+.pill{font-family:var(--mono);font-size:var(--t-xs);padding:4px 10px;border-radius:var(--r-sm);
+      border:1px solid var(--line);color:var(--ink-2)}
+.pill.ok{color:var(--accent);border-color:var(--accent-dim)}
+.pill.cite{color:var(--cite);border-color:#3a220f}
+.pill.warn{color:var(--warn);border-color:#4a3a14}
+.field{display:flex;align-items:center;gap:10px;height:38px;padding:0 14px;
+       background:var(--panel);border:1px solid var(--line-2);border-radius:var(--r-md)}
+.field .ph{flex:1;color:var(--ink-3);font-size:var(--t-sm)}
+.field .k{font-family:var(--mono);font-size:10px;color:var(--ink-3);
+          border:1px solid var(--line);border-radius:4px;padding:2px 6px}
+.card{border:1px solid var(--line);border-radius:var(--r-md);background:var(--panel);
+      overflow:hidden}
+h4{font-size:10px;letter-spacing:1.3px;text-transform:uppercase;color:var(--ink-3);
+   font-weight:700;margin-bottom:9px}
+mark{background:rgba(67,224,200,.14);color:var(--accent);padding:1px 3px;border-radius:2px}
+.mono{font-family:var(--mono)}
+.doc{font-family:var(--mono);font-size:var(--t-xs);color:var(--cite)}
+
+/* bảng dữ liệu dùng chung */
+table{width:100%;border-collapse:collapse}
+thead th{text-align:left;font-size:10px;letter-spacing:1.1px;text-transform:uppercase;
+         color:var(--ink-3);font-weight:700;padding:10px 14px;
+         border-bottom:1px solid var(--line);background:var(--panel-2)}
+tbody td{padding:11px 14px;font-size:var(--t-sm);border-bottom:1px solid #16202c;
+         color:var(--ink-2);vertical-align:top}
+tbody tr.on td{background:rgba(67,224,200,.045)}
+tbody td .nm{color:var(--ink);font-size:var(--t-md)}
+tbody td .sn{color:var(--ink-3);font-size:var(--t-xs);line-height:1.6;margin-top:4px}
