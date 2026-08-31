@@ -1,0 +1,200 @@
+<meta charset="utf-8">
+<title>Proposal A — Unified Console</title>
+<style>
+  :root{
+    --bg:#0b0f14; --panel:#111821; --panel-2:#161f2b; --line:#1e2a38;
+    --ink:#e6edf5; --ink-2:#8fa3b8; --ink-3:#5b6b7d;
+    --accent:#43e0c8; --accent-dim:#1d5f57;
+    --warn:#ffb454; --cite:#ff7e2e;
+    --mono:"Consolas","Cascadia Mono",monospace;
+    --ui:"Segoe UI",system-ui,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{width:1600px;height:950px;background:var(--bg);color:var(--ink);
+       font-family:var(--ui);font-size:14px;overflow:hidden;display:flex;flex-direction:column}
+
+  /* ── title bar ── */
+  .bar{height:44px;display:flex;align-items:center;gap:18px;padding:0 18px;
+       border-bottom:1px solid var(--line);background:linear-gradient(180deg,#131b25,#0e141c)}
+  .brand{display:flex;align-items:center;gap:9px;font-weight:600;letter-spacing:.2px}
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--accent);
+       box-shadow:0 0 12px var(--accent)}
+  .crumb{font-family:var(--mono);font-size:12px;color:var(--ink-3)}
+  .crumb b{color:var(--ink-2);font-weight:500}
+  .bar-right{margin-left:auto;display:flex;gap:8px;align-items:center}
+  .chip{font-size:11px;font-family:var(--mono);padding:4px 9px;border-radius:5px;
+        border:1px solid var(--line);color:var(--ink-2);background:#0e141c}
+  .chip.live{color:var(--accent);border-color:var(--accent-dim);background:#0d1a1c}
+
+  /* ── body ── */
+  .wrap{flex:1;display:grid;grid-template-columns:210px 1fr 400px;min-height:0}
+
+  /* rail */
+  .rail{border-right:1px solid var(--line);background:#0d131a;padding:16px 12px;
+        display:flex;flex-direction:column;gap:22px;overflow:hidden}
+  .rail h4{font-size:10px;letter-spacing:1.4px;text-transform:uppercase;color:var(--ink-3);
+           margin-bottom:9px;font-weight:600}
+  .src{display:flex;align-items:center;gap:9px;padding:7px 9px;border-radius:6px;
+       font-size:12.5px;color:var(--ink-2);margin-bottom:2px}
+  .src.on{background:#14212c;color:var(--ink)}
+  .src .sw{width:7px;height:7px;border-radius:2px;flex:none}
+  .src .n{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--ink-3)}
+  .hist{font-size:12px;color:var(--ink-2);padding:6px 9px;border-left:2px solid var(--line);
+        margin-bottom:5px;line-height:1.35}
+  .hist.cur{border-left-color:var(--accent);color:var(--ink)}
+
+  /* main */
+  .main{display:flex;flex-direction:column;min-width:0;background:var(--bg)}
+  .ask{padding:22px 30px 16px;border-bottom:1px solid var(--line)}
+  .askbox{display:flex;align-items:center;gap:12px;background:var(--panel);
+          border:1px solid #26374a;border-radius:11px;padding:13px 16px;
+          box-shadow:0 0 0 3px rgba(67,224,200,.06)}
+  .askbox .q{font-size:16px;color:var(--ink);flex:1}
+  .askbox .k{font-family:var(--mono);font-size:11px;color:var(--ink-3);
+             border:1px solid var(--line);border-radius:4px;padding:2px 6px}
+  .filters{display:flex;gap:7px;margin-top:11px;flex-wrap:wrap}
+  .f{font-size:11.5px;font-family:var(--mono);padding:4px 10px;border-radius:20px;
+     border:1px solid var(--line);color:var(--ink-3)}
+  .f.on{border-color:var(--accent-dim);color:var(--accent);background:#0d1a1c}
+
+  .stream{flex:1;overflow:hidden;padding:20px 30px}
+  .ans{font-size:14.5px;line-height:1.72;color:#d3dfeb;max-width:820px}
+  .ans p{margin-bottom:13px}
+  .ans b{color:#fff;font-weight:600}
+  .cit{font-family:var(--mono);font-size:11.5px;color:var(--cite);
+       border-bottom:1px dashed rgba(255,126,46,.5);padding:0 1px;cursor:pointer}
+  .val{font-family:var(--mono);color:var(--accent);font-size:13.5px}
+
+  table{border-collapse:collapse;margin:6px 0 16px;font-size:12.5px;width:100%;max-width:820px}
+  th{text-align:left;font-size:10px;letter-spacing:1px;text-transform:uppercase;
+     color:var(--ink-3);padding:7px 12px;border-bottom:1px solid var(--line);font-weight:600}
+  td{padding:8px 12px;border-bottom:1px solid #16202b;color:var(--ink-2)}
+  td.m{font-family:var(--mono);color:var(--ink)}
+  tr.hot td{background:rgba(255,180,84,.05)}
+  tr.hot td.m{color:var(--warn)}
+
+  /* evidence panel */
+  .ev{border-left:1px solid var(--line);background:#0d131a;display:flex;flex-direction:column}
+  .ev-h{padding:14px 16px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px}
+  .ev-h span{font-size:10px;letter-spacing:1.4px;text-transform:uppercase;color:var(--ink-3);font-weight:600}
+  .ev-h .cnt{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--cite)}
+  .card{margin:12px 14px;border:1px solid var(--line);border-radius:9px;background:var(--panel);
+        overflow:hidden}
+  .card.act{border-color:rgba(255,126,46,.45);box-shadow:0 0 0 1px rgba(255,126,46,.12)}
+  .card-h{padding:10px 13px;border-bottom:1px solid #18222e;display:flex;align-items:center;gap:8px}
+  .card-h .id{font-family:var(--mono);font-size:11.5px;color:var(--cite)}
+  .card-h .pg{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--ink-3)}
+  .card-b{padding:11px 13px;font-size:12px;line-height:1.6;color:var(--ink-2)}
+  .card-b mark{background:rgba(255,180,84,.16);color:var(--warn);padding:1px 2px;border-radius:2px}
+  .card-f{padding:8px 13px;border-top:1px solid #18222e;display:flex;gap:7px}
+  .mini{font-size:11px;padding:4px 9px;border-radius:5px;border:1px solid var(--line);color:var(--ink-2)}
+  .mini.p{border-color:var(--accent-dim);color:var(--accent)}
+  .ev-f{margin-top:auto;padding:14px 16px;border-top:1px solid var(--line)}
+  .cta{display:block;text-align:center;padding:11px;border-radius:8px;font-size:13px;font-weight:600;
+       background:linear-gradient(180deg,#2ad0b8,#17a894);color:#05201c}
+  .cta-s{text-align:center;font-size:11px;color:var(--ink-3);margin-top:8px;font-family:var(--mono)}
+</style>
+
+<div class="bar">
+  <div class="brand"><div class="dot"></div>Finding</div>
+  <div class="crumb">VAN PHONG 1 BOT &nbsp;/&nbsp; <b>8,052 tài liệu</b> &nbsp;/&nbsp; đã lập chỉ mục 12.08</div>
+  <div class="bar-right">
+    <div class="chip">⌘K</div>
+    <div class="chip live">● Claude sẵn sàng</div>
+  </div>
+</div>
+
+<div class="wrap">
+  <div class="rail">
+    <div>
+      <h4>Nguồn</h4>
+      <div class="src on"><div class="sw" style="background:#ff6347"></div>Lot 3 AB DWG<div class="n">1982</div></div>
+      <div class="src on"><div class="sw" style="background:#40e0d0"></div>12_O&amp;M<div class="n">1835</div></div>
+      <div class="src on"><div class="sw" style="background:#f0e678"></div>Lot 4 AB DWG<div class="n">1786</div></div>
+      <div class="src"><div class="sw" style="background:#d28cff"></div>Lot 2 AB DWG<div class="n">848</div></div>
+      <div class="src"><div class="sw" style="background:#32cd32"></div>11_Training<div class="n">717</div></div>
+      <div class="src"><div class="sw" style="background:#ffaac8"></div>Lot 1 AB DWG<div class="n">384</div></div>
+      <div class="src"><div class="sw" style="background:#78c8ff"></div>Comissioning<div class="n">310</div></div>
+    </div>
+    <div>
+      <h4>Phiên gần đây</h4>
+      <div class="hist cur">IDF bearing vibration —<br>ngưỡng alarm &amp; trip</div>
+      <div class="hist">BFP recirculation valve<br>không đóng hết</div>
+      <div class="hist">CEP seal water<br>áp suất thấp</div>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="ask">
+      <div class="askbox">
+        <span style="color:var(--accent);font-family:var(--mono)">›</span>
+        <div class="q">Ngưỡng alarm và trip của rung ổ đỡ IDF là bao nhiêu?</div>
+        <div class="k">Enter</div>
+      </div>
+      <div class="filters">
+        <div class="f on">◆ mọi nguồn</div>
+        <div class="f">hệ thống: HNC</div>
+        <div class="f">ngành: I&amp;C</div>
+        <div class="f">lot: L3</div>
+        <div class="f">chỉ bản mới nhất</div>
+      </div>
+    </div>
+
+    <div class="stream">
+      <div class="ans">
+        <p>Sổ tay O&amp;M của Howden quy định hai cấp bảo vệ rung cho ổ đỡ quạt hút khói,
+        đo bằng cảm biến vận tốc gắn trên gối đỡ cả phía dẫn động và phía không dẫn động
+        <span class="cit">[VP1-C-L3-G-HNC-50056 §7.4]</span>.</p>
+
+        <table>
+          <tr><th>Điểm đo</th><th>Alarm</th><th>Trip</th><th>Tag</th><th>Nguồn</th></tr>
+          <tr><td>Ổ đỡ phía dẫn động</td><td class="m">4.5 mm/s</td><td class="m">7.1 mm/s</td>
+              <td class="m">HNC-VI-101A</td><td>HNC-50056</td></tr>
+          <tr class="hot"><td>Ổ đỡ phía không dẫn động</td><td class="m">4.5 mm/s</td><td class="m">7.1 mm/s</td>
+              <td class="m">HNC-VI-101B</td><td>HNC-50056</td></tr>
+          <tr><td>Ổ đỡ động cơ</td><td class="m">3.8 mm/s</td><td class="m">6.3 mm/s</td>
+              <td class="m">HNC-VI-102</td><td>HNC-50061</td></tr>
+        </table>
+
+        <p>Trip có <b>trễ 3 giây</b> để bỏ qua xung nhất thời khi đóng damper
+        <span class="cit">[VP1-C-L3-I-HNC-50061 §4.2]</span>. Cả hai cấp đều theo ISO 10816-3
+        nhóm 1, máy lắp bệ cứng — nghĩa là vùng B/C giao nhau ở 4.5 và vùng C/D ở 7.1 mm/s.</p>
+
+        <p style="color:var(--ink-3);font-size:13px;border-left:2px solid var(--warn);padding-left:12px">
+        ⚠ Bản vẽ logic <span class="cit">HNC-50061</span> là bản quét OCR — con số 7.1 nên đối chiếu
+        lại với bản gốc trước khi đưa vào báo cáo.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="ev">
+    <div class="ev-h"><span>Chứng cứ</span><div class="cnt">3 tài liệu · 5 đoạn</div></div>
+
+    <div class="card act">
+      <div class="card-h"><div class="id">VP1-C-L3-G-HNC-50056</div><div class="pg">tr. 214</div></div>
+      <div class="card-b">7.4.2 Vibration protection — the fan bearing housings are fitted with
+      velocity transducers. <mark>Alarm is set at 4.5 mm/s RMS and trip at 7.1 mm/s RMS</mark>
+      in accordance with ISO 10816-3.</div>
+      <div class="card-f"><div class="mini p">Mở PDF</div><div class="mini">Chèn vào báo cáo</div></div>
+    </div>
+
+    <div class="card">
+      <div class="card-h"><div class="id">VP1-C-L3-I-HNC-50061</div><div class="pg">tr. 8 · quét</div></div>
+      <div class="card-b">Interlock 4.2 — vibration high-high initiates fan trip after a
+      <mark>3 second time delay</mark>, bypassed during damper closing sequence.</div>
+      <div class="card-f"><div class="mini p">Mở PDF</div><div class="mini">Chèn vào báo cáo</div></div>
+    </div>
+
+    <div class="card">
+      <div class="card-h"><div class="id">VP1-C-L3-F-HNC-50210</div><div class="pg">tr. 3</div></div>
+      <div class="card-b">Commissioning record — measured 2.8 mm/s DE / 3.1 mm/s NDE at
+      full load, 2024-11-08. Within acceptance.</div>
+      <div class="card-f"><div class="mini p">Mở PDF</div><div class="mini">Chèn vào báo cáo</div></div>
+    </div>
+
+    <div class="ev-f">
+      <div class="cta">Dựng báo cáo KV-OP từ 3 tài liệu này</div>
+      <div class="cta-s">KV-OP-26-0147_IDF-Bearing-Vibration.docx</div>
+    </div>
+  </div>
+</div>

@@ -508,11 +508,15 @@ IMPORTANT RULES:
             ]}],
             "generationConfig": {"temperature": 0.1, "maxOutputTokens": 2048},
         }
+        # Key in a header, never as "?key=" in the URL: requests copies the full
+        # URL into every HTTPError it raises, and those messages end up on screen
+        # and in logs -- which printed the whole API key on any 404.
         url = (
             f"https://generativelanguage.googleapis.com/v1beta/models/"
-            f"{model}:generateContent?key={api_key}"
+            f"{model}:generateContent"
         )
-        r = requests.post(url, json=payload, timeout=timeout)
+        headers = {"x-goog-api-key": api_key, "Content-Type": "application/json"}
+        r = requests.post(url, headers=headers, json=payload, timeout=timeout)
         r.raise_for_status()
         data = r.json()
         return data["candidates"][0]["content"]["parts"][0]["text"].strip()
@@ -522,31 +526,26 @@ IMPORTANT RULES:
         Phan tich tai lieu ky thuat bang Vision AI.
         - Vision AI xu ly TAT CA trang (khong loc theo word count)
         - fitz text chi la fallback neu Vision fail
-        Thu tu fallback: Groq -> Gemini -> OpenRouter.
+        Thu tu fallback: Gemini -> OpenRouter.
+
+        Groq khong con trong danh sach: khong mot model nao Groq dang phuc vu
+        nhan input anh -- tat ca deu tra loi "messages[0].content must be a
+        string" -- nen goi Groq o day chi ton mot vong that bai truoc khi sang
+        provider ke tiep.
         """
-        from core.llm_config import load_llm_config
+        from core.llm_config import (
+            load_llm_config,
+            DEFAULT_VISION_GEMINI_MODEL, DEFAULT_VISION_OPENROUTER_MODEL,
+        )
         cfg = load_llm_config()
 
-        groq_key       = (cfg.get("groq_api_key")      or "").strip()
         gemini_key     = (cfg.get("gemini_api_key")    or "").strip()
         openrouter_key = (cfg.get("openrouter_api_key") or "").strip()
 
         providers = []
 
-        if groq_key:
-            providers.append((
-                "Groq (llama-4-scout)",
-                lambda b64: self._call_openai_compat_vision(
-                    base_url="https://api.groq.com/openai/v1",
-                    api_key=groq_key,
-                    model="meta-llama/llama-4-scout-17b-16e-instruct",
-                    prompt=self._VISION_PROMPT,
-                    img_b64=b64,
-                ),
-            ))
-
         if gemini_key:
-            gemini_model = (cfg.get("gemini_model") or "gemini-2.0-flash").strip()
+            gemini_model = (cfg.get("gemini_model") or DEFAULT_VISION_GEMINI_MODEL).strip()
             providers.append((
                 f"Gemini ({gemini_model})",
                 lambda b64, m=gemini_model: self._call_gemini_vision(
@@ -559,11 +558,11 @@ IMPORTANT RULES:
 
         if openrouter_key:
             providers.append((
-                "OpenRouter (llama-4-scout)",
+                f"OpenRouter ({DEFAULT_VISION_OPENROUTER_MODEL})",
                 lambda b64: self._call_openai_compat_vision(
                     base_url="https://openrouter.ai/api/v1",
                     api_key=openrouter_key,
-                    model="meta-llama/llama-4-scout:free",
+                    model=DEFAULT_VISION_OPENROUTER_MODEL,
                     prompt=self._VISION_PROMPT,
                     img_b64=b64,
                 ),
@@ -572,7 +571,8 @@ IMPORTANT RULES:
         if not providers:
             raise ValueError(
                 "No API key configured.\n"
-                "Go to DB Search -> Config LLM to enter Groq / Gemini / OpenRouter key."
+                "Go to DB Search -> Config LLM to enter a Gemini or OpenRouter key.\n"
+                "(Groq is not usable here: none of its models accept images.)"
             )
 
         import fitz as _fitz, base64 as _b64
@@ -1904,24 +1904,22 @@ class ImageChatWorker(QThread):
     def run(self):
         try:
             import base64
-            from core.llm_config import load_llm_config
+            from core.llm_config import (
+                load_llm_config,
+                DEFAULT_VISION_GEMINI_MODEL, DEFAULT_VISION_OPENROUTER_MODEL,
+            )
 
             cfg     = load_llm_config()
             img_b64 = base64.b64encode(self.image_bytes).decode()
 
-            groq_key       = (cfg.get("groq_api_key")       or "").strip()
+            # Groq is absent on purpose: none of the models it still serves
+            # accepts image input, so trying it only burns one failed round-trip
+            # before the next provider gets a turn. See _extract_vision().
             gemini_key     = (cfg.get("gemini_api_key")     or "").strip()
             openrouter_key = (cfg.get("openrouter_api_key") or "").strip()
-            gemini_model   = (cfg.get("gemini_model")       or "gemini-2.0-flash").strip()
+            gemini_model   = (cfg.get("gemini_model") or DEFAULT_VISION_GEMINI_MODEL).strip()
 
             providers = []
-            if groq_key:
-                providers.append(lambda b: AddSourceWorker._call_openai_compat_vision(
-                    base_url="https://api.groq.com/openai/v1",
-                    api_key=groq_key,
-                    model="meta-llama/llama-4-scout-17b-16e-instruct",
-                    prompt=self._IMG_VISION_PROMPT, img_b64=b,
-                ))
             if gemini_key:
                 providers.append(lambda b, m=gemini_model: AddSourceWorker._call_gemini_vision(
                     api_key=gemini_key, model=m,
@@ -1931,14 +1929,15 @@ class ImageChatWorker(QThread):
                 providers.append(lambda b: AddSourceWorker._call_openai_compat_vision(
                     base_url="https://openrouter.ai/api/v1",
                     api_key=openrouter_key,
-                    model="meta-llama/llama-4-scout:free",
+                    model=DEFAULT_VISION_OPENROUTER_MODEL,
                     prompt=self._IMG_VISION_PROMPT, img_b64=b,
                 ))
 
             if not providers:
                 raise RuntimeError(
                     "Chưa có API key Vision AI.\n"
-                    "Vào ⚙ Config LLM để nhập key Groq / Gemini / OpenRouter."
+                    "Vào ⚙ Config LLM để nhập key Gemini hoặc OpenRouter.\n"
+                    "(Groq không dùng được cho ảnh — không model nào nhận input ảnh.)"
                 )
 
             vision_desc = ""

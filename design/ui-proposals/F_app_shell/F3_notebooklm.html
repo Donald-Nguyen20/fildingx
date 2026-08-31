@@ -1,0 +1,178 @@
+<meta charset="utf-8">
+<title>F3 — NotebookLM</title>
+<link rel="stylesheet" href="shell.css">
+<style>
+  .work{flex:1;display:grid;grid-template-columns:262px 1fr 336px;overflow:hidden}
+  .nb{border-right:1px solid var(--line);background:var(--panel-2);
+      display:flex;flex-direction:column;overflow:hidden}
+  .nbh{padding:14px 14px 10px;display:flex;align-items:center;gap:8px}
+  .nbh .btn{height:30px;padding:0 11px;font-size:var(--t-xs)}
+  .nblist{flex:1;padding:0 10px;overflow:hidden;display:flex;flex-direction:column;gap:5px}
+  .nbi{padding:10px 12px;border-radius:var(--r-md);border:1px solid transparent}
+  .nbi.on{background:var(--raise);border-color:var(--line-2)}
+  .nbi .t{font-size:var(--t-sm);color:var(--ink-2)}
+  .nbi.on .t{color:var(--ink)}
+  .nbi .s{font-family:var(--mono);font-size:10px;color:var(--ink-3);margin-top:4px}
+  .nbfoot{padding:12px 12px;border-top:1px solid var(--line);display:flex;gap:6px}
+  .nbfoot .btn{flex:1;height:30px;padding:0;font-size:var(--t-xs)}
+
+  .chat{display:flex;flex-direction:column;overflow:hidden}
+  .chead{height:38px;display:flex;align-items:center;gap:9px;padding:0 20px;
+         border-bottom:1px solid var(--line);font-family:var(--mono);
+         font-size:var(--t-xs);color:var(--ink-3)}
+  .stream{flex:1;padding:20px 24px;overflow:hidden}
+  .me{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-md);
+      padding:11px 14px;font-size:var(--t-md);margin-bottom:18px;max-width:600px}
+  .lab{font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:var(--ink-3);
+       font-weight:700;margin-bottom:8px}
+  .ans{font-size:var(--t-md);line-height:1.75;max-width:740px}
+  .ans p{margin-bottom:12px}
+  .sup{font-family:var(--mono);font-size:10px;color:var(--accent);
+       border:1px solid var(--accent-dim);border-radius:4px;padding:1px 5px;
+       background:rgba(67,224,200,.08)}
+  .bul{margin:0 0 12px 18px;font-size:var(--t-md);line-height:1.9;color:var(--ink-2)}
+  .composer{border-top:1px solid var(--line);padding:12px 20px;background:var(--panel-2)}
+  .cin{display:flex;align-items:center;gap:11px;background:var(--panel);
+       border:1px solid var(--line-2);border-radius:var(--r-md);padding:11px 14px}
+  .cin .ph{flex:1;color:var(--ink-3);font-size:var(--t-md)}
+  .chints{display:flex;gap:6px;margin-top:9px}
+  .chints code{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);
+               border:1px solid var(--line);border-radius:var(--r-sm);padding:3px 8px}
+
+  .src{border-left:1px solid var(--line);background:var(--panel-2);
+       display:flex;flex-direction:column;overflow:hidden}
+  .srch{padding:14px 15px;border-bottom:1px solid var(--line);display:flex;
+        align-items:center;gap:8px}
+  .srclist{flex:1;padding:12px 14px;overflow:hidden;display:flex;flex-direction:column;gap:8px}
+  .si{border:1px solid var(--line);border-radius:var(--r-md);background:var(--panel);
+      padding:10px 12px}
+  .si.on{border-color:var(--accent-dim)}
+  .si .n{font-size:var(--t-sm);color:var(--ink);line-height:1.4}
+  .si .m{font-family:var(--mono);font-size:10px;color:var(--ink-3);margin-top:5px;
+         display:flex;gap:7px;align-items:center}
+  .si .m .u{color:var(--accent)}
+  .sfoot{padding:12px 14px;border-top:1px solid var(--line);display:flex;
+         flex-direction:column;gap:8px}
+</style>
+
+<div class="nav">
+  <div class="logo"><i></i>Finding · VP1</div>
+  <div class="navh">Tra cứu</div>
+  <div class="ni"><div class="ic">🔍</div><b>File Search</b><div class="n">8,052</div></div>
+  <div class="ni"><div class="ic">▤</div><b>DB Search</b><div class="n">8,052</div></div>
+  <div class="navh">Nghiên cứu</div>
+  <div class="ni on"><div class="ic">▦</div><b>NotebookLM</b><div class="n">12</div></div>
+  <div class="ni"><div class="ic">🤖</div><b>Data Brain</b></div>
+  <div class="navh">Kho</div>
+  <div class="ni"><div class="ic">▣</div><b>Containers</b><div class="n">7</div></div>
+  <div class="ni"><div class="ic">⚙</div><b>Tools</b></div>
+  <div class="ni"><div class="ic">✚</div><b>Add-ons</b></div>
+  <div class="navfoot">
+    <div class="kv"><span>Kho tài liệu</span><b>AB Drawings</b></div>
+    <div class="kv"><span>Đã lập chỉ mục</span><b>8,052</b></div>
+    <div class="bar"><i style="width:78%"></i></div>
+    <div class="kv"><span>Có lớp text</span><b>6,281 · 78%</b></div>
+    <div class="warnline">1,771 bản quét OCR — số liệu cần đối chiếu bản gốc</div>
+  </div>
+</div>
+
+<div class="main">
+  <div class="top">
+    <h1>NotebookLM</h1>
+    <div class="sub">đọc &amp; tổng hợp trên một bộ nguồn đã chọn</div>
+    <div class="r">
+      <!-- 7 nút chen chúc ở góc phải hiện tại → gom còn 2 nút + 1 menu -->
+      <div class="pill ok">● ngochieu.bookpt@gmail.com</div>
+      <div class="btn">Studio</div>
+      <div class="btn ghost">Tài khoản &amp; LLM ▾</div>
+    </div>
+  </div>
+
+  <div class="work">
+    <div class="nb">
+      <div class="nbh">
+        <h4 style="margin:0;flex:1">Sổ tay · 12</h4>
+        <div class="btn ghost">A→Z ▾</div>
+      </div>
+      <div class="nblist">
+        <div class="nbi on"><div class="t">IDF — Rung ổ đỡ &amp; bảo vệ</div>
+          <div class="s">6 nguồn · sửa 2 giờ trước</div></div>
+        <div class="nbi"><div class="t">Bơm cấp nước BFP</div>
+          <div class="s">9 nguồn · 04.08.2026</div></div>
+        <div class="nbi"><div class="t">Quy trình chạy thử Lot 3</div>
+          <div class="s">14 nguồn · 28.07.2026</div></div>
+        <div class="nbi"><div class="t">Hệ thống nước tuần hoàn</div>
+          <div class="s">7 nguồn · 21.07.2026</div></div>
+        <div class="nbi"><div class="t">Sự cố tuabin 03/2026</div>
+          <div class="s">11 nguồn · 15.07.2026</div></div>
+        <div class="nbi"><div class="t">Đào tạo vận hành lò hơi</div>
+          <div class="s">5 nguồn · 02.07.2026</div></div>
+      </div>
+      <div class="nbfoot">
+        <div class="btn primary">＋ Tạo mới</div>
+        <div class="btn">Gộp</div>
+        <div class="btn">Xoá</div>
+      </div>
+    </div>
+
+    <div class="chat">
+      <div class="chead">▦ IDF — Rung ổ đỡ &amp; bảo vệ · 6 nguồn đang dùng</div>
+      <div class="stream">
+        <div class="me">Tổng hợp giúp tôi cơ chế bảo vệ rung của IDF và các mốc số liệu
+          đã ghi nhận từ lúc bàn giao.</div>
+
+        <div class="lab">NotebookLM</div>
+        <div class="ans">
+          <p>Bảo vệ rung của quạt IDF gồm hai cấp, lấy chuẩn ISO 10816-3 cho máy
+            Group 1 đặt trên móng cứng <span class="sup">1</span>:</p>
+          <ul class="bul">
+            <li>Cấp <b style="color:var(--ink)">alarm 4.5 mm/s RMS</b> — biểu quyết
+              1-out-of-2, chỉ báo động, không dừng máy <span class="sup">1</span></li>
+            <li>Cấp <b style="color:var(--ink)">trip 7.1 mm/s RMS</b> — biểu quyết
+              2-out-of-2, trễ 3 giây trước khi cắt <span class="sup">2</span></li>
+          </ul>
+          <p>Tín hiệu bị khoá khi damper đầu vào đang đóng, nên rung lúc khởi động
+            không kích trip <span class="sup">2</span>.</p>
+          <p>Mốc số liệu ghi nhận được: nghiệm thu 11/2024 đo
+            <b style="color:var(--ink)">2.8 mm/s</b> phía DE và
+            <b style="color:var(--ink)">3.1 mm/s</b> phía NDE ở đầy tải
+            <span class="sup">3</span> — tức khoảng 62–69% mức alarm.</p>
+        </div>
+      </div>
+
+      <div class="composer">
+        <div class="cin"><div class="ph">Hỏi về bộ nguồn này…</div>
+          <div class="btn primary" style="height:28px;padding:0 13px">Gửi</div></div>
+        <div class="chints">
+          <code>Ctrl+V dán ảnh</code>
+          <code>Ghi chú</code>
+          <code>Tạo sơ đồ tư duy</code>
+          <code>Tóm tắt toàn bộ nguồn</code>
+        </div>
+      </div>
+    </div>
+
+    <div class="src">
+      <div class="srch"><h4 style="margin:0;flex:1">Nguồn · 6</h4>
+        <div class="btn ghost" style="height:28px;padding:0 10px;font-size:var(--t-xs)">Chọn tất cả</div></div>
+      <div class="srclist">
+        <div class="si on"><div class="n">Howden IDF — O&amp;M Manual</div>
+          <div class="m"><span class="doc">HNC-50056</span>·<span>486 tr.</span>·<span class="u">trích 1</span></div></div>
+        <div class="si on"><div class="n">IDF Protection Logic Diagram</div>
+          <div class="m"><span class="doc">HNC-50061</span>·<span>quét OCR</span>·<span class="u">trích 2</span></div></div>
+        <div class="si on"><div class="n">IDF Commissioning Test Record</div>
+          <div class="m"><span class="doc">HNC-50210</span>·<span>8 tr.</span>·<span class="u">trích 3</span></div></div>
+        <div class="si"><div class="n">Instrument Index — Draft Plant</div>
+          <div class="m"><span class="doc">HNC-50072</span>·<span>44 tr.</span></div></div>
+        <div class="si"><div class="n">IDF Spare Parts &amp; Bearing Schedule</div>
+          <div class="m"><span class="doc">HNC-50058</span>·<span>96 tr.</span></div></div>
+        <div class="si"><div class="n">KV-OP-25-0088 — Báo cáo cũ</div>
+          <div class="m"><span class="doc">KV-OP-25-0088</span>·<span>6 tr.</span></div></div>
+      </div>
+      <div class="sfoot">
+        <div class="btn primary">＋ Thêm nguồn từ DB Search</div>
+        <div class="btn">Xuất ghi chú sang báo cáo</div>
+      </div>
+    </div>
+  </div>
+</div>

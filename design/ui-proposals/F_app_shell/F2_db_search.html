@@ -1,0 +1,206 @@
+<meta charset="utf-8">
+<title>F2 — DB Search</title>
+<link rel="stylesheet" href="shell.css">
+<style>
+  .work{flex:1;display:grid;grid-template-columns:228px 1fr 380px;overflow:hidden}
+  .facets{border-right:1px solid var(--line);background:var(--panel-2);
+          padding:16px 14px;overflow:hidden;display:flex;flex-direction:column;gap:18px}
+  .fr{display:flex;align-items:center;gap:9px;padding:5px 0;font-size:var(--t-sm);
+      color:var(--ink-2)}
+  .box{width:13px;height:13px;border-radius:3px;border:1px solid var(--line-2);flex:none}
+  .box.on{background:var(--accent);border-color:var(--accent)}
+  .fr .n{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--ink-3)}
+  .res{display:flex;flex-direction:column;overflow:hidden}
+  .qbar{padding:14px 20px;border-bottom:1px solid var(--line);background:var(--panel-2)}
+  .syn{display:flex;gap:6px;margin-top:10px;align-items:center}
+  .syn .lb{font-size:10px;letter-spacing:1.1px;text-transform:uppercase;
+           color:var(--ink-3);font-weight:700;margin-right:3px}
+  .syn code{font-family:var(--mono);font-size:10.5px;color:var(--ink-2);
+            border:1px solid var(--line);border-radius:var(--r-sm);padding:3px 8px;
+            background:var(--panel)}
+  .syn code b{color:var(--accent);font-weight:400}
+  .meta{display:flex;align-items:center;gap:13px;padding:10px 20px;font-size:var(--t-sm);
+        color:var(--ink-3);border-bottom:1px solid var(--line)}
+  .meta .c{color:var(--ink);font-size:var(--t-md);font-weight:600}
+  .hits{flex:1;overflow:hidden;padding:14px 18px;display:flex;flex-direction:column;gap:10px}
+  .hit{border:1px solid var(--line);border-radius:var(--r-md);background:var(--panel);
+       padding:13px 15px}
+  .hit.on{border-color:var(--accent-dim);background:rgba(67,224,200,.045)}
+  .hh{display:flex;align-items:center;gap:9px;margin-bottom:7px}
+  .hh .ttl{font-size:var(--t-sm);color:var(--ink)}
+  .hh .rt{margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--ink-3)}
+  .sec{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);margin-bottom:5px}
+  .snip{font-size:var(--t-sm);line-height:1.7;color:var(--ink-2)}
+  .tag{display:inline-block;font-family:var(--mono);font-size:10px;padding:2px 7px;
+       border-radius:4px;border:1px solid var(--line);color:var(--ink-3)}
+  .tag.sc{color:var(--warn);border-color:#4a3a14}
+  .insp{border-left:1px solid var(--line);background:var(--panel-2);
+        display:flex;flex-direction:column;overflow:hidden}
+  .ih{padding:15px 16px;border-bottom:1px solid var(--line)}
+  .ih .t{font-size:var(--t-md);line-height:1.4;margin-top:5px}
+  .page{margin:15px 16px;padding:16px 18px;border-radius:var(--r-md);
+        border:1px solid var(--line);background:#f5f2ea;color:#2b2b2b;
+        font-family:Georgia,serif;font-size:11px;line-height:1.75;
+        height:290px;overflow:hidden}
+  .page h5{font-size:11.5px;margin-bottom:9px}
+  .page em{background:#ffe9a8;font-style:normal}
+  .pk{display:flex;font-size:var(--t-sm);padding:4px 16px;color:var(--ink-3)}
+  .pk b{width:108px;font-weight:400}
+  .pk span{color:var(--ink-2);font-family:var(--mono);font-size:var(--t-xs)}
+  .iacts{margin-top:auto;padding:14px 16px;border-top:1px solid var(--line);
+         display:flex;flex-direction:column;gap:8px}
+</style>
+
+<div class="nav">
+  <div class="logo"><i></i>Finding · VP1</div>
+  <div class="navh">Tra cứu</div>
+  <div class="ni"><div class="ic">🔍</div><b>File Search</b><div class="n">8,052</div></div>
+  <div class="ni on"><div class="ic">▤</div><b>DB Search</b><div class="n">8,052</div></div>
+  <div class="navh">Nghiên cứu</div>
+  <div class="ni"><div class="ic">▦</div><b>NotebookLM</b><div class="n">12</div></div>
+  <div class="ni"><div class="ic">🤖</div><b>Data Brain</b></div>
+  <div class="navh">Kho</div>
+  <div class="ni"><div class="ic">▣</div><b>Containers</b><div class="n">7</div></div>
+  <div class="ni"><div class="ic">⚙</div><b>Tools</b></div>
+  <div class="ni"><div class="ic">✚</div><b>Add-ons</b></div>
+  <div class="navfoot">
+    <div class="kv"><span>Kho tài liệu</span><b>AB Drawings</b></div>
+    <div class="kv"><span>Đã lập chỉ mục</span><b>8,052</b></div>
+    <div class="bar"><i style="width:78%"></i></div>
+    <div class="kv"><span>Có lớp text</span><b>6,281 · 78%</b></div>
+    <div class="warnline">1,771 bản quét OCR — số liệu cần đối chiếu bản gốc</div>
+  </div>
+</div>
+
+<div class="main">
+  <div class="top">
+    <h1>DB Search</h1>
+    <div class="sub">tìm trong NỘI DUNG đã lập chỉ mục · FTS5</div>
+    <div class="r">
+      <div class="pill ok">● chỉ mục sẵn sàng</div>
+      <div class="btn ghost">Sắp theo độ liên quan ▾</div>
+      <div class="btn">Xuất kết quả</div>
+    </div>
+  </div>
+
+  <div class="work">
+    <div class="facets">
+      <div>
+        <h4>Ngành</h4>
+        <div class="fr"><div class="box on"></div>I — Đo lường &amp; ĐK<div class="n">1,204</div></div>
+        <div class="fr"><div class="box on"></div>G — Sổ tay O&amp;M<div class="n">1,835</div></div>
+        <div class="fr"><div class="box"></div>M — Cơ khí<div class="n">1,477</div></div>
+        <div class="fr"><div class="box"></div>F — Chạy thử<div class="n">310</div></div>
+        <div class="fr"><div class="box"></div>E — Điện<div class="n">982</div></div>
+      </div>
+      <div>
+        <h4>Lot</h4>
+        <div class="fr"><div class="box"></div>L1 — Lò hơi<div class="n">384</div></div>
+        <div class="fr"><div class="box"></div>L2 — Tuabin<div class="n">848</div></div>
+        <div class="fr"><div class="box on"></div>L3 — BOP<div class="n">1,982</div></div>
+        <div class="fr"><div class="box"></div>L4 — Xây dựng<div class="n">1,786</div></div>
+      </div>
+      <div>
+        <h4>Mã hệ thống</h4>
+        <div class="fr"><div class="box on"></div>HNC — IDF<div class="n">147</div></div>
+        <div class="fr"><div class="box"></div>FDF<div class="n">121</div></div>
+        <div class="fr"><div class="box"></div>BFP<div class="n">98</div></div>
+        <div class="fr"><div class="box"></div>CWP<div class="n">64</div></div>
+      </div>
+      <div>
+        <h4>Chất lượng</h4>
+        <div class="fr"><div class="box on"></div>Chỉ tệp có lớp text<div class="n">6,281</div></div>
+        <div class="fr"><div class="box"></div>Gồm cả bản quét<div class="n">1,771</div></div>
+      </div>
+    </div>
+
+    <div class="res">
+      <div class="qbar">
+        <div class="field"><span style="color:var(--ink-3)">▤</span>
+          <div class="ph" style="color:var(--ink)">"bearing vibration" AND (alarm OR trip)</div>
+          <div class="k">Enter</div></div>
+        <div class="syn">
+          <div class="lb">Cú pháp FTS5</div>
+          <code><b>vibration*</b> tiền tố</code>
+          <code><b>"lube oil"</b> cụm chính xác</code>
+          <code><b>A AND B</b></code>
+          <code><b>A OR B</b></code>
+          <code><b>A NOT B</b></code>
+        </div>
+      </div>
+
+      <div class="meta">
+        <div class="c">61 đoạn khớp</div><span>·</span><span>trong 23 tài liệu</span>
+        <span>·</span><span class="mono">25 ms</span>
+      </div>
+
+      <div class="hits">
+        <div class="hit on">
+          <div class="hh"><div class="doc">VP1-C-L3-G-HNC-50056</div>
+            <div class="ttl">Howden IDF — O&amp;M Manual</div>
+            <div class="rt">tr. 214 · Rev.D</div></div>
+          <div class="sec">§ 7.4.2 Protection settings</div>
+          <div class="snip">…<mark>Alarm is set at 4.5 mm/s RMS and trip at 7.1 mm/s RMS</mark>,
+            in accordance with ISO 10816-3 zone boundaries for Group 1 machines…</div>
+        </div>
+
+        <div class="hit">
+          <div class="hh"><div class="doc">VP1-C-L3-I-HNC-50061</div>
+            <div class="ttl">IDF Protection Logic Diagram</div>
+            <div class="rt">tr. 8 · Rev.B</div></div>
+          <div class="sec">§ 4.2 Interlock — <span class="tag sc">quét OCR</span></div>
+          <div class="snip">…<mark>vibration high-high initiates fan trip after a 3 second
+            time delay</mark>, inhibited while the inlet damper is closed…</div>
+        </div>
+
+        <div class="hit">
+          <div class="hh"><div class="doc">VP1-C-L3-F-HNC-50210</div>
+            <div class="ttl">IDF Commissioning Test Record</div>
+            <div class="rt">tr. 3 · Rev.0</div></div>
+          <div class="sec">§ 2 Performance test at full load</div>
+          <div class="snip">…measured <mark>2.8 mm/s DE / 3.1 mm/s NDE</mark> at full load,
+            2024-11-08, within acceptance criteria…</div>
+        </div>
+
+        <div class="hit">
+          <div class="hh"><div class="doc">VP1-C-L3-I-HNC-50072</div>
+            <div class="ttl">Instrument Index — Draft Plant</div>
+            <div class="rt">tr. 44 · Rev.C</div></div>
+          <div class="sec">§ Vibration transmitters</div>
+          <div class="snip">…HNC-VI-101A / 101B <mark>bearing vibration</mark> transmitter,
+            4–20 mA, range 0–25 mm/s…</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="insp">
+      <div class="ih">
+        <h4>Đoạn đang chọn</h4>
+        <div class="doc">VP1-C-L3-G-HNC-50056 · tr. 214</div>
+        <div class="t">Howden IDF — Operation &amp; Maintenance Manual</div>
+      </div>
+
+      <div class="page">
+        <h5>7.4 VIBRATION MONITORING AND PROTECTION</h5>
+        Each fan bearing housing is fitted with a velocity transducer mounted radially in
+        the horizontal plane. Signals are routed to the vibration monitoring rack in the
+        electrical building and from there to the DCS.<br><br>
+        <b>7.4.2 Protection settings</b><br>
+        <em>Alarm is set at 4.5 mm/s RMS and trip at 7.1 mm/s RMS</em>, in accordance with
+        ISO 10816-3 zone boundaries for Group 1 machines on rigid foundations. Both channels
+        are voted 1-out-of-2 for alarm and 2-out-of-2 for trip.<br><br>
+        Where the measured value exceeds the alarm level, the fan may continue in service
+        provided the rate of increase is monitored and does not exceed 0.5 mm/s per week.
+      </div>
+
+      <div class="pk"><b>Lot / Ngành</b><span>L3 · G</span></div>
+      <div class="pk"><b>Hệ thống</b><span>HNC</span></div>
+      <div class="pk"><b>Đoạn khớp</b><span>12 / 486 trang</span></div>
+
+      <div class="iacts">
+        <div class="btn primary">Mở PDF tại trang 214</div>
+        <div class="btn">Hỏi Data Brain về đoạn này</div>
+      </div>
+    </div>
+  </div>
+</div>

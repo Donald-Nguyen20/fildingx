@@ -23,6 +23,80 @@ _HISTORY_FILE = os.path.join(APP_DIR, "diagnosis_history.json")
 _HISTORY_MAX = 50
 
 
+# ── System prompt: tra cứu logic điều khiển DCS ───────────────────────────
+
+def build_logic_block(dcs_folder: str) -> str:
+    """Instructions for the DCS logic lookup, appended in every mode.
+
+    Separate from the document-DB instructions because it answers a different
+    question. The document DB says which drawing mentions a signal; this says
+    what actually drives it -- read from the CAD databases the logic was
+    engineered in, where the wiring between blocks still exists.
+
+    Returns '' when no folder is set, so callers can concatenate unconditionally.
+    """
+    if not dcs_folder:
+        return ""
+    return f"""
+CONTROL LOGIC (Toshiba DCS engineering databases)
+Folder: "{dcs_folder}"  — one SQLite file per controller.
+Query it ONLY through this command (read-only):
+
+  python logic_query.py <command> "{dcs_folder}" <args>
+
+  find  "<text>"            search signal names across every controller
+  why   "<signal>"          one-line cause, e.g. AND( a, /b )
+  tree  "<signal>" [depth]  the full condition tree behind that signal
+  trace "<signal>" [depth]  where the signal travels, across sheets and CPUs
+  cpus                      list the controllers
+
+RULES
+- Address signals BY NAME, as the drawings word them (e.g. "ALL CWP RUN",
+  "PULV A PRG STRT PERMIT", "MFT"). Start with `find` when unsure of the wording.
+- Do NOT look logic up by KKS tag. A KKS tag sits on an I/O block, not on a
+  gate, so it answers "via <block>" and tells you nothing. Use the document DB
+  for tags, this for signal names.
+- A name existing in several places returns `also_at` with a `ref`
+  ("<file>|<sheet>|<net>"). Pass a ref in place of the name to pin the lookup.
+- `/x` in a formula means x inverted. Leaf kinds: cross-reference (defined on
+  another sheet — follow it with `tree` if it matters), source (a plant input),
+  unresolved (block semantics unknown).
+- Settings are printed where the drawing sets them. `[550 degC, reset 545]` on a
+  COMPARE line is the setpoint and its reset — between the two the output holds
+  its last state, so that pair IS the deadband. `[35.8 MW]` alone means set and
+  reset are the same value. `(through DI (timer/pulse) 3s)` means the condition
+  must persist 3 seconds before it counts.
+- A COMPARE with no bracket, or a timer with no time, takes its value from a
+  wire rather than a parameter — the number is set elsewhere. Say the setting is
+  not fixed on this sheet; do NOT go looking for a figure to fill the gap.
+- A line ending `[depth limit reached]` or `[loop]` is a branch the walk stopped
+  at, not a branch that ends there. The `inputs` list carries a `ref` for each
+  one — raise `depth`, or re-run `tree` on that ref, before concluding anything
+  that depends on it.
+- Failures come back as {{"error": ...}} with `did_you_mean`. Read it and retry
+  with a suggested name rather than inventing one.
+- Quote what the tool returned. Never state an interlock the tool did not show.
+
+ANSWERING WITH A TREE
+- Lead with the reading in plain language: what the signal is, then what has to
+  be true for it, grouped by meaning. Do NOT restate the tree line by line —
+  that paragraph is the part an operator acts on.
+- Carry every setpoint and delay into that paragraph, with its unit. "Trips when
+  bearing temperature reaches 90 degC, after a 3 s delay" is the answer; "trips
+  on bearing temperature high" is the question restated.
+- Then paste the `tree` field VERBATIM inside a ``` fence. The fence is not
+  optional: without it the chat window strips the indentation, and indentation
+  is the only thing carrying the structure — the tree collapses into a flat
+  list, which is worse than showing no tree at all.
+- Do not redraw it, reorder it, or tidy up the names. The paragraph is your
+  reading of the logic; the fenced block is the evidence, and it only works as
+  evidence while it is still exactly what the tool printed.
+- If any branch is `unresolved` or was cut, say so and give its ref from
+  `inputs`. An interlock read off a tree with an unread branch is not a complete
+  answer — state what you could not see rather than filling it in.
+"""
+
+
 # ── System prompt: hướng dẫn Claude chạy quy trình chẩn đoán ──────────────
 
 def build_diagnosis_system_prompt(db_path: str, claude_md: str = "") -> str:
@@ -44,7 +118,10 @@ QUY TRÌNH SUY LUẬN — thực hiện tuần tự, mỗi bước 1-2 query:
      python db_query.py "{db_path}" "SELECT f.doc_number,c.heading,c.content FROM chunks c JOIN files f ON f.id=c.file_id WHERE c.id IN (SELECT rowid FROM chunks_fts WHERE chunks_fts MATCH 'alarm OR trip OR setpoint') AND f.system_code='<code>' ORDER BY rank LIMIT 6"
 
   ③ Lấy INTERLOCK / LOGIC (cái gì trip cái gì):
-     tra chunks_fts MATCH 'interlock OR trip OR protection'
+     NẾU system prompt có phần CONTROL LOGIC → dùng `logic_query.py tree "<tên tín
+     hiệu>"`. Đó là logic thiết kế thật, chính xác hơn text PDF; lấy cây điều kiện
+     rồi trích đúng nhánh làm bằng chứng.
+     NGƯỢC LẠI → tra chunks_fts MATCH 'interlock OR trip OR protection'
 
   ④ Lấy mục TROUBLESHOOTING trong O&M Manual:
      tra chunks_fts MATCH '<triệu chứng>*' trên đúng doc_number của O&M
@@ -338,6 +415,42 @@ def render_report(rep: dict) -> str:
 
 # ── Mở file gốc theo doc_number (dùng cho nút 'Mở file' ở panel) ──────────
 
+def _doc_lookup(cur, sqls) -> list:
+    """First of `sqls` that both runs and returns rows.
+
+    The DBs this module opens are not all built alike, so a query here failing
+    is ordinary rather than exceptional: one carries a doc_number column, the
+    one in daily use does not and raises OperationalError on sight of it. Each
+    statement is tried on its own so that a missing column costs only that
+    statement instead of taking down the lookup with it.
+    """
+    for sql, arg in sqls:
+        try:
+            rows = cur.execute(sql, (arg,)).fetchall()
+        except sqlite3.Error:
+            continue
+        if rows:
+            return rows
+    return []
+
+
+def _doc_path(cur, doc_number: str) -> str:
+    """Stored path of one document, by column first and then by name.
+
+    Matching the code inside the file name is what keeps this alive on a DB with
+    no doc_number column -- the same fallback _build_doc_lookup in widget.py
+    uses, and for the same reason. Without it the 'Open file' link under every
+    citation reported the source as missing, on a library that holds it.
+    """
+    rows = _doc_lookup(cur, (
+        ("SELECT path FROM files WHERE doc_number=? AND name!='BASE_PATH' LIMIT 1",
+         doc_number),
+        ("SELECT path FROM files WHERE name LIKE ? AND name!='BASE_PATH' LIMIT 1",
+         f"%{doc_number}%"),
+    ))
+    return rows[0][0] if rows and rows[0][0] else ""
+
+
 def resolve_source_path(
     db_path: str,
     doc_number: str = "",
@@ -356,12 +469,7 @@ def resolve_source_path(
 
             rp = rel_path
             if not rp and doc_number:
-                cur.execute(
-                    "SELECT path FROM files WHERE doc_number=? AND name!='BASE_PATH' LIMIT 1",
-                    (doc_number,),
-                )
-                r = cur.fetchone()
-                rp = r[0] if r else ""
+                rp = _doc_path(cur, doc_number)
 
         if not rp:
             return None
@@ -377,32 +485,38 @@ def _norm_match(s: str) -> str:
     return re.sub(r"\s+", " ", (s or "").lower()).strip()
 
 
-def verify_quote(db_path: str, doc_number: str, quote: str) -> bool:
-    """True nếu đoạn quote (hoặc đoạn đầu của nó) xuất hiện trong content của doc."""
+def verify_quote(db_path: str, doc_number: str, quote: str) -> Optional[bool]:
+    """True if the quote is in the document, False if it is not, None if this DB
+    cannot say either way.
+
+    None carries as much weight here as the other two. Every failure used to
+    answer False, and both panels render False as "Quote not found in the DB" --
+    so against a DB without chunks or a doc_number column, which is the one in
+    daily use, every citation was stamped as unfound, the accurate ones with the
+    rest. A reader who is told that about a correct quote learns to disregard
+    the flag entirely, which costs more than never having shown it. Both panels
+    already skip the badge on None, so nothing above needs to change for silence
+    to be the answer where silence is the truthful one.
+    """
     q = _norm_match(quote)
     if not db_path or not doc_number or len(q) < 8:
-        return False
+        return None
     try:
         with closing(sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)) as conn:
-            cur = conn.cursor()
-            cur.execute(
-                "SELECT c.content FROM chunks c JOIN files f ON f.id=c.file_id "
-                "WHERE f.doc_number=?",
-                (doc_number,),
-            )
-            rows = cur.fetchall()
-            if not rows:
-                cur.execute(
-                    "SELECT content FROM files WHERE doc_number=? AND name!='BASE_PATH'",
-                    (doc_number,),
-                )
-                rows = cur.fetchall()
+            rows = _doc_lookup(conn.cursor(), (
+                ("SELECT c.content FROM chunks c JOIN files f ON f.id=c.file_id "
+                 "WHERE f.doc_number=?", doc_number),
+                ("SELECT content FROM files WHERE doc_number=? AND name!='BASE_PATH'",
+                 doc_number),
+                ("SELECT content FROM files WHERE name LIKE ? AND name!='BASE_PATH'",
+                 f"%{doc_number}%"),
+            ))
     except Exception:
-        return False
+        return None
 
     blob = _norm_match(" ".join((r[0] or "") for r in rows))
     if not blob:
-        return False
+        return None
     if q in blob:
         return True
     frag = q[:40]                       # fallback: khớp 40 ký tự đầu

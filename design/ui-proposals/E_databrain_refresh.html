@@ -1,0 +1,241 @@
+<meta charset="utf-8">
+<title>Proposal E — Data Brain refresh (giữ nguyên 4 tab)</title>
+<style>
+  :root{
+    /* ── design tokens: thay cho 163 mã màu rải rác trong ui/ ── */
+    --bg:#0b0f14; --panel:#111823; --panel-2:#0d141d; --line:#1e2b3a;
+    --ink:#e6eef8; --ink-2:#93a7bd; --ink-3:#5c7086;
+    --accent:#43e0c8; --accent-ink:#05201c;
+    --cite:#ff7e2e; --warn:#f0b23c;
+    --r-sm:6px; --r-md:10px; --r-lg:14px;
+    --t-xs:11px; --t-sm:12.5px; --t-md:14px; --t-lg:17px; --t-xl:24px;
+    --mono:"Consolas","Cascadia Mono",monospace;
+    --ui:"Segoe UI",system-ui,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{width:1600px;height:950px;background:var(--bg);color:var(--ink);
+       font-family:var(--ui);font-size:var(--t-md);overflow:hidden}
+
+  /* ── tab bar: 4 tab GIỮ NGUYÊN, chạy riêng lẻ như hiện tại ── */
+  .tabs{height:44px;display:flex;align-items:stretch;gap:2px;padding:0 14px;
+        background:var(--panel-2);border-bottom:1px solid var(--line)}
+  .tab{display:flex;align-items:center;gap:7px;padding:0 18px;font-size:var(--t-sm);
+       color:var(--ink-3);border-bottom:2px solid transparent}
+  .tab.on{color:var(--ink);border-bottom-color:var(--accent);background:var(--bg)}
+  .tabs .sp{margin-left:auto;display:flex;align-items:center;gap:9px}
+  .pill{font-family:var(--mono);font-size:var(--t-xs);padding:4px 10px;
+        border-radius:var(--r-sm);border:1px solid var(--line);color:var(--ink-2)}
+  .pill.ok{color:var(--accent);border-color:#1d5f57}
+
+  .body{display:grid;grid-template-columns:236px 1fr 348px;height:906px}
+
+  /* ── cột trái: chế độ + DB + chất lượng chỉ mục ── */
+  .rail{background:var(--panel-2);border-right:1px solid var(--line);
+        padding:16px 14px;display:flex;flex-direction:column;gap:16px;overflow:hidden}
+  h4{font-size:10px;letter-spacing:1.3px;text-transform:uppercase;color:var(--ink-3);
+     font-weight:700;margin-bottom:9px}
+
+  .primary{display:flex;align-items:center;justify-content:center;gap:8px;
+           height:44px;border-radius:var(--r-md);font-size:var(--t-md);font-weight:600;
+           background:linear-gradient(180deg,#2ad0b8,#17a894);color:var(--accent-ink)}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:7px}
+  .mode{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
+        height:52px;border-radius:var(--r-md);background:var(--panel);
+        border:1px solid var(--line);color:var(--ink-2);font-size:var(--t-xs)}
+  .mode span{font-size:15px;line-height:1}
+  .mode.wide{grid-column:1/3}
+  .mode.hot{border-color:#2a4a63;color:var(--ink)}
+
+  .dbbox{border:1px solid var(--line);border-radius:var(--r-md);background:var(--panel);
+         padding:10px 11px}
+  .dbrow{display:flex;align-items:center;gap:7px;font-size:var(--t-sm)}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--accent);flex:none;
+       box-shadow:0 0 8px var(--accent)}
+  .dbname{font-family:var(--mono);font-size:var(--t-xs);color:var(--ink-2);
+          margin-top:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+  .bar{height:5px;border-radius:3px;background:#1a2635;overflow:hidden;margin:8px 0 6px}
+  .bar i{display:block;height:100%;width:78%;background:var(--accent)}
+  .qnote{font-size:var(--t-xs);color:var(--ink-3);line-height:1.5}
+  .qnote b{color:var(--warn);font-weight:600}
+
+  /* ── cột giữa: hội thoại (giữ nguyên chức năng) ── */
+  .chat{display:flex;flex-direction:column;background:var(--bg);overflow:hidden}
+  .chead{height:40px;display:flex;align-items:center;gap:10px;padding:0 20px;
+         border-bottom:1px solid var(--line);font-size:var(--t-xs);color:var(--ink-3);
+         font-family:var(--mono)}
+  .stream{flex:1;padding:22px 26px;overflow:hidden}
+  .me{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-md);
+      padding:12px 15px;font-size:var(--t-md);margin-bottom:20px;max-width:620px}
+  .lab{font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:var(--ink-3);
+       font-weight:700;margin-bottom:8px}
+  .ans{font-size:var(--t-md);line-height:1.75;color:var(--ink);max-width:760px}
+  .ans p{margin-bottom:13px}
+  .c{font-family:var(--mono);font-size:var(--t-xs);color:var(--cite);
+     border:1px solid rgba(255,126,46,.4);border-radius:var(--r-sm);padding:1px 6px;
+     background:rgba(255,126,46,.09)}
+  .kv{border:1px solid var(--line);border-radius:var(--r-md);background:var(--panel-2);
+      padding:13px 16px;margin-bottom:14px;max-width:520px}
+  .kv div{display:flex;font-family:var(--mono);font-size:var(--t-sm);padding:3px 0}
+  .kv div b{width:130px;color:var(--ink-3);font-weight:400}
+  .kv .g{color:var(--accent)}
+  .kv .w{color:var(--warn)}
+  .note{border-left:2px solid var(--line);padding-left:13px;color:var(--ink-2);
+        font-size:var(--t-sm);line-height:1.7;max-width:700px}
+
+  .composer{border-top:1px solid var(--line);padding:13px 20px;background:var(--panel-2)}
+  .cin{display:flex;align-items:center;gap:12px;background:var(--panel);
+       border:1px solid #26374a;border-radius:var(--r-md);padding:12px 15px}
+  .cin .ph{flex:1;color:var(--ink-3);font-size:var(--t-md)}
+  .cin .k{font-family:var(--mono);font-size:10px;color:var(--ink-3);
+          border:1px solid var(--line);border-radius:4px;padding:2px 6px}
+
+  /* ── cột phải: orb + nguồn/chứng cứ ── */
+  .side{background:var(--panel-2);border-left:1px solid var(--line);
+        display:flex;flex-direction:column;overflow:hidden}
+  .orbwrap{height:238px;position:relative;border-bottom:1px solid var(--line);
+           display:flex;align-items:center;justify-content:center;background:#06090f}
+  .orbwrap img{width:224px;height:224px;object-fit:contain}
+  .orbtag{position:absolute;left:14px;top:12px;font-family:var(--mono);
+          font-size:10px;color:var(--ink-3)}
+  .legend{padding:10px 14px;border-bottom:1px solid var(--line);
+          font-size:var(--t-xs);color:var(--ink-3);line-height:1.9;background:#06090f}
+  .legend b{font-weight:600}
+  .ev{flex:1;padding:14px;overflow:hidden}
+  .card{border:1px solid var(--line);border-radius:var(--r-md);background:var(--panel);
+        margin-bottom:10px;overflow:hidden}
+  .card.on{border-color:rgba(255,126,46,.45)}
+  .ch{padding:9px 12px;display:flex;align-items:center;gap:7px;border-bottom:1px solid #172231}
+  .ch .id{font-family:var(--mono);font-size:var(--t-xs);color:var(--cite)}
+  .ch .pg{margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--ink-3)}
+  .cb{padding:9px 12px;font-size:var(--t-sm);line-height:1.6;color:var(--ink-2)}
+  .cb mark{background:rgba(67,224,200,.13);color:var(--accent);padding:1px 3px;border-radius:2px}
+  .acts{display:flex;gap:6px;padding:0 12px 10px}
+  .acts a{flex:1;text-align:center;font-size:var(--t-xs);padding:6px;border-radius:var(--r-sm);
+          border:1px solid var(--line);color:var(--ink-2);background:var(--panel-2)}
+  .vok{font-size:10px;font-family:var(--mono);color:var(--accent)}
+  .vno{font-size:10px;font-family:var(--mono);color:var(--warn)}
+</style>
+
+<div class="tabs">
+  <div class="tab">🔍 File Search</div>
+  <div class="tab">🗄 DB Search</div>
+  <div class="tab">📓 NotebookLM</div>
+  <div class="tab on">🤖 Data Brain</div>
+  <div class="sp">
+    <div class="pill ok">● Claude sẵn sàng</div>
+    <div class="pill">8,052 tài liệu</div>
+  </div>
+</div>
+
+<div class="body">
+
+  <!-- ── cột trái ── -->
+  <div class="rail">
+    <div>
+      <h4>Chế độ</h4>
+      <div class="primary">💬 Ask</div>
+      <div class="grid2">
+        <div class="mode hot"><span>🔍</span>Find Docs</div>
+        <div class="mode"><span>📝</span>Make Report</div>
+        <div class="mode"><span>🔬</span>Diagnose</div>
+        <div class="mode"><span>📇</span>Quick Card</div>
+        <div class="mode"><span>🔧</span>Work Pack</div>
+        <div class="mode"><span>📈</span>Trend Data</div>
+      </div>
+    </div>
+
+    <div>
+      <h4>Cơ sở dữ liệu</h4>
+      <div class="dbbox">
+        <div class="dbrow"><div class="dot"></div>Đã kết nối</div>
+        <div class="dbname">AB Drawings.db</div>
+      </div>
+    </div>
+
+    <div>
+      <h4>Chất lượng chỉ mục</h4>
+      <div class="bar"><i></i></div>
+      <div class="qnote">6,281 / 8,052 có lớp text · <b>78%</b><br>
+        <b>1,771 bản quét OCR</b> — số liệu đọc từ nhóm này cần đối chiếu bản gốc.</div>
+    </div>
+  </div>
+
+  <!-- ── cột giữa ── -->
+  <div class="chat">
+    <div class="chead">💬 Ask · phiên 13.08.2026 · 4 câu hỏi</div>
+
+    <div class="stream">
+      <div class="me">Ngưỡng rung của IDF là bao nhiêu, và số nghiệm thu lúc bàn giao?</div>
+
+      <div class="lab">Claude</div>
+      <div class="ans">
+        <p>Ngưỡng bảo vệ rung của quạt IDF lấy theo ISO 10816-3, nhóm máy Group 1
+        trên móng cứng <span class="c">HNC-50056 §7.4.2</span>:</p>
+
+        <div class="kv">
+          <div><b>Alarm</b><span class="g">4.5 mm/s RMS</span></div>
+          <div><b>Trip</b><span class="w">7.1 mm/s RMS</span></div>
+          <div><b>Trễ trip</b><span>3 s · 2-out-of-2</span></div>
+          <div><b>Nghiệm thu 11/2024</b><span>2.8 DE / 3.1 NDE mm/s</span></div>
+        </div>
+
+        <p>Logic bảo vệ bỏ qua tín hiệu khi damper đang đóng
+        <span class="c">HNC-50061 §4.2</span>, nên giá trị đọc lúc khởi động không
+        kích trip.</p>
+
+        <div class="note">Số nghiệm thu 2.8 / 3.1 mm/s nằm dưới alarm khá xa —
+        nếu hiện tại đo được trên 5 mm/s thì đó là suy giảm thật theo thời gian,
+        không phải sai số đo.</div>
+      </div>
+    </div>
+
+    <div class="composer">
+      <div class="cin">
+        <div class="ph">Hỏi tiếp về IDF, hoặc bấm một chế độ bên trái…</div>
+        <div class="k">Enter</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── cột phải ── -->
+  <div class="side">
+    <div class="orbwrap">
+      <img src="_orb.png">
+      <div class="orbtag">260 khớp · 5 nguồn</div>
+    </div>
+    <div class="legend">
+      Lot 3 AB DWG (<b style="color:#ff6347">1,982</b>) ·
+      12_O&amp;M (<b style="color:#40e0d0">1,835</b>) ·
+      Lot 4 AB DWG (<b style="color:#f0e678">1,786</b>) ·
+      Lot 2 AB DWG (<b style="color:#d28cff">848</b>) ·
+      11_Training (<b style="color:#32cd32">717</b>)
+    </div>
+
+    <div class="ev">
+      <h4>Nguồn đã trích · 3</h4>
+
+      <div class="card on">
+        <div class="ch"><div class="id">VP1-C-L3-G-HNC-50056</div><div class="pg">tr. 214</div></div>
+        <div class="cb">7.4.2 — <mark>Alarm 4.5 mm/s RMS, trip 7.1 mm/s RMS</mark> theo ISO 10816-3.
+          <div class="vok">✓ đã đối chiếu với DB</div></div>
+        <div class="acts"><a>Mở PDF</a><a>Chèn vào báo cáo</a></div>
+      </div>
+
+      <div class="card on">
+        <div class="ch"><div class="id">VP1-C-L3-I-HNC-50061</div><div class="pg">tr. 8 · quét</div></div>
+        <div class="cb">4.2 — trip sau <mark>trễ 3 giây</mark>, bỏ qua khi đóng damper.
+          <div class="vno">⚠ bản quét OCR — nên xem bản gốc</div></div>
+        <div class="acts"><a>Mở PDF</a><a>Chèn vào báo cáo</a></div>
+      </div>
+
+      <div class="card">
+        <div class="ch"><div class="id">VP1-C-L3-F-HNC-50210</div><div class="pg">tr. 3</div></div>
+        <div class="cb">Nghiệm thu 11/2024 — <mark>2.8 / 3.1 mm/s</mark> ở đầy tải.
+          <div class="vok">✓ đã đối chiếu với DB</div></div>
+        <div class="acts"><a>Mở PDF</a><a>Chèn vào báo cáo</a></div>
+      </div>
+    </div>
+  </div>
+
+</div>

@@ -1,0 +1,3908 @@
+{
+ "by_code": {
+  "824A": {
+   "name": "MOV3-SH",
+   "desc": "Motor Operated Valve 3 Self Hold (AA146B)",
+   "explain": "The MOV3-SH macro is used for a motor operated valve. DCS holds open/close demand in DCS.",
+   "in": [
+    "Auto",
+    "Manual",
+    "Auto OP",
+    "F-OP",
+    "OP INH",
+    "Auto SP",
+    "Auto CL",
+    "F-CL",
+    "CL INH",
+    "Local",
+    "E-FAIL",
+    "OV TRQ",
+    "Open",
+    "Closed",
+    "OP-QTY",
+    "CL-QTY",
+    "POS"
+   ],
+   "out": [
+    "Auto",
+    "OP DMD",
+    "SP DMD",
+    "CL DMD",
+    "RTE-OP",
+    "RTE-CL",
+    "ABN"
+   ]
+  },
+  "8305": {
+   "name": "MV-FF-POS-CI",
+   "desc": "MV Station with FF & POS (Change Inhibit)",
+   "explain": "of input-output, parameter, and operation of macro, such as logical operation, arithmetic operation, control operation, flip-flop, timer, comparison, data 6F6S0280 transfer, and programmed control. Tag Macro Explanation of input-output, parameter, and operation of tag macro which is combined with general macro structure. 6F6S0281 Table Macro Explanation of macro for expressing data in tabular form. Table macro does not contain logic. It is only used for explanation. 6F6S0310 I/O Macro Explanation of I/O macro for expressing I/O board and BIF macro for expressing Basic Interface Concept. 6F6S03",
+   "in": [
+    "Auto",
+    "Manual",
+    "DLT MV",
+    "OR-R-MV1",
+    "OR-R-MV2",
+    "Hold",
+    "OR-MV1",
+    "OR-MV2",
+    "HL-MV",
+    "LL-MV",
+    "MV",
+    "POS",
+    "POS-QTY",
+    "REF1",
+    "REF2",
+    "FF",
+    "CTL-ABN",
+    "DRV-ABN",
+    "INC-INH",
+    "DEC-INH"
+   ],
+   "out": [
+    "In F-OP1",
+    "In F-OP2",
+    "Auto",
+    "MV",
+    "MV ERR",
+    "ABN"
+   ]
+  },
+  "8235": {
+   "name": "I-DO",
+   "desc": "Intelligent Digital Output for Single",
+   "explain": "The I-DO macro can be used for the failure detection of DO in the configuration of using CPUW11 and DOCW11.",
+   "in": [
+    "Output Signal 1",
+    "OD1",
+    "LB1",
+    "WB1"
+   ],
+   "out": [
+    "QTY"
+   ]
+  },
+  "4074": {
+   "name": "T_B2_I",
+   "desc": "",
+   "explain": "",
+   "in": [
+    "X1"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "4086": {
+   "name": "PO3_I",
+   "desc": "",
+   "explain": "",
+   "in": [
+    "X"
+   ],
+   "out": []
+  },
+  "4003": {
+   "name": "AND5_I",
+   "desc": "",
+   "explain": "",
+   "in": [
+    "X3"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "4057": {
+   "name": "RAL1_I",
+   "desc": "",
+   "explain": "Tracks input in step-form variation at a specified rate and output in a ramp form.",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "402E": {
+   "name": "DIV5_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": []
+  },
+  "40AF": {
+   "name": "TBL2_I",
+   "desc": "",
+   "explain": "",
+   "in": [
+    "X1"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "40B3": {
+   "name": "TBL6_I",
+   "desc": "",
+   "explain": "",
+   "in": [
+    "X1"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "4036": {
+   "name": "LAG1_I",
+   "desc": "",
+   "explain": "SW Output Y\n 1\n SW = 1 Y= *X\n 1 + T1 * s\n SW = 0 Y=X\n\n NOTE 1: This macro can be operated only if the function actuation mode is the constant period processing loop.\n (scheduled scanning).\n NOTE 2: This macro considers that parameter ‘T1’ is equal to execution period when parameter 'T1' is less than\n execution period.\n The value of Output ‘Y’ is the value of ‘X’ when parameter 'T1' is 0.\n NOTE 3: Parameter ‘T1’ must be specified on 0.1 second time scale and must be n x ε (n:positive integer;\n ε:constant period of processing loop).",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "405E": {
+   "name": "DTM1_I",
+   "desc": "",
+   "explain": "Input variations are delayed specified time and output is made in the same variation quantity as that of input.\n\n NOTE 1:This macro can be operated only if the function actuation mode is the constant-period processing loop\n (scheduled scanning).\n\n Delay Time (s) = ε× T1 × M1\n\n ε : Cyclic Scanning Period (s)\n T1 : Number of CPU cycle (Cycle)\n M1 : Number of samples (Times)\n\n In case εis 0.2 sec, we recommend the setting value of T1 and M1 in the following table.\n Delay Time (s) T1 M1\n 0.2 1 1\n 1 1 5\n 2 1 10\n 4 1 20\n 5 1 25\n 6 1 30\n 10 2 25\n 15 3 25\n 20 4 25\n 30 5 30",
+   "in": [
+    "X"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "8273": {
+   "name": "ANN",
+   "desc": "Annunciator",
+   "explain": "The ANN macro is used for an alarm annunciator.",
+   "in": [
+    "Lamp Reset",
+    "Flicker Reset"
+   ],
+   "out": [
+    "Alarm Condition",
+    "Re-Failure Condition",
+    "Alarm Occur Condition",
+    "Red Flicker Condition"
+   ]
+  },
+  "403F": {
+   "name": "LLG4_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "414B": {
+   "name": "414B_I",
+   "desc": "",
+   "explain": "The SEND LOG macro is for Secure Monitoring.\n According to input signals, it sends compressed data of following information to multicast address defined in the\n system configuration.\n (a) Error Log Information ·········· target the primary station and the standby station in case of low speed\n CPU and synchronous duplex operation mode\n\n Do not use more than 1 at one controller.\n (If multiple SEND REG macros exist, only the last one is enabled.)\n\n 1) When TRG status changing from ON to OFF\n Compresses and sends the data (even when CYC status is OFF).\n\n 2) When CYC status is ON\n Compresses and se",
+   "in": [],
+   "out": []
+  },
+  "4083": {
+   "name": "DT3_I",
+   "desc": "",
+   "explain": "",
+   "in": [
+    "X"
+   ],
+   "out": []
+  },
+  "4077": {
+   "name": "IPOL_I",
+   "desc": "",
+   "explain": "Interpolation by the table.\n Input Output Z Output S\n X min ≤ X ≤ X max Z = f ( X ,Y ) S = 0 (False)\n Ymin ≤ Y ≤ Ymax\n Else S = 1 (True)\n Z = f ( X max , Ymax )\n\n The output is a value determined by a two dimensional linear interpolation of the two inputs. The coordinates of\n the value within a defined 5– by 5 table are the basis of the interpolation. If either input is outside the table, the\n first output becomes the largest possible number.\n The second output (S) is a Boolean value that indicates if the input points are in the 5 – by – 5 table range. If either\n input is outside the table, th",
+   "in": [],
+   "out": []
+  },
+  "40C1": {
+   "name": "40C1_I",
+   "desc": "",
+   "explain": "The output Y is a value determined by XOR calculation of each bit between X1 and SI.",
+   "in": [
+    "X1"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "4072": {
+   "name": "DER3_I",
+   "desc": "",
+   "explain": "",
+   "in": [
+    "X"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "404C": {
+   "name": "TRA5_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": []
+  },
+  "40A4": {
+   "name": "EVO_I",
+   "desc": "",
+   "explain": "The output is continuous true (ON).",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "40A0": {
+   "name": "3BAL_I",
+   "desc": "",
+   "explain": "This fucntioin is balancing from one Deleta MV to three Delta MV.\n\n Ex) In the case of value1 = value2 = value3,\n DLT MV BAL CND1 BAL CND2 BAL CND3 DLT MV1 DLT MV2 DLT MV3\n 1 1 1 1 0.33 0.33 0.33\n 1 0 1 1 0 0.5 0.5\n 1 0 0 1 0 0 1",
+   "in": [
+    "4"
+   ],
+   "out": [
+    "2"
+   ]
+  },
+  "4146": {
+   "name": "PO_NT_I",
+   "desc": "",
+   "explain": "This macro doesn't process tracking.\n Use this macro to avoid overwriting macro internal register at tracking function during transmission in\n asynchronous duplex system of CPUL01(EHC).",
+   "in": [
+    "X"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "4080": {
+   "name": "DIL3_I",
+   "desc": "",
+   "explain": "",
+   "in": [
+    "X"
+   ],
+   "out": []
+  },
+  "4084": {
+   "name": "DT4_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": []
+  },
+  "407C": {
+   "name": "DI2_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "40D5": {
+   "name": "40D5_I",
+   "desc": "",
+   "explain": "Selects signals by switching conditions.\n\n SW Output Y\n SW = ON",
+   "in": [
+    "X1"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "823C": {
+   "name": "X-DIA",
+   "desc": "Digital Input with Alarm for Transfer",
+   "explain": "The X-DIA macro is used for transfering signals from controller to HMI. X-DIA macro has no functional logic in it.",
+   "in": [
+    "Input Status",
+    "QTY",
+    "ASET",
+    "ACND"
+   ],
+   "out": [
+    "Current Status",
+    "QTY",
+    "ASET",
+    "ACND"
+   ]
+  },
+  "4134": {
+   "name": "AND6E_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "820D": {
+   "name": "MV-POS",
+   "desc": "MV Station with POS (AA204)",
+   "explain": "The MV-POS macro is a tag macro of MV Station. MV-POS macro is used for a closed loop control with position feedback signal.",
+   "in": [
+    "Auto",
+    "Manual",
+    "DLT MV",
+    "OR-R-MV",
+    "OR-MV",
+    "HL-MV",
+    "LL-MV",
+    "MV",
+    "POS",
+    "POS-QTY",
+    "REF1",
+    "REF2",
+    "CTL-ABN",
+    "DRV-ABN"
+   ],
+   "out": [
+    "Auto",
+    "MV",
+    "MV ERR",
+    "ABN"
+   ]
+  },
+  "4023": {
+   "name": "DIF3_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "40B2": {
+   "name": "TBL5_I",
+   "desc": "",
+   "explain": "",
+   "in": [
+    "X1"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "40AE": {
+   "name": "TBL1_I",
+   "desc": "",
+   "explain": "Output (Y) gradually increases or decreases to X1 or X2 in Time Constant (T12 or T21) when SW changes.\n\n （Time Chart）\n ON ON\n OFF\n SW\n\n X1\n V21\n Y\n V12\n X2",
+   "in": [
+    "X1"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "4034": {
+   "name": "POW_I",
+   "desc": "",
+   "explain": "This function calculates exponential(power).\n\n Y = X n1",
+   "in": [
+    "X"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "4137": {
+   "name": "OR2E_I",
+   "desc": "",
+   "explain": "Results of ORing “n” inputs are output.\n\n Y = X1 + X 2 + L + X n (n ; 2 to 8)\n\n Example of adding Not logic X1 X2 X3 X1 X2 X3 Y\n IN = 3 0 0 0 0 1 0 1\n X1 1 0 0 1 1 0 1\n OR Y\n X2 0 1 0 0 0 0 0\n BB\n X3 0 0 1 0 1 1 1\n 1 1 0 1 0 0 1\n 1 0 1 1 1 1 1\n 0 1 1 0 0 1 1\n 1 1 1 1 0 1 1",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "404D": {
+   "name": "TRA6_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": []
+  },
+  "8231": {
+   "name": "I-AI",
+   "desc": "Intelligent Analog Input",
+   "explain": "The I-AI macro is an analog point tag used for AICW11. Note (*1) Connect “Input Value” with the register of AICW11 directly.",
+   "in": [
+    "Input Value",
+    "LS1",
+    "LS2",
+    "LS3",
+    "LS4",
+    "RL-U",
+    "RL-L",
+    "C/O",
+    "QTY"
+   ],
+   "out": [
+    "Current Value",
+    "L1",
+    "L2",
+    "L3",
+    "L4",
+    "QTY"
+   ]
+  },
+  "820F": {
+   "name": "MV-FF-POS",
+   "desc": "MV Station with FF & POS (AA206)",
+   "explain": "The MV-FF-POS macro is a tag macro of MV Station. MV macro is used for a closed loop control with feed forward logic and position feedback signal.",
+   "in": [
+    "Auto",
+    "Manual",
+    "DLT MV",
+    "OR-R-MV1",
+    "OR-R-MV2",
+    "Hold",
+    "OR-MV1",
+    "OR-MV2",
+    "HL-MV",
+    "LL-MV",
+    "MV",
+    "POS",
+    "POS-QTY",
+    "REF1",
+    "REF2",
+    "FF",
+    "CTL-ABN",
+    "DRV-ABN"
+   ],
+   "out": [
+    "In F-OP1",
+    "In F-OP2",
+    "Auto",
+    "MV",
+    "MV ERR",
+    "ABN"
+   ]
+  },
+  "4048": {
+   "name": "TRA1_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": []
+  },
+  "405F": {
+   "name": "D_S1_I",
+   "desc": "",
+   "explain": "Adds and subtracts two inputs with a gain.\n Y = G1 * X 1 + G2 * X 2 L + Gn * X n (n = 2～6)",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "40B4": {
+   "name": "1SH1_I",
+   "desc": "",
+   "explain": "If the input X turns ON, the output Y turns ON in one controller cycle.\n\n X",
+   "in": [
+    "X"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "4124": {
+   "name": "4124_I",
+   "desc": "",
+   "explain": "When SW is ON, this macro performs the same processing as \"Sorting without switch\" (4123_I).\n Refer to the last item for details.\n\n When SW is OFF, this macro does not process and the output data area of Y1 and Y2 keep last value.",
+   "in": [],
+   "out": []
+  },
+  "405A": {
+   "name": "RAL4_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "40AD": {
+   "name": "TPC_I",
+   "desc": "",
+   "explain": "Y= X / T 1 × P1 × K1\n\n The output is a value determined by temp, press compensation result of the differential pressure input.",
+   "in": [],
+   "out": []
+  },
+  "4085": {
+   "name": "PO2_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "40AC": {
+   "name": "CRH2_I",
+   "desc": "",
+   "explain": "",
+   "in": [
+    "S"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "4063": {
+   "name": "D_S5_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "4088": {
+   "name": "TDWO2_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "401B": {
+   "name": "SUM2_I",
+   "desc": "",
+   "explain": "X1 Y\n This function calculates addition of two inputs.\n BB\n\n X2 Y = X1 + X 2\n Real",
+   "in": [],
+   "out": []
+  },
+  "820C": {
+   "name": "SV",
+   "desc": "SV Station (AA203)",
+   "explain": "The SV macro is a tag macro of SV station. SV macro is used for a close loop control.",
+   "in": [
+    "Auto",
+    "Manual",
+    "Auto SV",
+    "OR-R-SV",
+    "OR SV",
+    "HL-SV",
+    "LL-SV",
+    "PV"
+   ],
+   "out": [
+    "Auto",
+    "SV"
+   ]
+  },
+  "406B": {
+   "name": "PRP2_I",
+   "desc": "",
+   "explain": "Y = X *P",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "409E": {
+   "name": "ATA_I",
+   "desc": "",
+   "explain": "Y=X",
+   "in": [
+    "X"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "40E8": {
+   "name": "40E8_I",
+   "desc": "",
+   "explain": "EU-U1 No.1\n No.2\n No.3\n EU-L1 No.4\n No.5\n No.6\n CNT-U1 No.7\n No.8\n CNT-L1",
+   "in": [],
+   "out": []
+  },
+  "4141": {
+   "name": "FLIP1_NT_I",
+   "desc": "",
+   "explain": "This is a flip flop giving the priority to reset conditions. S R Y\n 0 0 *1\n 0 1 0\n 1 0 1\n 1 1 0\n *1 ; No change from previous status\n Note:\n 1) After CPU power supply is turned Off and turned On, Output “Y” is calculated from 0.\n\n 2) This macro doesn't process tracking.\n Use this macro to avoid overwriting macro internal register at tracking function during transmission in\n asynchronous duplex system of CPUL01(EHC).",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "4130": {
+   "name": "AND2E_I",
+   "desc": "",
+   "explain": "Results of ANDing “n” inputs are output.\n\n Y = X1 • X 2 •L X n (n ; 2 to 8)\n\n Example of adding Not logic X1 X2 X3 X1 X3 Y\n X2\n IN = 3 0 0 0 0 1 0 0\n X1\n A Y 1 0 0 1 1 0 0\n X2\n BB 0 1 0 0 0 0 0\n X3\n 0 0 1 0 1 1 0\n 1 1 0 1 0 0 0\n 1 0 1 1 1 1 1\n 0 1 1 0 0 1 0\n 1 1 1 1 0 1 0",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "8246": {
+   "name": "X-SV",
+   "desc": "SV Station for Transfer",
+   "explain": "The X-SV macro is used for transfering signals from controller to HMI. X-SV macro has no functional logic in it.",
+   "in": [
+    "Auto",
+    "Manual",
+    "INC-POS",
+    "DEC-POS",
+    "SV",
+    "MV",
+    "PV",
+    "RV",
+    "SV-AUT",
+    "SV-BIAS",
+    "SV-OVR",
+    "SV-HL",
+    "SV-LL",
+    "MV-OVR",
+    "BIAS-HL",
+    "BIAS-LL",
+    "Reset",
+    "TAG-ABN"
+   ],
+   "out": [
+    "AUT-REQ",
+    "MAN-REQ",
+    "SV-INC",
+    "SV-DEC"
+   ]
+  },
+  "402C": {
+   "name": "DIV3_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": []
+  },
+  "40BB": {
+   "name": "40BB_I",
+   "desc": "",
+   "explain": "This is a flip flop giving the priority to set conditions. S R Y\n 0 0 *1\n 0 1 0\n 1 0 1\n 1 1 1\n Note: *1 ; No change from previous status\n *1 ;\n After CPU power supply is turned Off and turned On, Output “Y” is calculated from 0.\n If Output “Y” is necessary to keep the previous status before CPU power supply is turned off, use Flip Flop\n (Hardware Back Up) macro.\n This function is not provided in CPUX01, CPUX02 and CPUL01.",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "8245": {
+   "name": "X-SV/MV",
+   "desc": "SV & MV Station for Transfer",
+   "explain": "The X-SV/MV macro is used for transfering signals from controller to HMI. X-SV/MV macro has no functional logic in it.",
+   "in": [
+    "Auto",
+    "Manual",
+    "Cascade",
+    "SV",
+    "MV",
+    "PV",
+    "POS",
+    "SV-AUT",
+    "RV",
+    "SV-OVR",
+    "SV-HL",
+    "SV-LL",
+    "MV-OVR",
+    "MV-HL",
+    "MV-LL",
+    "MV-ERR",
+    "DRV-ABN",
+    "CTL-ABN",
+    "TAG-ABN"
+   ],
+   "out": [
+    "AUT-REQ",
+    "MAN-REQ",
+    "CAS-REQ",
+    "SV-INC",
+    "SV-DEC",
+    "MV-INC",
+    "MV-DEC"
+   ]
+  },
+  "413C": {
+   "name": "OR7E_I",
+   "desc": "",
+   "explain": "",
+   "in": [
+    "X4"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "40BC": {
+   "name": "40BC_I",
+   "desc": "",
+   "explain": "The output Y is a value determined by AND calculation of each bit between X1 and X2.\n\nEx)\n 215 20\n X1 0 0 1 1 0 0 1 1 0 0 1 1 0 0 1 1\n X2 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1\n Y 0 0 0 1 0 0 0 1 0 0 0 1 0 0 0 1",
+   "in": [],
+   "out": []
+  },
+  "4002": {
+   "name": "AND4_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "4062": {
+   "name": "D_S4_I",
+   "desc": "",
+   "explain": "",
+   "in": [
+    "X3"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "4006": {
+   "name": "AND8_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "4153": {
+   "name": "4153_I",
+   "desc": "",
+   "explain": "This macro converts 16 bit signed integer value to floating value.",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "8211": {
+   "name": "SV-BIAS",
+   "desc": "SV Station - Bias Set (AA208)",
+   "explain": "The SV-BIAS macro is a tag macro of Bias type SV Station. SV-BIAS macro is used for a closed loop control. OPS Operation",
+   "in": [
+    "Reset",
+    "Auto SV",
+    "HL-Bias",
+    "LL-Bias",
+    "HL-SV",
+    "LL-SV",
+    "PV"
+   ],
+   "out": [
+    "SV Bias",
+    "SV"
+   ]
+  },
+  "8248": {
+   "name": "X-TRIPLE",
+   "desc": "Triple Gate Sensor for Transfer",
+   "explain": "The X-TRIPLE macro is used for transfering signals from controller to HMI. X-TRIPLE macro has no functional logic in it.",
+   "in": [
+    "A-SEL",
+    "B-SEL",
+    "C-SEL",
+    "AVE-SEL",
+    "MED-SEL",
+    "A-VLU",
+    "B-VLU",
+    "C-VLU",
+    "Value",
+    "A-D-HIP",
+    "B-D-HIP",
+    "C-D-HIP",
+    "A-D-HI",
+    "B-D-HI",
+    "C-D-HI",
+    "ABN"
+   ],
+   "out": [
+    "A-REQ",
+    "B-REQ",
+    "C-REQ",
+    "AVE-REQ",
+    "MED-REQ"
+   ]
+  },
+  "823A": {
+   "name": "GWDIA",
+   "desc": "Gateway Digital Input with Alarm",
+   "explain": "The GWDIA macro is a digital point tag with alarm, and is possible to use at TOSMAP-DS/EV/LX Gateway. GWDIA macro is used to receive DI signal from GSM ( GE Energy Standard Messaging ) transmission. The time stamp of the GWDIA macro is same as that of GSM transmission. Connect \"Input Status\" with register of GSM setting ( Line No in Dataview ) directly. DALM macro (⇒ p.17) can be used instead of the GWDIA macro, but the DALM macro time stamp is not same as GSM transmission. Connect the input QTY of the GWDIA macro to the quality line of DI signal input, generally.",
+   "in": [
+    "Input Status",
+    "QTY"
+   ],
+   "out": [
+    "Current Status",
+    "QTY"
+   ]
+  },
+  "401E": {
+   "name": "AVE2_I",
+   "desc": "",
+   "explain": "This function calculates average of two or three inputs.\n X1 + X 2\n Y=\n 2\n X1 + X 2 + X 3\n Y=\n 3",
+   "in": [],
+   "out": []
+  },
+  "406C": {
+   "name": "INL1_I",
+   "desc": "",
+   "explain": "SW Output Y\n 1\n TI 1 ∫\n SW = 0 Y = Max( LL1 , Min( HL1 , Xdt ))\n\n SW = 1 Y = Max( LL1 , Min( HL1 , T ))\n\nNOTE : Parameter ‘TI1’ (Integral Time) must be larger than or equal to execution period, must be specified on\n 0.1 second time scale and must be n x ε (n: positive integer; ε: constant period of processing loop).\n\n (Example)",
+   "in": [
+    "X"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "822D": {
+   "name": "ALM3V",
+   "desc": "Analog Input with Variable Alarm 3-Level",
+   "explain": "The ALM3V macro is used for an analog signal bus transfer with three levels alarm from controller to HMI. Alarm set values are variable.",
+   "in": [
+    "3H",
+    "2H",
+    "1H",
+    "1L",
+    "2L",
+    "3L",
+    "C/O-H",
+    "C/O-L",
+    "QTY",
+    "3H",
+    "2H",
+    "1H",
+    "1L",
+    "2L",
+    "3L",
+    "QTY"
+   ],
+   "out": [
+    "qir",
+    "sdr",
+    "dfv",
+    "dfr",
+    "i3h",
+    "i2h",
+    "i1h",
+    "i1l",
+    "i2l",
+    "i3l",
+    "trr",
+    "tar"
+   ]
+  },
+  "406A": {
+   "name": "PRP1_I",
+   "desc": "",
+   "explain": "Y = X *P",
+   "in": [
+    "X"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "4145": {
+   "name": "DT_NT_I",
+   "desc": "",
+   "explain": "This macro doesn't process tracking.\n Use this macro to avoid overwriting macro internal register at tracking function during transmission in\n asynchronous duplex system of CPUL01(EHC).",
+   "in": [
+    "X"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "409B": {
+   "name": "P3_9_I",
+   "desc": "",
+   "explain": "",
+   "in": [
+    "X2"
+   ],
+   "out": [
+    "Y2"
+   ]
+  },
+  "4133": {
+   "name": "AND5E_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "82EB": {
+   "name": "GWDIA1",
+   "desc": "Gateway Digital Input with Alarm",
+   "explain": "Ttag(16char max) Tdes1-xxxxxxxxxxxxxx The function, input, output and parameters of GWDIA1 are same as those of xxxxxxxx(40char max) GWDIA (⇒ p.143) in TagType 45. 1 GWDIA 1 1 2 QTY QTY 2 BB ALM= ASET",
+   "in": [],
+   "out": []
+  },
+  "407E": {
+   "name": "DI4_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": []
+  },
+  "413D": {
+   "name": "OR8E_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "8240": {
+   "name": "X-SWGR",
+   "desc": "SWGR(Pump, Motor & Fan) for Transfer",
+   "explain": "The X-SWGR macro is used for transfering signals from controller to HMI. X-SWGR macro has no functional logic in it.",
+   "in": [
+    "Start",
+    "Stop",
+    "Auto",
+    "Manual",
+    "Lock",
+    "Unlock",
+    "ST-PMT",
+    "SP-PMT",
+    "LNK-ST",
+    "LNK-SP",
+    "Local",
+    "Trip",
+    "E-Fail",
+    "Rack Out",
+    "RTE-ST",
+    "RTE-SP",
+    "ABN"
+   ],
+   "out": [
+    "ST-REQ",
+    "SP-REQ",
+    "AUT-REQ",
+    "MAN-REQ",
+    "LCK-REQ",
+    "ULK-REQ"
+   ]
+  },
+  "4135": {
+   "name": "AND7E_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "4010": {
+   "name": "NOT_I",
+   "desc": "",
+   "explain": "Results of inversion logic of input are output.\n Y=X",
+   "in": [
+    "X"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "409A": {
+   "name": "P3_8_I",
+   "desc": "",
+   "explain": "",
+   "in": [
+    "X2"
+   ],
+   "out": [
+    "Y2"
+   ]
+  },
+  "4069": {
+   "name": "MID_I",
+   "desc": "",
+   "explain": "This function outputs the minimum value of the Inputs.\n Y = Min( X 1 , X 2 , X 3 )",
+   "in": [
+    "X2"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "822F": {
+   "name": "DDL",
+   "desc": "Digital Data Link",
+   "explain": "The DDL macro is used for a digital signal bus transfer from controller to HMI.",
+   "in": [
+    "Input Status",
+    "QTY"
+   ],
+   "out": [
+    "Current Status",
+    "QTY"
+   ]
+  },
+  "82F2": {
+   "name": "GWDI3",
+   "desc": "Gateway Digital Input without Alarm",
+   "explain": "Ttag(16char max) Tdes1-xxxxxxxxxxxxxx The function, input, output and parameters of GWDI3 are same as those of xxxxxxxx(40char max) GWDI (⇒ p.142) in TagType 45. 1 GWDI 1 3 2 QTY QTY 2 BB",
+   "in": [],
+   "out": []
+  },
+  "820A": {
+   "name": "SV/MV-POS",
+   "desc": "SV&MV Station with POS (AA201)",
+   "explain": "The SV/MV-POS macro is a tag macro of SV and MV station. SV/MV-POS macro is used for a closed loop control with position feedback signal.",
+   "in": [
+    "Cascade",
+    "Auto",
+    "Manual",
+    "Auto SV",
+    "OR-R-SV",
+    "OR-SV",
+    "HL-SV",
+    "LL-SV",
+    "PV",
+    "DLT MV",
+    "OR-R-MV",
+    "OR-MV",
+    "HL-MV",
+    "LL-MV",
+    "MV",
+    "POS",
+    "POS-QTY",
+    "CTL-ABN",
+    "DRV-ABN"
+   ],
+   "out": [
+    "Cascade",
+    "Auto",
+    "Manual",
+    "SV",
+    "MV",
+    "MV ERR",
+    "ABN"
+   ]
+  },
+  "8215": {
+   "name": "TRIPLE",
+   "desc": "Triple Gate Sensor (AA224)",
+   "explain": "The TRIPLE macro is used for selecting triple redundant sensors.",
+   "in": [
+    "SENS-A",
+    "QTY-A",
+    "SENS-B",
+    "QTY-B",
+    "SENS-C",
+    "QTY-C",
+    "Cut Out"
+   ],
+   "out": [
+    "SEL VLU",
+    "TRP MAN",
+    "A DEV HI",
+    "B DEV HI",
+    "C DEV HI",
+    "ABN"
+   ]
+  },
+  "4075": {
+   "name": "T_B3_I",
+   "desc": "",
+   "explain": "",
+   "in": [
+    "X1"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "40C8": {
+   "name": "40C8_I",
+   "desc": "",
+   "explain": "SW Output Y\n SW = ON OFF\n\n Count the number of 'OFF=>ON' changes in input X, Output Y will be ON,\n SW = OFF\n when counter value reach the specified value S1.",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "4039": {
+   "name": "LAG4_I",
+   "desc": "",
+   "explain": "",
+   "in": [
+    "X"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "40D0": {
+   "name": "40D0_I",
+   "desc": "",
+   "explain": "The \"ENTRY\" macro is a target place of \"GO\" macro.\n Block number of \"ENTRY\" macro have to be the first one on the sheet.",
+   "in": [],
+   "out": []
+  },
+  "4033": {
+   "name": "ROOT_I",
+   "desc": "",
+   "explain": "Y = −X",
+   "in": [],
+   "out": []
+  },
+  "40D3": {
+   "name": "40D3_I",
+   "desc": "",
+   "explain": "This macro converts 16 bit signed integer value to BCD number.\n\n Output value is more than or equal to -7999, and less than or equal to 7999.\n\n If the input value is less than -7999, the output value is -7999.\n If the input value is more than 7999, the output value is 7999.\n\n Format of output BCD number is described below.\n\n 0 1 3 4 7 8 11 12 15\n sign Thousands Hundreds Tens Units",
+   "in": [
+    "X"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "405B": {
+   "name": "RAL5_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "824B": {
+   "name": "HMI DO-SC",
+   "desc": "HMI Digital Self Clear",
+   "explain": "The HMI DO-SC macro is used for transfering a digital signal from HMI to controller. HMI DO-SC macro clears output value after \"CTime\" seconds.",
+   "in": [
+    "Out"
+   ],
+   "out": []
+  },
+  "40B7": {
+   "name": "D2I_I",
+   "desc": "",
+   "explain": "The output is a value determined by conversion from digital inputs to integer value.\n\n 215 20\n\n 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15\n\n Input",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "404E": {
+   "name": "SHI1_I",
+   "desc": "",
+   "explain": "Compares input value (X) with set values (set/reset values) and makes LV output (Y) of the result of it.\n Parameter can be set from input S and R (with right macro).\n\n Parameter S1 / R1 Input X Output Y\n X ≧ S1 Y=1\n S1 > R1 X < R1 Y=0\n S1 > X > R1 Y = previous value is retained\n\n S1 = R1 X ≧ S1 Y=1\n X < S1 Y=0\n S1 < R1 Not allowed",
+   "in": [],
+   "out": []
+  },
+  "40A5": {
+   "name": "EVF_I",
+   "desc": "",
+   "explain": "The output is continuous true (ON).",
+   "in": [],
+   "out": []
+  },
+  "8249": {
+   "name": "MOV3-NSH",
+   "desc": "Motor Operated Valve3 Non-Self Hold (AA145B)",
+   "explain": "The MOV3-NSH macro is used for a motor operated valve. DCS does not hold open/close demand in DCS.",
+   "in": [
+    "Auto",
+    "Manual",
+    "Auto OP",
+    "F-OP",
+    "OP INH",
+    "Auto CL",
+    "F-CL",
+    "CL INH",
+    "Local",
+    "E-FAIL",
+    "OV TRQ",
+    "Open",
+    "Closed",
+    "POS"
+   ],
+   "out": [
+    "Auto",
+    "OP DMD",
+    "CL DMD",
+    "ABN"
+   ]
+  },
+  "4012": {
+   "name": "FLIP2_I",
+   "desc": "",
+   "explain": "This is a flip flop giving the priority to set conditions.\n S R Y\n 0 0 *1\n 0 1 0\n 1 0 1\n 1 1 1\n *1 ; No change from previous status\n Note:\n *1 ;\n After CPU power supply is turned Off and turned On, Output “Y” is calculated from 0.",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "408A": {
+   "name": "TDWO4_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": []
+  },
+  "4081": {
+   "name": "DIL4_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": []
+  },
+  "4021": {
+   "name": "DIF1_I",
+   "desc": "",
+   "explain": "△\n BB This function calculates differential of two inputs.\n -\n X2\n Y = X1 − X 2",
+   "in": [],
+   "out": []
+  },
+  "8238": {
+   "name": "HMI AO",
+   "desc": "HMI Analog",
+   "explain": "The HMI AO macro is used for transfering an analog signal from HMI to controller.",
+   "in": [
+    "Out"
+   ],
+   "out": []
+  },
+  "8237": {
+   "name": "HMI DO",
+   "desc": "HMI Digital",
+   "explain": "The HMI DO macro is used for transfering a digital signal from HMI to controller.",
+   "in": [
+    "Out"
+   ],
+   "out": []
+  },
+  "8244": {
+   "name": "X-SEQS",
+   "desc": "Group Sequence (Step) for Transfer",
+   "explain": "The X-SEQS macro is used for transfering signals from controller to HMI. X-SEQS macro has no functional logic in it.",
+   "in": [
+    "STP-PRC",
+    "STP-FLT",
+    "STP-CMP",
+    "SET-TIM",
+    "CU-TIM",
+    "STP-BYP",
+    "ABN"
+   ],
+   "out": [
+    "BYP-REQ"
+   ]
+  },
+  "40C2": {
+   "name": "40C2_I",
+   "desc": "",
+   "explain": "If the input X1 is 0, the output Y turns OFF.\n If the input X1 is not 0, the output Y turns ON.",
+   "in": [
+    "X1"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "822A": {
+   "name": "ALM2F",
+   "desc": "Analog Input with Fixed Alarm 2-Level",
+   "explain": "The ALM1F macro is used for an analog signal bus transfer with two levels alarm from controller to HMI.",
+   "in": [
+    "C/O-H",
+    "C/O-L",
+    "QTY",
+    "2H",
+    "1H",
+    "1L",
+    "2L",
+    "QTY"
+   ],
+   "out": [
+    "qir",
+    "sdr",
+    "dfv",
+    "dfr",
+    "i3h",
+    "i2h",
+    "i1h",
+    "i1l",
+    "i2l",
+    "i3l",
+    "trr",
+    "tar"
+   ]
+  },
+  "40AB": {
+   "name": "CRH1_I",
+   "desc": "",
+   "explain": "Input X Output Y\n\n dx\n > S1 ON\n dt",
+   "in": [
+    "X"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "402B": {
+   "name": "DIV2_I",
+   "desc": "",
+   "explain": "This function calculates dividing of two inputs.\n\n X1\n Y=\n X2",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "823E": {
+   "name": "X-MOV-SH",
+   "desc": "Motor Operated Valve Self Hold for Transfer",
+   "explain": "The X-MOV-SH macro is used for transfering signals from controller to HMI. X-MOV-SH macro has no functional logic in it.",
+   "in": [
+    "Open",
+    "Close",
+    "Stop",
+    "Auto",
+    "Manual",
+    "V-POS",
+    "Opening",
+    "Closing",
+    "OP-PMT",
+    "CL-PMT",
+    "Local",
+    "E-Fail",
+    "OV-TRQ",
+    "RTE-OP",
+    "RTE-CL",
+    "ABN"
+   ],
+   "out": [
+    "OP-REQ",
+    "CL-REQ",
+    "SP-REQ",
+    "AUT-REQ",
+    "MAN-REQ"
+   ]
+  },
+  "82F3": {
+   "name": "GWDIA3",
+   "desc": "Gateway Digital Input with Alarm",
+   "explain": "Ttag(16char max) Tdes1-xxxxxxxxxxxxxx The function, input, output and parameters of GWDIA3 are same as those of xxxxxxxx(40char max) GWDIA (⇒ p.143) in TagType 45. 1 GWDIA 1 3 2 QTY QTY 2 BB ALM= ASET",
+   "in": [],
+   "out": []
+  },
+  "406D": {
+   "name": "INL2_I",
+   "desc": "",
+   "explain": "",
+   "in": [
+    "X"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "4056": {
+   "name": "LOL2_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "405C": {
+   "name": "RAL6_I",
+   "desc": "",
+   "explain": "",
+   "in": [
+    "I"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "4000": {
+   "name": "AND2_I",
+   "desc": "",
+   "explain": "Results of ANDing “n” inputs are output.\n\n Y = X1 • X 2 •L X n (n ; 2 to 8)\n\n Example of adding Not logic X1 X2 X3 X1 X3 Y\n X2\n X1 0 0 0 0 1 0 0\n X2 A Y 1 0 0 1 1 0 0\n X3 BB 0 1 0 0 0 0 0\n 0 0 1 0 1 1 0\n 1 1 0 1 0 0 0\n 1 0 1 1 1 1 1\n Y = X1 • X 2 • X 3 0 1 1 0 0 1 0\n 1 1 1 1 0 1 0\n NOT logic can be added at any input points.",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "4026": {
+   "name": "DIF6_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": []
+  },
+  "406F": {
+   "name": "INL4_I",
+   "desc": "",
+   "explain": "",
+   "in": [
+    "T"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "4047": {
+   "name": "LOS3_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "8229": {
+   "name": "ALM1V",
+   "desc": "Analog Input with Variable Alarm 1-Level",
+   "explain": "The ALM1V macro is used for an analog signal bus transfer with one level alarm from controller to HMI. Alarm set values are variable.",
+   "in": [
+    "1H",
+    "1L",
+    "C/O-H",
+    "C/O-L",
+    "QTY",
+    "1H",
+    "1L",
+    "QTY"
+   ],
+   "out": [
+    "qir",
+    "sdr",
+    "dfv",
+    "dfr",
+    "i3h",
+    "i2h",
+    "i1h",
+    "i1l",
+    "i2l",
+    "i3l",
+    "trr",
+    "tar"
+   ]
+  },
+  "413B": {
+   "name": "OR6E_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "8201": {
+   "name": "SWGR-L",
+   "desc": "SWGR-Linkage (AA102B)",
+   "explain": "The SWGR-L macro is used for LV and MV motor drive which has auxiliaries such as oil pump or fan to be operated prior to main drive.",
+   "in": [
+    "Auto",
+    "Manual",
+    "Lock",
+    "Auto ST",
+    "ST O/R",
+    "ST INH",
+    "L-ST INH",
+    "Auto SP",
+    "F-SP",
+    "SP INH",
+    "L-SP INH",
+    "EXT-SP",
+    "Local",
+    "RACK Out",
+    "E-FAIL",
+    "Running",
+    "Stopped",
+    "RUN-QTY",
+    "STP-QTY",
+    "T-Reset"
+   ],
+   "out": [
+    "Auto",
+    "Locked",
+    "ST DMD",
+    "Link ST",
+    "SP DMD",
+    "Link SP",
+    "Tripped",
+    "RTE-ST",
+    "RTE-SP",
+    "ABN"
+   ]
+  },
+  "4143": {
+   "name": "DI_NT_I",
+   "desc": "",
+   "explain": "This macro doesn't process tracking.\n Use this macro to avoid overwriting macro internal register at tracking function during transmission in\n asynchronous duplex system of CPUL01(EHC).",
+   "in": [
+    "X"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "8241": {
+   "name": "X-DUAL",
+   "desc": "Dual Gate Sensor for Transfer",
+   "explain": "The X-DUAL macro is used for transfering signals from controller to HMI. X-DUAL macro has no functional logic in it.",
+   "in": [
+    "A-SEL",
+    "B-SEL",
+    "AVE-SEL",
+    "HV-SEL",
+    "A-VLU",
+    "B-VLU",
+    "Value",
+    "DEV-HIP",
+    "DEV-HI",
+    "ABN"
+   ],
+   "out": [
+    "A-SEL",
+    "B-SEL",
+    "AVE-SEL",
+    "HV-SEL"
+   ]
+  },
+  "4094": {
+   "name": "P3_2_I",
+   "desc": "",
+   "explain": "The output is a value determined by PID calculation result of the two inputs and each parameter.\n The output direction is determined by PV – SV direction.\n NOTE: Parameter ‘Td’ (Differential time) must be larger than or equal to execution period, must be specified on\n 0.1 second time scale and must be n x ε (n: positive integer; ε: constant period of processing loop).",
+   "in": [],
+   "out": [
+    "Y2"
+   ]
+  },
+  "414C": {
+   "name": "414C_I",
+   "desc": "",
+   "explain": "Y = sin( X )",
+   "in": [
+    "X"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "4070": {
+   "name": "DER1_I",
+   "desc": "",
+   "explain": "SW Output Y\n TD1 * s\n SW = 1 Y= * X * G1\n 1 + TD1 * s\n\n X",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "820E": {
+   "name": "MV",
+   "desc": "MV Station (AA205)",
+   "explain": "The MV macro is a tag macro of MV Station. MV macro is used for a closed loop control.",
+   "in": [
+    "Auto",
+    "Manual",
+    "DLT MV",
+    "OR-R-MV",
+    "OR-MV",
+    "HL-MV",
+    "LL-MV",
+    "MV",
+    "REF1",
+    "REF2",
+    "REF3",
+    "CTL-ABN",
+    "DRV-ABN"
+   ],
+   "out": [
+    "Auto",
+    "MV",
+    "ABN"
+   ]
+  },
+  "4132": {
+   "name": "AND4E_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "4024": {
+   "name": "DIF4_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "823D": {
+   "name": "X-MOV-NSH",
+   "desc": "Motor Operated Valve Non-Self Hold for Transfer",
+   "explain": "The X-MOV-NSH macro is used for transfering signals from controller to HMI. X-MOV-NSH macro has no functional logic in it.",
+   "in": [
+    "Open",
+    "Close",
+    "Auto",
+    "Manual",
+    "V-POS",
+    "Opening",
+    "Closing",
+    "OP-PMT",
+    "CL-PMT",
+    "Local",
+    "E-Fail",
+    "OV-TRQ",
+    "ABN"
+   ],
+   "out": [
+    "OP-REQ",
+    "CL-REQ",
+    "AUT-REQ",
+    "MAN-REQ"
+   ]
+  },
+  "822E": {
+   "name": "DALM",
+   "desc": "Digital Input with Alarm",
+   "explain": "The DALM macro is used for a digital signal bus transfer with alarm from controller to HMI.",
+   "in": [
+    "Input Status",
+    "QTY"
+   ],
+   "out": [
+    "Current Status",
+    "QTY"
+   ]
+  },
+  "4147": {
+   "name": "TDWO_NT_I",
+   "desc": "",
+   "explain": "This macro doesn't process tracking.\n Use this macro to avoid overwriting macro internal register at tracking function during transmission in\n asynchronous duplex system of CPUL01(EHC).",
+   "in": [
+    "X"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "4042": {
+   "name": "HIS1_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "4068": {
+   "name": "MIN_I",
+   "desc": "",
+   "explain": "This function outputs the maximum value of the Inputs.\n Y = Max( X 1 , X 2 , X 3 )",
+   "in": [
+    "X2"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "4001": {
+   "name": "AND3_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "40B9": {
+   "name": "OIV_I",
+   "desc": "",
+   "explain": "This function is used for TOSHIBA internal test.\n\nOIV – Override of Integer Value\n Symbol OIV_I Code 40B9H\n\n Type\n Item Name Description Symbol Unit Range Remarks\n Int Real\n X1 Override Signal IV\n Input\n X2 Permit Signal PM LV ON/OFF\n Y1 Error Information 1 E1 IV\n Output\n Y2 Error Information 2 E2 IV\n Display ###### Device No. ###### IV\n X1 OIV E1 Y1\n X2 PM E2 Y2\n BB\n ######",
+   "in": [],
+   "out": []
+  },
+  "400F": {
+   "name": "XOR_I",
+   "desc": "",
+   "explain": "X1 X2 Y\n Results of Exclusive OR of two inputs are output. 0 0 0\n 0 1 1\n Y = ( X 1 • X 2) + ( X 1 • X 2)\n 1 0 1\n 1 1 0\n Only one of them input condition, the output Y is “ON”.",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "82FF": {
+   "name": "DDL2",
+   "desc": "Digital Data Link",
+   "explain": "Ttag(16char max) Tdes1-xxxxxxxxxxxxxx The function, input, output and parameters of DDL2 are same as those of xxxxxxxx(40char max) DDL (⇒ p.16) in TagType 2. 1 DDL2 1 2 QTY QTY 2 BB",
+   "in": [],
+   "out": []
+  },
+  "4095": {
+   "name": "P3_3_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": [
+    "Y2"
+   ]
+  },
+  "8200": {
+   "name": "SWGR",
+   "desc": "Switchgear (AA101B)",
+   "explain": "The SWGR macro is used for LV and MV motor drive.",
+   "in": [
+    "Auto",
+    "Manual",
+    "Lock",
+    "Auto ST",
+    "ST O/R",
+    "ST INH",
+    "Auto SP",
+    "F-SP",
+    "SP INH",
+    "EXT-SP",
+    "Local",
+    "RACK Out",
+    "E-FAIL",
+    "Running",
+    "Stopped",
+    "RUN-QTY",
+    "STP-QTY",
+    "T-Reset"
+   ],
+   "out": [
+    "Auto",
+    "Locked",
+    "ST DMD",
+    "SP DMD",
+    "Tripped",
+    "RTE-ST",
+    "RTE-SP",
+    "ABN"
+   ]
+  },
+  "4097": {
+   "name": "P3_5_I",
+   "desc": "",
+   "explain": "",
+   "in": [
+    "X2"
+   ],
+   "out": [
+    "Y2"
+   ]
+  },
+  "4150": {
+   "name": "4150_I",
+   "desc": "",
+   "explain": "Input X Output Y\n π\n X < −1 Y =−\n 2\n\n −1 ≤ X ≤ 1 Y = arcsin(X )\n\n π\n X >1 Y=\n 2",
+   "in": [
+    "X"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "4027": {
+   "name": "MUL1_I",
+   "desc": "",
+   "explain": "This function calculates multiplying of two inputs.\n\n Y = X1 * X 2",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "40C4": {
+   "name": "40C4_I",
+   "desc": "",
+   "explain": "If the AR between X1 and SI is 0, the output Y turns OFF.\n If the AR between X1 and SI is not 0, the output Y turns ON.",
+   "in": [],
+   "out": []
+  },
+  "4090": {
+   "name": "T_B5_I",
+   "desc": "",
+   "explain": "",
+   "in": [
+    "X1"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "4087": {
+   "name": "PO4_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": []
+  },
+  "8243": {
+   "name": "X-SEQM",
+   "desc": "Group Sequence (Master Mode) for Transfer",
+   "explain": "The X-SEQM macro is used for transfering signals from controller to HMI. X-SEQM macro has no functional logic in it.",
+   "in": [
+    "PAS-MOD",
+    "OPS-MOD",
+    "Start",
+    "Reset",
+    "Pause",
+    "Flick",
+    "MST-FLT",
+    "MST-CMP",
+    "ST-PMT",
+    "ABN"
+   ],
+   "out": [
+    "PAS-REQ",
+    "OPS-REQ",
+    "ST-REQ",
+    "RST-REQ",
+    "PAU-REQ"
+   ]
+  },
+  "40C7": {
+   "name": "40C7_I",
+   "desc": "",
+   "explain": "SW Output Y\n SW = ON 0\n\n When input X changes from OFF to ON, the value of output Y is addition of Y and D1.\n SW = OFF Y = Y + D1\n (See the following diagram.)",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "82D0": {
+   "name": "SELECTOR",
+   "desc": "Selector with ABN input",
+   "explain": "The SELECTOR macro is used for alternative selection function. All the selection signals are cleared when the CNT Input 17 (ABN:Abnormal TAG Status) becomes True.",
+   "in": [
+    "1 REQ",
+    "2 REQ",
+    "3 REQ",
+    "4 REQ",
+    "5 REQ",
+    "6 REQ",
+    "7 REQ",
+    "8 REQ",
+    "1 INH",
+    "2 INH",
+    "3 INH",
+    "4 INH",
+    "5 INH",
+    "6 INH",
+    "7 INH",
+    "8 INH",
+    "ABN"
+   ],
+   "out": [
+    "1 SEL",
+    "2 SEL",
+    "3 SEL",
+    "4 SEL",
+    "5 SEL",
+    "6 SEL",
+    "7 SEL",
+    "8 SEL"
+   ]
+  },
+  "40B5": {
+   "name": "1SH2_I",
+   "desc": "",
+   "explain": "If the input X turns ON, the output Y turns ON in one controller cycle.\n\n X",
+   "in": [
+    "X"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "820B": {
+   "name": "SV/MV",
+   "desc": "SV & MV Station (AA202)",
+   "explain": "The SV/MV macro is a tag macro of SV and MV Station. SV/MV macro is used for a closed loop control.",
+   "in": [
+    "Cascade",
+    "Auto",
+    "Manual",
+    "Auto SV",
+    "OR-R-SV",
+    "OR-SV",
+    "HL-SV",
+    "LL-SV",
+    "PV",
+    "DLT MV",
+    "OR-R-MV",
+    "OR-MV",
+    "HL-MV",
+    "LL-MV",
+    "MV",
+    "REF",
+    "CTL-ABN",
+    "DRV-ABN"
+   ],
+   "out": [
+    "Cascade",
+    "Auto",
+    "Manual",
+    "SV",
+    "MV",
+    "ABN"
+   ]
+  },
+  "409C": {
+   "name": "P3_A_I",
+   "desc": "",
+   "explain": "",
+   "in": [
+    "X2"
+   ],
+   "out": [
+    "Y2"
+   ]
+  },
+  "414A": {
+   "name": "414A_I",
+   "desc": "",
+   "explain": "The SEND REG macro is for Secure Monitoring.\n According to input signals, it sends compressed data of following information to multicast address defined in the\n system configuration.\n (a) User register ···················· target the primary station only in case of high speed CPU and\n synchronous duplex operation mode\n (b) Simulation infomation ········ target the primary station only in case of high speed CPU and\n synchronous duplex operation mode\n (c) Current Status ·················· target the primary station and the standby station in case of high speed\n CPU and synchronous duplex operati",
+   "in": [],
+   "out": []
+  },
+  "403B": {
+   "name": "LAG6_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "8247": {
+   "name": "X-MV",
+   "desc": "MV Station for Transfer",
+   "explain": "The X-MV macro is used for transfering of signals from controller to HMI. X-MV macro has no functional logic in it.",
+   "in": [
+    "Auto",
+    "Manual",
+    "INC-POS",
+    "DEC-POS",
+    "MV",
+    "POS",
+    "RV1",
+    "RV2",
+    "RV3",
+    "MV-OVR",
+    "MV-HL",
+    "MV-LL",
+    "FF",
+    "HLD",
+    "MV-ERR",
+    "DRV-ABN",
+    "CTL-ABN",
+    "TAG-ABN"
+   ],
+   "out": [
+    "AUT-REQ",
+    "MAN-REQ",
+    "MV-INC",
+    "MV-DEC"
+   ]
+  },
+  "403C": {
+   "name": "LLG1_I",
+   "desc": "",
+   "explain": "SW Output Y\n 1 + Tle * s\n SW = 1 Y= *X （ s ：Laplace operator）\n 1 + Tla * s\n SW = 0 Y=X",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "4064": {
+   "name": "ABS_I",
+   "desc": "",
+   "explain": "This function calculates absolute values.\n\n Y= X",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "4031": {
+   "name": "SUG2_I",
+   "desc": "",
+   "explain": "This function calculates summing with gain.\n\n Y = G1 * X 1 + G2 * X 2",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "8207": {
+   "name": "S-SOV-EO",
+   "desc": "Single Solenoid Valve Energize Open (AA162B)",
+   "explain": "The S-SOV-EO macro is used for a single solenoid valve (energize open type). Auto Open A OPS Operation",
+   "in": [
+    "Auto",
+    "Manual",
+    "Auto OP",
+    "F-OP",
+    "OP INH",
+    "Auto CL",
+    "F-CL",
+    "CL INH",
+    "E-FAIL",
+    "Open",
+    "Closed",
+    "OP-QTY",
+    "CL-QTY"
+   ],
+   "out": [
+    "Auto",
+    "OP DMD",
+    "RTE-OP",
+    "RTE-CL",
+    "ABN"
+   ]
+  },
+  "8228": {
+   "name": "ALM1F",
+   "desc": "Analog Input with Fixed Alarm 1-Level",
+   "explain": "The ALM1F macro is used for an analog signal bus transfer with one level alarm from controller to HMI.",
+   "in": [
+    "C/O-H",
+    "C/O-L",
+    "QTY",
+    "1H",
+    "1L",
+    "QTY"
+   ],
+   "out": [
+    "qir",
+    "sdr",
+    "dfv",
+    "dfr",
+    "i3h",
+    "i2h",
+    "i1h",
+    "i1l",
+    "i2l",
+    "i3l",
+    "trr",
+    "tar"
+   ]
+  },
+  "403D": {
+   "name": "LLG2_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "4054": {
+   "name": "HIL2_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "8205": {
+   "name": "MOV2-SH",
+   "desc": "Motor Operated Valve 2 Self Hold (AA144B)",
+   "explain": "The MOV2-SH macro is used for a motor operated valve. DCS holds open/close demand in DCS.",
+   "in": [
+    "Auto",
+    "Manual",
+    "Auto OP",
+    "F-OP",
+    "OP INH",
+    "Auto SP",
+    "Auto CL",
+    "F-CL",
+    "CL INH",
+    "Local",
+    "E-FAIL",
+    "OV TRQ",
+    "Open",
+    "Closed",
+    "OP-QTY",
+    "CL-QTY",
+    "POS"
+   ],
+   "out": [
+    "Auto",
+    "OP DMD",
+    "SP DMD",
+    "CL DMD",
+    "RTE-OP",
+    "RTE-CL",
+    "ABN"
+   ]
+  },
+  "4082": {
+   "name": "DT2_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "4038": {
+   "name": "LAG3_I",
+   "desc": "",
+   "explain": "",
+   "in": [
+    "X"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "4073": {
+   "name": "T_B1_I",
+   "desc": "",
+   "explain": "Output (Y) gradually approaches (bump less switch) X1 or X2 at a fixed rate (R12 , R21) .\n\n SW Output Y\n Y gradually approaches from X2 to the value of X1 at a fixed rate (R21)\n SW = 0→1\n Y = previous output value + R (However, X1 > Y > X2)\n Y gradually approaches from X1 to the value of X2 at a fixed rate (R12)\n SW = 1→0\n Y = previous output value - R (However, X1 > Y > X2)",
+   "in": [
+    "X1"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "4037": {
+   "name": "LAG2_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "407F": {
+   "name": "DIL2_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "4123": {
+   "name": "4123_I",
+   "desc": "",
+   "explain": "Head internal line (number of data is specified by absolute value of RN) appointed by input X is sorted, and the\n output is sorting result Y1 and sorting information Y2.\n\n When RN value is greater than 0, data is sorted in ascending order.\n When RN value is less than 0, data is sorted in descending order.\n\n [Sorting direction and size]\n Ascending/\n RN Sort Sorting Target count\n Descending\n ① 32 ＜ RN No\n ② 1 ≦ RN ≦ 32 Yes Ascending absolute value of RN\n ③ RN ＝ 0 No\n ④ -32 ≦ RN ≦ -1 Yes Descending absolute value of RN\n ⑤ RN ＜ -32 No",
+   "in": [],
+   "out": []
+  },
+  "8226": {
+   "name": "SEQ-S",
+   "desc": "Sequence Master – Step Control (AA302)",
+   "explain": "The SEQ-S macro is used for each step of sequence master which controls start/stop/open/close of a series of auxiliaries or actuator sequentially. NOTICE --- When the product (Parameter4 x1000)/CPU Cycle(expressed in ms) is greater than 30,000, adjust the value of Parameter4 to be a divisor of 60.",
+   "in": [
+    "M-PRCD",
+    "S-PRCD",
+    "PRE Step",
+    "ST INH",
+    "AUX FAIL",
+    "SP COMP",
+    "Start",
+    "Reset",
+    "M-COMP"
+   ],
+   "out": [
+    "S-PRCD",
+    "SP Fault",
+    "SP COMP"
+   ]
+  },
+  "4049": {
+   "name": "TRA2_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": []
+  },
+  "4011": {
+   "name": "FLIP1_I",
+   "desc": "",
+   "explain": "This is a flip flop giving the priority to reset conditions.\n S R Y\n 0 0 *1\n 0 1 0\n 1 0 1\n 1 1 0\n\n Note:\n *1 ; No change from previous status\n *1 ;\n After CPU power supply is turned Off and turned On, Output “Y” is calculated from 0.",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "4016": {
+   "name": "PO_I",
+   "desc": "",
+   "explain": "A time-limit pulse for a specified time is output starting when input changes from OFF to ON.",
+   "in": [
+    "X"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "8239": {
+   "name": "GWDI",
+   "desc": "Gateway Digital Input without Alarm",
+   "explain": "The GWDI macro is a digital point tag without alarm, and is possible to use at TOSMAP-DS/EV/LX Gateway. GWDI macro is used to receive DI signal from GSM ( GE Energy Standard Messaging ) transmission. The time stamp of the GWDI macro is same as that of GSM transmission. Connect \"Input Status\" with register of GSM setting ( Line No in Dataview ) directly. DDL macro (⇒ p.16) can be used instead of the GWDI macro, but the DDL macro time stamp is not same as GSM transmission. Connect the input QTY of the GWDI macro to the quality line of DI signal input, generally. The maximum number of one TagType",
+   "in": [
+    "Input Status",
+    "QTY"
+   ],
+   "out": [
+    "Current Status",
+    "QTY"
+   ]
+  },
+  "400D": {
+   "name": "OR8_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "4015": {
+   "name": "DT_I",
+   "desc": "",
+   "explain": "After input changes to OFF, time is delayed by specified time and output is turned OFF.",
+   "in": [
+    "X"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "4040": {
+   "name": "LLG5_I",
+   "desc": "",
+   "explain": "",
+   "in": [
+    "X"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "4059": {
+   "name": "RAL3_I",
+   "desc": "",
+   "explain": "",
+   "in": [
+    "X"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "8227": {
+   "name": "ADL",
+   "desc": "Analog Data Link",
+   "explain": "The ADL macro is used for an analog signal bus transfer from controller to HMI.",
+   "in": [
+    "Input Value",
+    "QTY"
+   ],
+   "out": [
+    "Current Value",
+    "QTY"
+   ]
+  },
+  "408B": {
+   "name": "DTM2_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "4066": {
+   "name": "DBA2_I",
+   "desc": "",
+   "explain": "Dead band width of a jump type is processed.",
+   "in": [
+    "X"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "4008": {
+   "name": "OR3_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "4061": {
+   "name": "D_S3_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "4055": {
+   "name": "LOL1_I",
+   "desc": "",
+   "explain": "Low limit of input signals is enforced.\n Low limit value parameter can be set from LL input (with right macro).",
+   "in": [
+    "X"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "40F7": {
+   "name": "40F7_I",
+   "desc": "",
+   "explain": "This function restarts primary CPU.\n This macro is only to change CPU primary/secondary.\n So, this macro is available only on the dual RUN mode.\n\n SW Input X / Output Y\n SW = 1 In case of X =1 In case of X =0\n (a) In case of the dual RUN mode Y=0 (CPUs are NOT restarted.)\n Restart the primary CPU.\n (b) Others\n Y=1 (CPUs are NOT restarted.)\n (Run mode is judged internally.\n User’s input is not necessary for it.)\n SW = 0 Y=0 (CPU is NOT restarted.)\n\n This macro has the following limitation.",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "407B": {
+   "name": "FLIP3_I",
+   "desc": "",
+   "explain": "S R Y\n This is a latched flip flop giving the priority to reset conditions. 0 0 *1\n 0 1 0\n 1 0 1\n 1 1 0\n Note: *1 ; No change from previous status\n *1 ;\n Even if CPU power supply is turned Off and turned On, Output “Y” keeps the previous status before CPU power\n supply is turned off, because hardware memory keeps the status.\n This function is not provided in CPUX01, CPUX02 and CPUL01.",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "822C": {
+   "name": "ALM3F",
+   "desc": "Analog Input with Fixed Alarm 3-Level",
+   "explain": "The ALM3F macro is used for an analog signal bus transfer with three levels alarm from controller to HMI.",
+   "in": [
+    "C/O-H",
+    "C/O-L",
+    "QTY",
+    "3H",
+    "2H",
+    "1H",
+    "1L",
+    "2L",
+    "3L",
+    "QTY"
+   ],
+   "out": [
+    "qir",
+    "sdr",
+    "dfv",
+    "dfr",
+    "i3h",
+    "i2h",
+    "i1h",
+    "i1l",
+    "i2l",
+    "i3l",
+    "trr",
+    "tar"
+   ]
+  },
+  "4144": {
+   "name": "DIL_NT_I",
+   "desc": "",
+   "explain": "This macro doesn't process tracking.\n Use this macro to avoid overwriting macro internal register at tracking function during transmission in\n asynchronous duplex system of CPUL01(EHC).",
+   "in": [
+    "X"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "4131": {
+   "name": "AND3E_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "413A": {
+   "name": "OR5E_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "4136": {
+   "name": "AND8E_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "4032": {
+   "name": "SUG3_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "8206": {
+   "name": "D-SOV",
+   "desc": "Double Solenoid Valve (AA161B)",
+   "explain": "The D-SOV macro is used for a double solenoid valve. Auto Open A OPS Operation",
+   "in": [
+    "Auto",
+    "Manual",
+    "Auto OP",
+    "F-OP",
+    "OP INH",
+    "Auto CL",
+    "F-CL",
+    "CL INH",
+    "E-FAIL",
+    "Open",
+    "Closed",
+    "OP-QTY",
+    "CL-QTY"
+   ],
+   "out": [
+    "Auto",
+    "OP DMD",
+    "CL DMD",
+    "RTE-OP",
+    "RTE-CL",
+    "ABN"
+   ]
+  },
+  "40D2": {
+   "name": "40D2_I",
+   "desc": "",
+   "explain": "This macro converts 16 bit signed integer value to floating value.",
+   "in": [
+    "X"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "8300": {
+   "name": "DALM2",
+   "desc": "Digital Input with Alarm",
+   "explain": "Ttag(16char max) The function, input, output and parameters of DALM2 are same as those of Tdes1-xxxxxxxxxxxxxx xxxxxxxx(40char max) DALM (⇒ p.17) in TagType 2. 1 DALM2 1 2 QTY QTY 2 BB ALM= ASET",
+   "in": [],
+   "out": []
+  },
+  "4060": {
+   "name": "D_S2_I",
+   "desc": "",
+   "explain": "Adds and subtracts two inputs with a gain.\n Y = G1 * X 1 + G2 * X 2 L + Gn * X n (n = 2～6)",
+   "in": [
+    "X2"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "4076": {
+   "name": "T_B4_I",
+   "desc": "",
+   "explain": "",
+   "in": [
+    "X1"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "402F": {
+   "name": "DIV6_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": []
+  },
+  "8242": {
+   "name": "LAMP & PB",
+   "desc": "Selector for Transfer",
+   "explain": "The LAMP & PB macro is used for transfering signals from controller to HMI. LAMP & PB macro has no functional logic in it.",
+   "in": [
+    "1 Lamp",
+    "2 Lamp",
+    "3 Lamp",
+    "4 Lamp",
+    "5 Lamp",
+    "6 Lamp",
+    "7 Lamp",
+    "8 Lamp",
+    "9 Lamp",
+    "10 Lamp",
+    "11 Lamp",
+    "12 Lamp",
+    "13 Lamp",
+    "14 Lamp",
+    "15 Lamp",
+    "16 Lamp",
+    "ABN"
+   ],
+   "out": [
+    "1 PB ON",
+    "2 PB ON",
+    "3 PB ON",
+    "4 PB ON",
+    "5 PB ON",
+    "6 PB ON",
+    "7 PB ON",
+    "8 PB ON"
+   ]
+  },
+  "8232": {
+   "name": "I-DO",
+   "desc": "Intelligent Digital Output for Duplex",
+   "explain": "The I-DO macro can be used for the failure detection of DO in the configuration of using CPUW11 and DOCW11.",
+   "in": [
+    "Output Signal 1",
+    "OD1",
+    "LB1",
+    "WB1",
+    "Output Signal 2",
+    "OD2",
+    "LB2",
+    "WB2"
+   ],
+   "out": [
+    "QTY"
+   ]
+  },
+  "4046": {
+   "name": "LOS2_I",
+   "desc": "",
+   "explain": "Selects a smaller value of inputs (X1 and X2) and uses it as output (Y).\n Y = Min( X 1 , X 2 )\n\n< – Low Value Selector (in:Left & Upside)\n Symbol LOS2_I Code 4046H\n\n Type\n Item Name Description Symbol Unit Range Remarks\n Int Real\n X1 Input value 1 Any IV RV\n Input\n X2 Input value 2 Any IV RV\n Output Y Output value Any IV RV\nInt X1",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "82EA": {
+   "name": "GWDI1",
+   "desc": "Gateway Digital Input without Alarm",
+   "explain": "Ttag(16char max) Tdes1-xxxxxxxxxxxxxx The function, input, output and parameters of GWDI1 are same as those of xxxxxxxx(40char max) GWDI (⇒ p.142) in TagType 45. 1 GWDI 1 1 2 QTY QTY 2 BB",
+   "in": [],
+   "out": []
+  },
+  "40E1": {
+   "name": "40E1_I",
+   "desc": "",
+   "explain": "Pin-No. Signal Name Pin-No. Signal Name DI/DO/ALM\n 6 DIC 1 DI 1\n 7 DO-COM 2 DO0 6 2\n 8 ALM2 3 DO1 7 3\n 9 ALM-COM 4 ALM1 8 4\n 9 5\n 5 ALM0",
+   "in": [],
+   "out": []
+  },
+  "4043": {
+   "name": "HIS2_I",
+   "desc": "",
+   "explain": "Selects a larger value of inputs (X1 and X2) and uses it as output (Y).\n Y = Max( X 1 , X 2 )\n\n > – High Value Selector (in:Left & Upside)\n Symbol HIS2_I Code 4043H\n\n Int X1 Type\n Item Name Description Symbol Unit Range Remarks\n Int Real\nX2 ＞ Y Input\n X1\n X2\n Input value 1\n Input value 2\n Any\n Any\n IV RV\n IV RV\n BB\n Output Y Output value Any IV RV\nReal X1",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "404F": {
+   "name": "SHI2_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": []
+  },
+  "4096": {
+   "name": "P3_4_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": [
+    "Y2"
+   ]
+  },
+  "4041": {
+   "name": "LLG6_I",
+   "desc": "",
+   "explain": "",
+   "in": [
+    "Le"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "8236": {
+   "name": "I-AO",
+   "desc": "Intelligent Analog Output for Single",
+   "explain": "The I-AO macro can be used for the failure detection of AO in the configuration of using CPUW11 and DOCW11.",
+   "in": [
+    "Output Signal 1",
+    "ILB1",
+    "LB1",
+    "DSF1",
+    "OR1"
+   ],
+   "out": [
+    "QTY"
+   ]
+  },
+  "400B": {
+   "name": "OR6_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "40C0": {
+   "name": "40C0_I",
+   "desc": "",
+   "explain": "The output Y is a value determined by XOR calculation of each bit between X1 and X2.\n\nEx)\n 215 20\n X1 0 0 1 1 0 0 1 1 0 0 1 1 0 0 1 1\n X2 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1\n Y 0 1 1 0 0 1 1 0 0 1 1 0 0 1 1 0",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "40D1": {
+   "name": "40D1_I",
+   "desc": "",
+   "explain": "This macro converts floating value to 16 bit signed integer value.\n (The output is rounded off to the whole number).\n\n If the input value is less than -32768, the output value is -32768.\n If the input value is more than 32767, the output value is 32767.",
+   "in": [
+    "X"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "400C": {
+   "name": "OR7_I",
+   "desc": "",
+   "explain": "",
+   "in": [
+    "X4"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "401F": {
+   "name": "AVE3_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": []
+  },
+  "40A8": {
+   "name": "DVH1_I",
+   "desc": "",
+   "explain": "Parameter S1 / R1 Input X1 / X2 Output Y\n ｜X1－X2｜≧ S1 ON\n S1 ＞ R1 S1 ＞｜X1－X2｜＞ R1 the last value\n R1 ≧｜X1－X2｜ OFF\n ｜X1－X2｜≧ S1 ON\n S1 ≦ R1\n ｜X1－X2｜＜ S1 OFF",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "822B": {
+   "name": "ALM2V",
+   "desc": "Analog Input with Variable Alarm 2-Level",
+   "explain": "The ALM2V macro is used for an analog signal bus transfer with two levels alarm from controller to HMI. Alarm set values are variable.",
+   "in": [
+    "2H",
+    "1H",
+    "1L",
+    "2L",
+    "C/O-H",
+    "C/O-L",
+    "QTY",
+    "2H",
+    "1H",
+    "1L",
+    "2L",
+    "QTY"
+   ],
+   "out": [
+    "qir",
+    "sdr",
+    "dfv",
+    "dfr",
+    "i3h",
+    "i2h",
+    "i1h",
+    "i1l",
+    "i2l",
+    "i3l",
+    "trr",
+    "tar"
+   ]
+  },
+  "4028": {
+   "name": "MUL2_I",
+   "desc": "",
+   "explain": "This function calculates multiplying of two inputs.\n\n Y = X1 * X 2",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "4005": {
+   "name": "AND7_I",
+   "desc": "",
+   "explain": "",
+   "in": [
+    "X4"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "40BD": {
+   "name": "40BD_I",
+   "desc": "",
+   "explain": "The output Y is a value determined by AND calculation of each bit between X1 and SI.",
+   "in": [
+    "X1"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "4035": {
+   "name": "FNG_I",
+   "desc": "",
+   "explain": "Based on the break points (Xi, Yi), the output value (approximate value) Y for the input value X is determined\nas follows.\n\nnumber of break points : 𝑛𝑛 (2 ≤ 𝑛𝑛 ≤ 15)\n Input X Output Y\n X < 𝑋𝑋1 Y = 𝑌𝑌1\n\n 𝑋𝑋𝑖𝑖 ≤ X < 𝑋𝑋𝑖𝑖+1 (𝑋𝑋 − 𝑋𝑋𝑖𝑖 ) × (𝑌𝑌𝑖𝑖+1 − 𝑌𝑌𝑖𝑖 )\n Y = 𝑌𝑌𝑖𝑖 +\n (1 ≤ 𝑖𝑖 < 𝑛𝑛) 𝑋𝑋𝑖𝑖+1 − 𝑋𝑋𝑖𝑖\n\n 𝑋𝑋𝑛𝑛 ≤ X Y = 𝑌𝑌𝑛𝑛\n (Note 1) If X = 𝑋𝑋𝑖𝑖 = 𝑋𝑋𝑖𝑖+1 , Y = 𝑌𝑌𝑖𝑖+1 .\n (Note 2) Keep 𝑋𝑋𝑖𝑖 ≤ 𝑋𝑋𝑖𝑖+1 .\n (Note 3) For integer type, the remainder of division is ignored.",
+   "in": [
+    "X"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "409F": {
+   "name": "2BAL_I",
+   "desc": "",
+   "explain": "This fucntioin is balancing from one Deleta MV to two Delta MV.\n\n Ex) In the case of value1 = value2\n DLT MV BAL CND1 BAL CND2 DLT MV1 DLT MV2\n 1 1 1 0.5 0.5\n 1 0 1 0 1\n 1 1 0 1 0",
+   "in": [
+    "3"
+   ],
+   "out": []
+  },
+  "8208": {
+   "name": "S-SOV-EC",
+   "desc": "Single Solenoid Valve Energize Close (AA163B)",
+   "explain": "The S-SOV-EV macro is used for a single solenoid valve (energize close type).",
+   "in": [
+    "Auto",
+    "Manual",
+    "Auto OP",
+    "F-OP",
+    "OP INH",
+    "Auto CL",
+    "F-CL",
+    "CL INH",
+    "E-FAIL",
+    "Open",
+    "Closed",
+    "OP-QTY",
+    "CL-QTY"
+   ],
+   "out": [
+    "Auto",
+    "CL DMD",
+    "RTE-OP",
+    "RTE-CL",
+    "ABN"
+   ]
+  },
+  "4051": {
+   "name": "SLO2_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "82D5": {
+   "name": "SOE",
+   "desc": "SOE with Alarm",
+   "explain": "The SOE macro is used for transferring a Serial IO SOE signal with alarm from controller to HMI.",
+   "in": [
+    "Input Status",
+    "QTY"
+   ],
+   "out": [
+    "Current Status",
+    "QTY"
+   ]
+  },
+  "823F": {
+   "name": "X-SOV",
+   "desc": "Double Solenoid Valve for Transfer",
+   "explain": "The X-SOV macro is used for transfering signals from controller to HMI. X-SOV macro has no functional logic in it.",
+   "in": [
+    "Open",
+    "Close",
+    "Auto",
+    "Manual",
+    "OP-PMT",
+    "CL-PMT",
+    "Local",
+    "E-Fail",
+    "RTE-OP",
+    "RTE-CL",
+    "ABN"
+   ],
+   "out": [
+    "OP-REQ",
+    "CL-REQ",
+    "AUT-REQ",
+    "MAN-REQ"
+   ]
+  },
+  "4030": {
+   "name": "SUG1_I",
+   "desc": "",
+   "explain": "This function calculates summing with gain.\n\n Y = G1 * X 1 + G2 * X 2",
+   "in": [],
+   "out": []
+  },
+  "40A9": {
+   "name": "DVH2_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "8233": {
+   "name": "I-AO",
+   "desc": "Intelligent Analog Output for Duplex",
+   "explain": "The I-AO macro can be used for the failure detection of AO in the configuration of using CPUW11 and DOCW11.",
+   "in": [
+    "Output Signal 1",
+    "ILB1",
+    "LB1",
+    "DSF1",
+    "OR1",
+    "Output Signal 2",
+    "ILB2",
+    "LB2",
+    "DSF2",
+    "OR2"
+   ],
+   "out": [
+    "QTY"
+   ]
+  },
+  "40BF": {
+   "name": "40BF_I",
+   "desc": "",
+   "explain": "The output Y is a value determined by OR calculation of each bit between X1 and SI.",
+   "in": [
+    "X1"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "4058": {
+   "name": "RAL2_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "4053": {
+   "name": "HIL1_I",
+   "desc": "",
+   "explain": "High limit of input signals is enforced.\n High limit value parameter can be set from HL input (with right macro).",
+   "in": [
+    "X"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "8230": {
+   "name": "IDALM",
+   "desc": "Intelligent Digital Input with Alarm",
+   "explain": "The IDALM macro is a digital point tag used for DICW11. Note (*1) Connect “Input Value” with the register of DICW11 directly.",
+   "in": [
+    "Input Value",
+    "WB",
+    "SC",
+    "CF",
+    "C/O",
+    "QTY"
+   ],
+   "out": [
+    "Current Value",
+    "QTY"
+   ]
+  },
+  "405D": {
+   "name": "EXP1_I",
+   "desc": "",
+   "explain": "This function calculates exponential(power).\n\n Y = X n1",
+   "in": [
+    "X"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "4093": {
+   "name": "P3_1_I",
+   "desc": "",
+   "explain": "The output is a value determined by PID calculation result of the two inputs and each parameter.\n The output direction is determined by SV – PV direction.\n NOTE :Parameter ‘Td’ (Differential time) must be larger than or equal to execution period, must be specified on\n 0.1 second time scale and must be n x ε (n: positive integer; ε: constant period of processing loop).",
+   "in": [],
+   "out": [
+    "Y2"
+   ]
+  },
+  "40DF": {
+   "name": "40DF_I",
+   "desc": "",
+   "explain": "Pin-No. Signal Name Pin-No. Signal Name DI/DO/ALM\n 6 DIC 1 DI 1\n 6 2\n 7 DO-COM 2 DO0\n 7 3\n 8 ALM2 3 DO1 8 4\n 9 ALM-COM 4 ALM1 9 5\n 5 ALM0\n Output Y is used as a user DI from the PinNo.1 of the D-SUB(9pin)connector in the CPUX01 module.\n Y=DI",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "40B1": {
+   "name": "TBL4_I",
+   "desc": "",
+   "explain": "",
+   "in": [
+    "X1"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "401C": {
+   "name": "SUM3_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": []
+  },
+  "8204": {
+   "name": "MOV2-NSH",
+   "desc": "Motor Operated Valve2 Non-Self Hold (AA143B)",
+   "explain": "The MOV2-NSH macro is used for a motor operated valve. DCS does not hold open/close demand in DCS.",
+   "in": [
+    "Auto",
+    "Manual",
+    "Auto OP",
+    "F-OP",
+    "OP INH",
+    "Auto CL",
+    "F-CL",
+    "CL INH",
+    "Local",
+    "E-FAIL",
+    "OV TRQ",
+    "Open",
+    "Closed",
+    "POS"
+   ],
+   "out": [
+    "Auto",
+    "OP DMD",
+    "CL DMD",
+    "ABN"
+   ]
+  },
+  "4019": {
+   "name": "PG_I",
+   "desc": "",
+   "explain": "Output is turned on and off for each function execution period in accordance\n with the ON time and OFF time specified by Parameter.\n\n If X = 1: Pulse is output.\n If X = 0: Pulse is not output.",
+   "in": [
+    "X"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "4142": {
+   "name": "FLIP2_NT_I",
+   "desc": "",
+   "explain": "This is a flip flop giving the priority to set conditions.\n S R Y\n 0 0 *1\n 0 1 0\n 1 0 1\n 1 1 1\n *1 ; No change from previous status\n Note:\n 1) After CPU power supply is turned Off and turned On, Output “Y” is calculated from 0.\n\n 2) This macro doesn't process tracking.\n Use this macro to avoid overwriting macro internal register at tracking function during transmission in\n asynchronous duplex system of CPUL01(EHC).",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "4025": {
+   "name": "DIF5_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": []
+  },
+  "4079": {
+   "name": "NEG_I",
+   "desc": "",
+   "explain": "Y = −X",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "4004": {
+   "name": "AND6_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "82FD": {
+   "name": "DDL1",
+   "desc": "Digital Data Link",
+   "explain": "Ttag(16char max) Tdes1-xxxxxxxxxxxxxx The function, input, output and parameters of DDL1 are same as those of xxxxxxxx(40char max) DDL (⇒ p.16) in TagType 2. 1 DDL1 1 2 QTY QTY 2 BB",
+   "in": [],
+   "out": []
+  },
+  "40D8": {
+   "name": "40D8_I",
+   "desc": "",
+   "explain": "SW Description\n SW=1 (ON) A series of data (RN) which begins from the address specified by X is stored in the\n register array which begins from the address specified by Y.\n Ｙｉ＝Ｘｉ（ｉ＝１ to RN）\n SW=0 (OFF) A command is not executed. (Bypass)",
+   "in": [],
+   "out": []
+  },
+  "401D": {
+   "name": "AVE1_I",
+   "desc": "",
+   "explain": "This function calculates average of two or three inputs.\n X1 + X 2\n Y=\n 2\n X1 + X 2 + X 3\n Y=\n 3",
+   "in": [],
+   "out": []
+  },
+  "4091": {
+   "name": "T_B6_I",
+   "desc": "",
+   "explain": "",
+   "in": [
+    "X1"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "4099": {
+   "name": "P3_7_I",
+   "desc": "",
+   "explain": "",
+   "in": [
+    "X2"
+   ],
+   "out": [
+    "Y2"
+   ]
+  },
+  "40B8": {
+   "name": "OLV_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": []
+  },
+  "403E": {
+   "name": "LLG3_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "8203": {
+   "name": "MOV-SH",
+   "desc": "Motor Operated Valve Self Hold (AA142B)",
+   "explain": "The MOV-SH macro is used for a motor operated valve. DCS holds open/close demand in DCS.",
+   "in": [
+    "Auto",
+    "Manual",
+    "Auto OP",
+    "F-OP",
+    "OP INH",
+    "Auto SP",
+    "Auto CL",
+    "F-CL",
+    "CL INH",
+    "Opening",
+    "Closing",
+    "Local",
+    "E-FAIL",
+    "OV TRQ",
+    "Open",
+    "Closed",
+    "OP-QTY",
+    "CL-QTY",
+    "POS"
+   ],
+   "out": [
+    "Auto",
+    "OP DMD",
+    "SP DMD",
+    "CL DMD",
+    "RTE-OP",
+    "RTE-CL",
+    "ABN"
+   ]
+  },
+  "4029": {
+   "name": "MUL3_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "40BA": {
+   "name": "OFV_I",
+   "desc": "",
+   "explain": "This function is used for TOSHIBA internal test.",
+   "in": [],
+   "out": []
+  },
+  "8209": {
+   "name": "CB",
+   "desc": "Circuit Breaker (AA181B)",
+   "explain": "The CB macro is used for a circuit breaker operated from DCS.",
+   "in": [
+    "Inhibit",
+    "RACK Out",
+    "E-FAIL",
+    "Closed",
+    "Open",
+    "CL-QTY",
+    "OP-QTY"
+   ],
+   "out": [
+    "CL DMD",
+    "OP DMD",
+    "RTE-CL",
+    "RTE-OP",
+    "ABN"
+   ]
+  },
+  "402D": {
+   "name": "DIV4_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": []
+  },
+  "408C": {
+   "name": "DTM3_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "4052": {
+   "name": "A_CO_I",
+   "desc": "",
+   "explain": "This function generates constant signals.\n Y = A1",
+   "in": [],
+   "out": []
+  },
+  "404B": {
+   "name": "TRA4_I",
+   "desc": "",
+   "explain": "",
+   "in": [
+    "X1"
+   ],
+   "out": []
+  },
+  "4009": {
+   "name": "OR4_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "82C4": {
+   "name": "SEQ-M",
+   "desc": "Sequence Master-Mode Control (AA351)",
+   "explain": "The SEQ-M macro is used for sequence master which control start/stop/open/close of a series of auxiliaries or actuator sequentially.",
+   "in": [
+    "ST DMD",
+    "PAS",
+    "OPS",
+    "M-CMP",
+    "AUX Auto",
+    "ST INH",
+    "Relative",
+    "AUX FAIL",
+    "SP Fault",
+    "Pause",
+    "Reset"
+   ],
+   "out": [
+    "PAS",
+    "OPS",
+    "Start",
+    "M-PRCD",
+    "S-PRCD",
+    "Reset",
+    "M-Fault",
+    "ST PRMT",
+    "Flicker",
+    "Pause",
+    "ABN"
+   ]
+  },
+  "40BE": {
+   "name": "40BE_I",
+   "desc": "",
+   "explain": "The output Y is a value determined by OR calculation of each bit between X1 and X2.\n\nEx)\n 215 20\n X1 0 0 1 1 0 0 1 1 0 0 1 1 0 0 1 1\n X2 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1\n Y 0 1 1 1 0 1 1 1 0 1 1 1 0 1 1 1",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "408E": {
+   "name": "DER5_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "4020": {
+   "name": "AVE4_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "8234": {
+   "name": "ACK",
+   "desc": "Acknowledge",
+   "explain": "The ACK macro is used for transfering signals (Acknowledge Request, Sound Request, Silence Request and Reset Request) from HMI to controller. Put ACK macro in every controller. (Don’t use more than 1 at one controller.) Put ACK macro before any other tag macro.",
+   "in": [
+    "ACK",
+    "RST",
+    "CAT"
+   ],
+   "out": [
+    "ACK",
+    "SND",
+    "SIL",
+    "RST",
+    "CAT"
+   ]
+  },
+  "4045": {
+   "name": "LOS1_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "40D6": {
+   "name": "40D6_I",
+   "desc": "",
+   "explain": "The value of output Y is X1 rotated by X2 bits.\n If X2 is positive value, rotates to the left.\n If X2 is negative value, rotates to the right.\n\n (Example)\n\n X1＝4680 (1248H), X2＝4\n\n X1 0 0 0 1 0 0 1 0 0 1 0 0 1 0 0 0",
+   "in": [],
+   "out": []
+  },
+  "4022": {
+   "name": "DIF2_I",
+   "desc": "",
+   "explain": "△\n BB This function calculates differential of two inputs.\n -\n X2\n Y = X1 − X 2",
+   "in": [],
+   "out": []
+  },
+  "4138": {
+   "name": "OR3E_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "40CF": {
+   "name": "GO_TS",
+   "desc": "",
+   "explain": "This \"GO\" macro executes conditional branch within a LOOP.\n\n If the execution condition is ON, CPU card executes the next macro after the \"ENTRY\" macro. (see P.166)\n If the execution condition is OFF, CPU card executes the next macro after the \"GO\" macro.\n (\"ENTRY\" macro has to be put on the sheet, which is defined as \"Sheet number\" parameter. Block number of\n the \"ENTRY\" macro has to be the first one on the sheet.)\n You can use more than one pair of \"GO\" and \"ENTRY\" macros, also you can use one \"ENTRY\" macro for multiple\n \"GO\" macros.\n If \"ENTRY\" macro does not exist as the first block number",
+   "in": [
+    "SW"
+   ],
+   "out": []
+  },
+  "4065": {
+   "name": "DBA1_I",
+   "desc": "",
+   "explain": "Dead band width of a subtraction type is processed. Y\n In the diagram on the right:\n No Input X Output Y\n 0\n ① X ≥ DB1 Y = X − DB1\n ③ -DB1 ② +DB1 ①\n ② − DB1 < X < DB1 Y =0\n X\n ③ X ≤ − DB1 Y = X + DB1",
+   "in": [
+    "X"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "8304": {
+   "name": "SV-CI",
+   "desc": "SV Station (Change Inhibit)",
+   "explain": "The SV-CI (CI = Change Inhibit) macro is the addition of inhibitting increase and decrease to SV macro (TagType:19, Code:820CH)(P.83). When CNT Input No.7 INC-INH (SV Increment Inhibit) is ON, the increment of CNT Ouput No.2 SV (Setting Value Demand) is inhibitted. When CNT Input No.9 DEC-INH (SV Decrement Inhibit) is ON, the decrement of CNT Ouput No.2 SV (Setting Value Demand) is inhibitted.",
+   "in": [
+    "Auto",
+    "Manual",
+    "Auto SV",
+    "OR-R-SV",
+    "OR-SV",
+    "HL-SV",
+    "INC-INH",
+    "LL-SV",
+    "DEC-INH",
+    "PV"
+   ],
+   "out": [
+    "Auto",
+    "SV"
+   ]
+  },
+  "406E": {
+   "name": "INL3_I",
+   "desc": "",
+   "explain": "",
+   "in": [
+    "T"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "8210": {
+   "name": "MV-FF",
+   "desc": "MV Station with FF (AA207)",
+   "explain": "The MV-FF macro is a tag macro of MV station. MV-FF macro is used for a closed loop control with feed forward logic.",
+   "in": [
+    "Auto",
+    "Manual",
+    "DLT MV",
+    "OR-R-MV1",
+    "OR-R-MV2",
+    "Hold",
+    "OR-MV1",
+    "OR-MV2",
+    "HL-MV",
+    "LL-MV",
+    "MV",
+    "REF1",
+    "REF2",
+    "REF3",
+    "FF",
+    "CTL-ABN",
+    "DRV-ABN"
+   ],
+   "out": [
+    "In F-OP1",
+    "In F-OP2",
+    "Auto",
+    "MV",
+    "ABN"
+   ]
+  },
+  "82C5": {
+   "name": "SEQ-S",
+   "desc": "Sequence Master – Step Control (AA352)",
+   "explain": "The SEQ-S macro is used for each step of sequence master which controls start/stop/open/close of a series of auxiliaries or actuator sequentially. NOTICE --- When the product (Parameter4 x1000)/CPU Cycle(expressed in ms) is greater than 30,000, adjust the value of Parameter4 to be a divisor of 60.",
+   "in": [
+    "M-PRCD",
+    "S-PRCD",
+    "PRE Step",
+    "ST INH",
+    "AUX FAIL",
+    "SP COMP",
+    "Start",
+    "Reset",
+    "M-COMP",
+    "OPS",
+    "PAS",
+    "Bypass"
+   ],
+   "out": [
+    "S-PRCD",
+    "SP Fault",
+    "SP COMP",
+    "S-Value",
+    "CU Time"
+   ]
+  },
+  "407A": {
+   "name": "SA_D_I",
+   "desc": "",
+   "explain": "Y equals X in n1 sampling time before.\n\n Ex) n1 = 1\n\n X",
+   "in": [
+    "X"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "408F": {
+   "name": "DER6_I",
+   "desc": "",
+   "explain": "",
+   "in": [
+    "HL"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "407D": {
+   "name": "DI3_I",
+   "desc": "",
+   "explain": "",
+   "in": [
+    "X"
+   ],
+   "out": []
+  },
+  "4098": {
+   "name": "P3_6_I",
+   "desc": "",
+   "explain": "",
+   "in": [
+    "X2"
+   ],
+   "out": [
+    "Y2"
+   ]
+  },
+  "403A": {
+   "name": "LAG5_I",
+   "desc": "",
+   "explain": "",
+   "in": [
+    "X"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "404A": {
+   "name": "TRA3_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": []
+  },
+  "4017": {
+   "name": "TDWO_I",
+   "desc": "",
+   "explain": "A time-limit pulse for a specified time is output starting when input changes from OFF to ON. Output also\n turns OFF when input turns OFF.",
+   "in": [
+    "X"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "401A": {
+   "name": "SUM1_I",
+   "desc": "",
+   "explain": "X1 Y\n This function calculates addition of two inputs.\n BB\n\n X2 Y = X1 + X 2\n Real",
+   "in": [],
+   "out": []
+  },
+  "400E": {
+   "name": "2OUT3_I",
+   "desc": "",
+   "explain": "Results of inversion logic of input are output.\n Y=X",
+   "in": [
+    "X2"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "4151": {
+   "name": "4151_I",
+   "desc": "",
+   "explain": "Input X Output Y\n\n X < −1 Y =π\n\n −1 ≤ X ≤ 1 Y = arccos(X )",
+   "in": [
+    "X"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "40E0": {
+   "name": "40E0_I",
+   "desc": "",
+   "explain": "Pin-No. Signal Name Pin-No. Signal Name DI/DO/ALM\n 6 DIC 1 DI 1\n 7 DO-COM 2 DO0 6 2\n 8 ALM2 3 DO1 7 3\n 9 ALM-COM 4 ALM1 8 4\n 9 5\n 5 ALM0\n\n In case of SW=1(ON),the input X is used as a user DO from the PinNo.2of the D-SUB(9pin)connector in the\n CPUX01 module.\n 1. In case of SW=1(ON),DO0=X\n 2. In case of SW=0(OFF), DO0=Current value",
+   "in": [],
+   "out": []
+  },
+  "4007": {
+   "name": "OR2_I",
+   "desc": "",
+   "explain": "Results of ORing “n” inputs are output.\n\n Y = X1 + X 2 + L + X n (n ; 2 to 8)\n\n Example of adding Not logic X1 X2 X3 X1 X2 X3 Y\n 0 0 0 0 1 0 1\n X1 1 0 0 1 1 0 1\n X2 OR Y\n BB 0 1 0 0 0 0 0\n X3\n 0 0 1 0 1 1 1\n 1 1 0 1 0 0 1\n Y = X1 + X 2 + X 3 1 0 1 1 1 1 1\n NOT logic can be added at any input points. 0 1 1 0 0 1 1\n 1 1 1 1 0 1 1",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "4013": {
+   "name": "DI_I",
+   "desc": "",
+   "explain": "After input changes to ON, output is turned ON after a delay of the specified time.",
+   "in": [
+    "X"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "40B0": {
+   "name": "TBL3_I",
+   "desc": "",
+   "explain": "",
+   "in": [
+    "X1"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "4089": {
+   "name": "TDWO3_I",
+   "desc": "",
+   "explain": "",
+   "in": [
+    "X"
+   ],
+   "out": []
+  },
+  "408D": {
+   "name": "DER4_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "4050": {
+   "name": "SLO1_I",
+   "desc": "",
+   "explain": "Compares input value (X) with set values (set/reset values) and makes LV output(Y) of the result of it.\n Parameter can be set from input S and R (with right macro).\n\n Parameter S1 / R1 Input X Output Y\n X ≦ S1 Y=1\n S1 < R1 X > R1 Y=0\n S1 < X < R1 Y = previous value is retained\n\n S1 = R1 X ≦ S1 Y=1\n X > S1 Y=0\n S1 > R1 Not allowed",
+   "in": [],
+   "out": []
+  },
+  "40B6": {
+   "name": "I2D_I",
+   "desc": "",
+   "explain": "The output is a value determined by conversion from integer input to digital bits.\n\n 215 20\n\n 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15\n\n Output",
+   "in": [],
+   "out": []
+  },
+  "414D": {
+   "name": "414D_I",
+   "desc": "",
+   "explain": "Y = sin( X )",
+   "in": [
+    "X"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "4014": {
+   "name": "DIL_I",
+   "desc": "",
+   "explain": "After input changes to ON, output is turned ON after a delay of the specified time.",
+   "in": [
+    "X"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "4139": {
+   "name": "OR4E_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "82FE": {
+   "name": "DALM1",
+   "desc": "Digital Input with Alarm",
+   "explain": "Ttag(16char max) The function, input, output and parameters of DALM1 are same as those of Tdes1-xxxxxxxxxxxxxx xxxxxxxx(40char max) DALM (⇒ p.17) in TagType 2. 1 DALM1 1 2 QTY QTY 2 BB ALM= ASET",
+   "in": [],
+   "out": []
+  },
+  "4071": {
+   "name": "DER2_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "40E9": {
+   "name": "40E9_I",
+   "desc": "",
+   "explain": "EU-U1 No.1\n No.2\n No.3\n EU-L1 No.4\n No.5\n No.6\n CNT-U1 No.7\n No.8\n RL-U1 RL-L1\n CNT-L1",
+   "in": [],
+   "out": []
+  },
+  "82EE": {
+   "name": "GWDI2",
+   "desc": "Gateway Digital Input without Alarm",
+   "explain": "Ttag(16char max) Tdes1-xxxxxxxxxxxxxx The function, input, output and parameters of GWDI2 are same as those of xxxxxxxx(40char max) GWDI (⇒ p.142) in TagType 45. 1 GWDI 1 2 2 QTY QTY 2 BB",
+   "in": [],
+   "out": []
+  },
+  "40C3": {
+   "name": "40C3_I",
+   "desc": "",
+   "explain": "If the input X1 is 0, the output Y turns OFF.\n If the input X1 is not 0, the output Y turns ON.",
+   "in": [
+    "X1"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "40CA": {
+   "name": "40CA_I",
+   "desc": "",
+   "explain": "Y=X",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "402A": {
+   "name": "DIV1_I",
+   "desc": "",
+   "explain": "This function calculates dividing of two inputs.\n\n X1\n Y=\n X2",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "40DE": {
+   "name": "40DE_I",
+   "desc": "",
+   "explain": "This macro is used for delivering user log functionality.\n In case of SW=ON Error Code :63(3Fh)is logged. Besides, the log entry is made every controller cycle..\n In case X1 is set ,the value at the concerned line number is logged as a sub code.\n In case X2 is set, the value at the concerned line number is stored at the head along with the information of the 16\n registers that follow the value at the concerned line number.\n It is necessary to specify the continuity of the area containing the 16 registers while setting the Information Line\n No of the System configuration.",
+   "in": [
+    "X1"
+   ],
+   "out": []
+  },
+  "40AA": {
+   "name": "DVH3_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "8202": {
+   "name": "MOV-NSH",
+   "desc": "Motor Operated Valve Non-Self Hold (AA141B)",
+   "explain": "The MOV-NSH macro is used for a motor operated valve. DCS does not hold open/close demand in DCS.",
+   "in": [
+    "Auto",
+    "Manual",
+    "Auto OP",
+    "F-OP",
+    "OP INH",
+    "Auto CL",
+    "F-CL",
+    "CL INH",
+    "Local",
+    "E-FAIL",
+    "OV TRQ",
+    "Open",
+    "Closed",
+    "POS"
+   ],
+   "out": [
+    "Auto",
+    "OP DMD",
+    "CL DMD",
+    "ABN"
+   ]
+  },
+  "8225": {
+   "name": "SEQ-M",
+   "desc": "Sequence Master-Mode Control (AA301)",
+   "explain": "The SEQ-M macro is used for sequence master which control start/stop/open/close of a series of auxiliaries or actuator sequentially.",
+   "in": [
+    "ST DMD",
+    "PAS",
+    "OPS",
+    "M-COMP",
+    "AUX Auto",
+    "ST INH",
+    "Relative",
+    "AUX FAIL",
+    "SP Fault"
+   ],
+   "out": [
+    "PAS",
+    "OPS",
+    "Start",
+    "M-PRCD",
+    "S-PRCD",
+    "Reset",
+    "M-Fault",
+    "ST PRMT",
+    "ABN"
+   ]
+  },
+  "409D": {
+   "name": "DTD_I",
+   "desc": "",
+   "explain": "Y=X",
+   "in": [
+    "X"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "82EF": {
+   "name": "GWDIA2",
+   "desc": "Gateway Digital Input with Alarm",
+   "explain": "Ttag(16char max) Tdes1-xxxxxxxxxxxxxx The function, input, output and parameters of GWDIA2 are same as those of xxxxxxxx(40char max) GWDIA (⇒ p.143) in TagType 45. 1 GWDIA 1 2 2 QTY QTY 2 BB ALM= ASET",
+   "in": [],
+   "out": []
+  },
+  "823B": {
+   "name": "GW-AI",
+   "desc": "Gateway Analog Input",
+   "explain": "The GW-AI macro is an analog point tag used for TOSMAP-DS Gateway.",
+   "in": [
+    "Input Value",
+    "QTY"
+   ],
+   "out": [
+    "Current Value",
+    "QTY"
+   ]
+  },
+  "4044": {
+   "name": "HIS3_I",
+   "desc": "",
+   "explain": "",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "4067": {
+   "name": "MAX_I",
+   "desc": "",
+   "explain": "This function outputs the maximum value of the Inputs.\n Y = Max( X 1 , X 2 , X 3 )",
+   "in": [
+    "X2"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "4018": {
+   "name": "D_CONS_I",
+   "desc": "",
+   "explain": "The output is continuous false (OFF).",
+   "in": [],
+   "out": [
+    "Y"
+   ]
+  },
+  "40D4": {
+   "name": "40D4_I",
+   "desc": "",
+   "explain": "This macro converts BCD number to 16 bit signed integer value .\n In case where input BCD number has format error, output value doesn't change.\n Format of input BCD number is described below.\n\n 0 1 3 4 7 8 11 12 15\n sign Thousands Hundreds Tens Units",
+   "in": [
+    "X"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "400A": {
+   "name": "OR5_I",
+   "desc": "",
+   "explain": "",
+   "in": [
+    "X3"
+   ],
+   "out": [
+    "Y"
+   ]
+  },
+  "8214": {
+   "name": "DUAL",
+   "desc": "Dual Gate Sensor (AA221)",
+   "explain": "The DUAL macro is used for selecting dual redundant sensors.",
+   "in": [
+    "SENS-A",
+    "QTY-A",
+    "SENS-B",
+    "QTY-B",
+    "Cut Out"
+   ],
+   "out": [
+    "SEL VLU",
+    "TRP MAN",
+    "DEV HI",
+    "ABN"
+   ]
+  }
+ }
+}

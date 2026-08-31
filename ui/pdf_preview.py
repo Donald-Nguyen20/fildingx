@@ -14,7 +14,11 @@ from PySide6.QtWebEngineWidgets import QWebEngineView
 
 import paths
 from core.llm_client import create_llm_client, PROVIDERS
-from core.llm_config import load_llm_config, save_llm_config, get_config_path
+from core.llm_config import (
+    load_llm_config, save_llm_config, get_config_path,
+    DEFAULT_OLLAMA_MODEL, DEFAULT_OPENROUTER_MODEL,
+    DEFAULT_GROQ_MODEL, DEFAULT_GEMINI_MODEL,
+)
 from ui.notes_window import RichTextEdit
 
 
@@ -72,16 +76,16 @@ class LLMSettingsDialog(QDialog):
         self.ed_ollama_host = QLineEdit(cfg.get("ollama_host", "http://localhost:11434"))
         form.addRow("Ollama host:", self.ed_ollama_host)
 
-        self.ed_ollama_model = QLineEdit(cfg.get("ollama_model", "llama3.1:8b"))
+        self.ed_ollama_model = QLineEdit(cfg.get("ollama_model", DEFAULT_OLLAMA_MODEL))
         form.addRow("Ollama model:", self.ed_ollama_model)
 
-        self.ed_openrouter_model = QLineEdit(cfg.get("openrouter_model", "meta-llama/llama-3.3-70b-instruct:free"))
+        self.ed_openrouter_model = QLineEdit(cfg.get("openrouter_model", DEFAULT_OPENROUTER_MODEL))
         form.addRow("OpenRouter model:", self.ed_openrouter_model)
 
-        self.ed_groq_model = QLineEdit(cfg.get("groq_model", "llama-3.3-70b-versatile"))
+        self.ed_groq_model = QLineEdit(cfg.get("groq_model", DEFAULT_GROQ_MODEL))
         form.addRow("Groq model:", self.ed_groq_model)
 
-        self.ed_gemini_model = QLineEdit(cfg.get("gemini_model", "gemini-2.0-flash"))
+        self.ed_gemini_model = QLineEdit(cfg.get("gemini_model", DEFAULT_GEMINI_MODEL))
         form.addRow("Gemini model:", self.ed_gemini_model)
 
         self.cbo_translate = QComboBox()
@@ -150,10 +154,10 @@ class LLMSettingsDialog(QDialog):
         cfg["groq_api_key"]        = self.ed_groq.text().strip()
         cfg["gemini_api_key"]      = self.ed_gemini.text().strip()
         cfg["ollama_host"]         = self.ed_ollama_host.text().strip() or "http://localhost:11434"
-        cfg["ollama_model"]        = self.ed_ollama_model.text().strip() or "llama3.1:8b"
-        cfg["openrouter_model"]    = self.ed_openrouter_model.text().strip() or "meta-llama/llama-3.3-70b-instruct:free"
-        cfg["groq_model"]          = self.ed_groq_model.text().strip() or "llama-3.3-70b-versatile"
-        cfg["gemini_model"]        = self.ed_gemini_model.text().strip() or "gemini-2.0-flash"
+        cfg["ollama_model"]        = self.ed_ollama_model.text().strip() or DEFAULT_OLLAMA_MODEL
+        cfg["openrouter_model"]    = self.ed_openrouter_model.text().strip() or DEFAULT_OPENROUTER_MODEL
+        cfg["groq_model"]          = self.ed_groq_model.text().strip() or DEFAULT_GROQ_MODEL
+        cfg["gemini_model"]        = self.ed_gemini_model.text().strip() or DEFAULT_GEMINI_MODEL
         cfg["translate_provider"]  = self.cbo_translate.currentData()
         try:
             save_llm_config(cfg)

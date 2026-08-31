@@ -1,0 +1,197 @@
+<meta charset="utf-8">
+<title>F4 — Data Brain</title>
+<link rel="stylesheet" href="shell.css">
+<style>
+  .work{flex:1;display:grid;grid-template-columns:214px 1fr 352px;overflow:hidden}
+  .modes{border-right:1px solid var(--line);background:var(--panel-2);
+         padding:16px 13px;display:flex;flex-direction:column;gap:16px;overflow:hidden}
+  .primarymode{display:flex;align-items:center;justify-content:center;gap:8px;height:44px;
+               border-radius:var(--r-md);font-size:var(--t-md);font-weight:600;
+               background:linear-gradient(180deg,#2ad0b8,#17a894);color:var(--accent-ink)}
+  .g2{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:7px}
+  .mode{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
+        height:52px;border-radius:var(--r-md);background:var(--panel);
+        border:1px solid var(--line);color:var(--ink-2);font-size:var(--t-xs)}
+  .mode span{font-size:15px;line-height:1}
+  .mode.hot{border-color:var(--line-2);color:var(--ink)}
+  .hist{display:flex;flex-direction:column;gap:4px}
+  .hi{font-size:var(--t-sm);color:var(--ink-3);padding:5px 8px;border-radius:var(--r-sm);
+      white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .hi.on{background:var(--raise);color:var(--ink-2)}
+
+  .chat{display:flex;flex-direction:column;overflow:hidden}
+  .chead{height:38px;display:flex;align-items:center;gap:9px;padding:0 20px;
+         border-bottom:1px solid var(--line);font-family:var(--mono);
+         font-size:var(--t-xs);color:var(--ink-3)}
+  .stream{flex:1;padding:22px 26px;overflow:hidden}
+  .me{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-md);
+      padding:12px 15px;font-size:var(--t-md);margin-bottom:18px;max-width:620px}
+  .lab{font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:var(--ink-3);
+       font-weight:700;margin-bottom:8px}
+  .ans{font-size:var(--t-md);line-height:1.75;max-width:760px}
+  .ans p{margin-bottom:13px}
+  .c{font-family:var(--mono);font-size:var(--t-xs);color:var(--cite);
+     border:1px solid rgba(255,126,46,.4);border-radius:var(--r-sm);padding:1px 6px;
+     background:rgba(255,126,46,.09)}
+  .tbl{border:1px solid var(--line);border-radius:var(--r-md);background:var(--panel-2);
+       padding:13px 16px;margin-bottom:14px;max-width:520px}
+  .tbl div{display:flex;font-family:var(--mono);font-size:var(--t-sm);padding:3px 0}
+  .tbl div b{width:132px;color:var(--ink-3);font-weight:400}
+  .tbl .g{color:var(--accent)} .tbl .w{color:var(--warn)}
+  .note{border-left:2px solid var(--line);padding-left:13px;color:var(--ink-2);
+        font-size:var(--t-sm);line-height:1.7;max-width:700px}
+  .composer{border-top:1px solid var(--line);padding:13px 20px;background:var(--panel-2)}
+  .cin{display:flex;align-items:center;gap:12px;background:var(--panel);
+       border:1px solid var(--line-2);border-radius:var(--r-md);padding:12px 15px}
+  .cin .ph{flex:1;color:var(--ink-3);font-size:var(--t-md)}
+  .cin .k{font-family:var(--mono);font-size:10px;color:var(--ink-3);
+          border:1px solid var(--line);border-radius:4px;padding:2px 6px}
+
+  .side{border-left:1px solid var(--line);background:var(--panel-2);
+        display:flex;flex-direction:column;overflow:hidden}
+  .orbwrap{height:212px;position:relative;border-bottom:1px solid var(--line);
+           display:flex;align-items:center;justify-content:center;background:#06090f}
+  .orbwrap img{width:200px;height:200px;object-fit:contain}
+  .orbtag{position:absolute;left:14px;top:11px;font-family:var(--mono);font-size:10px;
+          color:var(--ink-3)}
+  .legend{padding:9px 14px;border-bottom:1px solid var(--line);font-size:10.5px;
+          color:var(--ink-3);line-height:1.9;background:#06090f}
+  .ev{flex:1;padding:13px 14px;overflow:hidden}
+  .ecard{border:1px solid var(--line);border-radius:var(--r-md);background:var(--panel);
+         margin-bottom:9px;overflow:hidden}
+  .ecard.on{border-color:rgba(255,126,46,.45)}
+  .ech{padding:9px 12px;display:flex;align-items:center;gap:7px;border-bottom:1px solid #172231}
+  .ech .pg{margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--ink-3)}
+  .ecb{padding:9px 12px;font-size:var(--t-sm);line-height:1.6;color:var(--ink-2)}
+  .vok{font-size:10px;font-family:var(--mono);color:var(--accent);margin-top:5px}
+  .vno{font-size:10px;font-family:var(--mono);color:var(--warn);margin-top:5px}
+  .eacts{display:flex;gap:6px;padding:0 12px 10px}
+  .eacts a{flex:1;text-align:center;font-size:var(--t-xs);padding:6px;
+           border-radius:var(--r-sm);border:1px solid var(--line);color:var(--ink-2);
+           background:var(--panel-2)}
+  .sfoot{padding:12px 14px;border-top:1px solid var(--line)}
+</style>
+
+<div class="nav">
+  <div class="logo"><i></i>Finding · VP1</div>
+  <div class="navh">Tra cứu</div>
+  <div class="ni"><div class="ic">🔍</div><b>File Search</b><div class="n">8,052</div></div>
+  <div class="ni"><div class="ic">▤</div><b>DB Search</b><div class="n">8,052</div></div>
+  <div class="navh">Nghiên cứu</div>
+  <div class="ni"><div class="ic">▦</div><b>NotebookLM</b><div class="n">12</div></div>
+  <div class="ni on"><div class="ic">🤖</div><b>Data Brain</b></div>
+  <div class="navh">Kho</div>
+  <div class="ni"><div class="ic">▣</div><b>Containers</b><div class="n">7</div></div>
+  <div class="ni"><div class="ic">⚙</div><b>Tools</b></div>
+  <div class="ni"><div class="ic">✚</div><b>Add-ons</b></div>
+  <div class="navfoot">
+    <div class="kv"><span>Kho tài liệu</span><b>AB Drawings</b></div>
+    <div class="kv"><span>Đã lập chỉ mục</span><b>8,052</b></div>
+    <div class="bar"><i style="width:78%"></i></div>
+    <div class="kv"><span>Có lớp text</span><b>6,281 · 78%</b></div>
+    <div class="warnline">1,771 bản quét OCR — số liệu cần đối chiếu bản gốc</div>
+  </div>
+</div>
+
+<div class="main">
+  <div class="top">
+    <h1>Data Brain</h1>
+    <div class="sub">hỏi đáp có trích dẫn · Claude + chỉ mục nội bộ</div>
+    <div class="r">
+      <div class="pill ok">● Claude sẵn sàng</div>
+      <div class="pill cite">◆ 3 nguồn đã trích</div>
+      <div class="btn">Dựng báo cáo KV-OP</div>
+    </div>
+  </div>
+
+  <div class="work">
+    <div class="modes">
+      <div>
+        <h4>Chế độ</h4>
+        <div class="primarymode">💬 Ask</div>
+        <div class="g2">
+          <div class="mode hot"><span>🔍</span>Find Docs</div>
+          <div class="mode"><span>📝</span>Make Report</div>
+          <div class="mode"><span>🔬</span>Diagnose</div>
+          <div class="mode"><span>▣</span>Quick Card</div>
+          <div class="mode"><span>⚙</span>Work Pack</div>
+          <div class="mode"><span>📈</span>Trend Data</div>
+        </div>
+      </div>
+      <div>
+        <h4>Phiên gần đây</h4>
+        <div class="hist">
+          <div class="hi on">Ngưỡng rung IDF</div>
+          <div class="hi">Bơm tuần hoàn — chức năng</div>
+          <div class="hi">Chuẩn bị thay bearing IDF-A</div>
+          <div class="hi">Sự cố mất chân không 07/2026</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="chat">
+      <div class="chead">💬 Ask · phiên 13.08.2026 · 4 câu hỏi</div>
+      <div class="stream">
+        <div class="me">Ngưỡng rung của IDF là bao nhiêu, và số nghiệm thu lúc bàn giao?</div>
+
+        <div class="lab">Claude</div>
+        <div class="ans">
+          <p>Ngưỡng bảo vệ rung của quạt IDF lấy theo ISO 10816-3, nhóm máy Group 1
+            trên móng cứng <span class="c">HNC-50056 §7.4.2</span>:</p>
+          <div class="tbl">
+            <div><b>Alarm</b><span class="g">4.5 mm/s RMS</span></div>
+            <div><b>Trip</b><span class="w">7.1 mm/s RMS</span></div>
+            <div><b>Trễ trip</b><span>3 s · 2-out-of-2</span></div>
+            <div><b>Nghiệm thu 11/2024</b><span>2.8 DE / 3.1 NDE mm/s</span></div>
+          </div>
+          <p>Logic bảo vệ bỏ qua tín hiệu khi damper đang đóng
+            <span class="c">HNC-50061 §4.2</span>, nên giá trị đọc lúc khởi động
+            không kích trip.</p>
+          <div class="note">Số nghiệm thu 2.8 / 3.1 mm/s nằm dưới alarm khá xa — nếu
+            hiện tại đo được trên 5 mm/s thì đó là suy giảm thật theo thời gian,
+            không phải sai số đo.</div>
+        </div>
+      </div>
+      <div class="composer">
+        <div class="cin"><div class="ph">Hỏi tiếp về IDF, hoặc bấm một chế độ bên trái…</div>
+          <div class="k">Enter</div></div>
+      </div>
+    </div>
+
+    <div class="side">
+      <div class="orbwrap"><img src="../_orb.png">
+        <div class="orbtag">260 khớp · 3 nguồn</div></div>
+      <div class="legend">
+        Lot 3 AB DWG (<b style="color:#ff6347">1,982</b>) ·
+        12_O&amp;M (<b style="color:#40e0d0">1,835</b>) ·
+        Lot 4 AB DWG (<b style="color:#f0e678">1,786</b>) ·
+        Lot 2 AB DWG (<b style="color:#d28cff">848</b>) ·
+        11_Training (<b style="color:#32cd32">717</b>)
+      </div>
+
+      <div class="ev">
+        <h4>Nguồn đã trích · 3</h4>
+        <div class="ecard on">
+          <div class="ech"><div class="doc">VP1-C-L3-G-HNC-50056</div><div class="pg">tr. 214</div></div>
+          <div class="ecb">7.4.2 — <mark>Alarm 4.5 mm/s RMS, trip 7.1 mm/s RMS</mark> theo ISO 10816-3.
+            <div class="vok">✓ đã đối chiếu với DB</div></div>
+          <div class="eacts"><a>Mở PDF</a><a>Chèn vào báo cáo</a></div>
+        </div>
+        <div class="ecard on">
+          <div class="ech"><div class="doc">VP1-C-L3-I-HNC-50061</div><div class="pg">tr. 8 · quét</div></div>
+          <div class="ecb">4.2 — trip sau <mark>trễ 3 giây</mark>, bỏ qua khi đóng damper.
+            <div class="vno">⚠ bản quét OCR — nên xem bản gốc</div></div>
+          <div class="eacts"><a>Mở PDF</a><a>Chèn vào báo cáo</a></div>
+        </div>
+        <div class="ecard">
+          <div class="ech"><div class="doc">VP1-C-L3-F-HNC-50210</div><div class="pg">tr. 3</div></div>
+          <div class="ecb">Nghiệm thu 11/2024 — <mark>2.8 / 3.1 mm/s</mark> ở đầy tải.
+            <div class="vok">✓ đã đối chiếu với DB</div></div>
+          <div class="eacts"><a>Mở PDF</a><a>Chèn vào báo cáo</a></div>
+        </div>
+      </div>
+
+      <div class="sfoot"><div class="btn primary" style="width:100%">Dựng báo cáo KV-OP từ 3 nguồn</div></div>
+    </div>
+  </div>
+</div>

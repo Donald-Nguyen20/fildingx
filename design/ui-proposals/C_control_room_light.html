@@ -1,0 +1,228 @@
+<meta charset="utf-8">
+<title>Proposal C — Control Room (light)</title>
+<style>
+  :root{
+    --bg:#eef1f5; --card:#ffffff; --line:#d6dce4; --line-2:#e8ecf1;
+    --ink:#0f1720; --ink-2:#4a5865; --ink-3:#7c8b9a;
+    --accent:#0b5fd0; --accent-soft:#e4eeff;
+    --ok:#0a7d55; --warn:#a8620a; --hot:#b3261e;
+    --mono:"Consolas","Cascadia Mono",monospace;
+    --ui:"Segoe UI",system-ui,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{width:1600px;height:950px;background:var(--bg);color:var(--ink);
+       font-family:var(--ui);font-size:13.5px;overflow:hidden;display:flex;flex-direction:column}
+
+  .bar{height:52px;background:var(--card);border-bottom:1px solid var(--line);
+       display:flex;align-items:center;gap:22px;padding:0 22px}
+  .logo{font-weight:700;font-size:15px;letter-spacing:-.2px}
+  .logo span{color:var(--accent)}
+  .search{flex:1;max-width:640px;display:flex;align-items:center;gap:10px;
+          border:1px solid var(--line);border-radius:8px;padding:8px 13px;background:#f7f9fb}
+  .search .ph{color:var(--ink-3);font-size:13.5px}
+  .search .kbd{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--ink-3);
+               border:1px solid var(--line);border-radius:3px;padding:1px 5px;background:#fff}
+  .bar .r{margin-left:auto;display:flex;align-items:center;gap:16px;font-size:12px;color:var(--ink-2)}
+  .pill{display:flex;align-items:center;gap:6px;background:#f0fdf6;border:1px solid #b6e3cd;
+        color:var(--ok);border-radius:20px;padding:4px 11px;font-size:11.5px;font-weight:600}
+
+  .body{flex:1;display:grid;grid-template-columns:236px 1fr 396px;min-height:0}
+
+  /* facets */
+  .facets{background:var(--card);border-right:1px solid var(--line);padding:18px 16px;overflow:hidden}
+  .facets h4{font-size:10px;letter-spacing:1.3px;text-transform:uppercase;color:var(--ink-3);
+             font-weight:700;margin:20px 0 9px}
+  .facets h4:first-child{margin-top:0}
+  .fc{display:flex;align-items:center;gap:9px;padding:5px 0;font-size:13px;color:var(--ink-2)}
+  .fc .bx{width:14px;height:14px;border-radius:3px;border:1.5px solid #b8c2cd;flex:none}
+  .fc.on .bx{background:var(--accent);border-color:var(--accent)}
+  .fc.on{color:var(--ink);font-weight:600}
+  .fc .n{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--ink-3)}
+  .barmini{height:4px;background:var(--line-2);border-radius:2px;margin:9px 0 3px;overflow:hidden}
+  .barmini i{display:block;height:100%;background:var(--accent);border-radius:2px}
+
+  /* results */
+  .res{display:flex;flex-direction:column;min-width:0;background:var(--bg)}
+  .resh{padding:14px 22px 10px;display:flex;align-items:baseline;gap:12px}
+  .resh b{font-size:15px}
+  .resh .s{font-size:12.5px;color:var(--ink-3)}
+  .resh .sort{margin-left:auto;font-size:12px;color:var(--ink-2);
+              border:1px solid var(--line);background:var(--card);border-radius:6px;padding:5px 11px}
+  .tbl{margin:0 22px;background:var(--card);border:1px solid var(--line);border-radius:10px;
+       overflow:hidden;box-shadow:0 1px 2px rgba(16,24,40,.04)}
+  table{width:100%;border-collapse:collapse}
+  th{text-align:left;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--ink-3);
+     padding:10px 14px;background:#f7f9fb;border-bottom:1px solid var(--line);font-weight:700}
+  td{padding:11px 14px;border-bottom:1px solid var(--line-2);font-size:13px;color:var(--ink-2);
+     vertical-align:top}
+  tr:last-child td{border-bottom:none}
+  tr.sel td{background:var(--accent-soft)}
+  .dn{font-family:var(--mono);font-size:12px;color:var(--accent);font-weight:600}
+  .nm{color:var(--ink);display:block;margin-top:2px;font-size:12.5px}
+  .sn{display:inline-block;font-family:var(--mono);font-size:10px;padding:1.5px 6px;border-radius:3px;
+      background:#eef2f7;color:var(--ink-2);border:1px solid var(--line)}
+  .sn.ocr{background:#fff7ed;color:var(--warn);border-color:#f5d4a8}
+  .sn.new{background:#f0fdf6;color:var(--ok);border-color:#b6e3cd}
+  .hit{font-size:12px;color:var(--ink-3);line-height:1.55;margin-top:5px;
+       border-left:2px solid #e0b34a;padding-left:9px}
+  .hit mark{background:#fdf0c8;color:#5c4200;padding:0 2px}
+
+  /* inspector */
+  .insp{background:var(--card);border-left:1px solid var(--line);display:flex;flex-direction:column}
+  .insph{padding:16px 18px 13px;border-bottom:1px solid var(--line)}
+  .insph .dn{font-size:13px}
+  .insph h2{font-size:15.5px;margin:5px 0 9px;line-height:1.35;font-weight:600}
+  .meta{display:grid;grid-template-columns:auto 1fr;gap:5px 14px;font-size:12.5px}
+  .meta dt{color:var(--ink-3)}
+  .meta dd{font-family:var(--mono);color:var(--ink-2)}
+  .thumb{margin:14px 18px;height:196px;background:#f5f2ea;border:1px solid var(--line);
+         border-radius:7px;padding:16px 18px;font-family:Georgia,serif;font-size:9.5px;
+         line-height:1.7;color:#3a352d;overflow:hidden}
+  .thumb b{font-family:var(--ui);font-size:10px;display:block;margin-bottom:7px}
+  .thumb mark{background:#ffe08a}
+  .acts{padding:0 18px;display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .a{border:1px solid var(--line);border-radius:7px;padding:9px;text-align:center;font-size:12.5px;
+     color:var(--ink-2);background:#fbfcfe}
+  .a.pri{grid-column:1/-1;background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+  .ai{margin:16px 18px 0;background:#f7f9fb;border:1px solid var(--line);border-radius:9px;padding:13px 15px}
+  .ai h5{font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:var(--ink-3);
+         font-weight:700;margin-bottom:8px;display:flex;align-items:center;gap:6px}
+  .ai p{font-size:12.5px;line-height:1.65;color:var(--ink-2)}
+  .ai p+p{margin-top:8px}
+  .rel{margin:14px 18px 0;font-size:12.5px}
+  .rel h5{font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:var(--ink-3);
+          font-weight:700;margin-bottom:8px}
+  .rl{display:flex;gap:8px;padding:6px 0;color:var(--ink-2);align-items:baseline}
+  .rl .dn{font-size:11.5px}
+</style>
+
+<div class="bar">
+  <div class="logo">Finding<span>·</span>VP1</div>
+  <div class="search">
+    <span style="color:var(--ink-3)">⌕</span>
+    <div class="ph">rung ổ đỡ IDF ngưỡng alarm</div>
+    <div class="kbd">Ctrl K</div>
+  </div>
+  <div class="r">
+    <div class="pill">● 8,052 tài liệu · đã lập chỉ mục</div>
+    <span>Nhà máy Nhiệt điện Vân Phong 1 BOT</span>
+  </div>
+</div>
+
+<div class="body">
+  <div class="facets">
+    <h4>Ngành</h4>
+    <div class="fc on"><div class="bx"></div>I — Đo lường &amp; ĐK<div class="n">1204</div></div>
+    <div class="fc on"><div class="bx"></div>G — Sổ tay O&amp;M<div class="n">1835</div></div>
+    <div class="fc"><div class="bx"></div>M — Cơ khí<div class="n">1477</div></div>
+    <div class="fc"><div class="bx"></div>F — Chạy thử<div class="n">310</div></div>
+    <div class="fc"><div class="bx"></div>E — Điện<div class="n">982</div></div>
+
+    <h4>Lot</h4>
+    <div class="fc"><div class="bx"></div>L1 Lò hơi<div class="n">384</div></div>
+    <div class="fc"><div class="bx"></div>L2 Tuabin<div class="n">848</div></div>
+    <div class="fc on"><div class="bx"></div>L3 BOP<div class="n">1982</div></div>
+    <div class="fc"><div class="bx"></div>L4 Xây dựng<div class="n">1786</div></div>
+
+    <h4>Mã hệ thống</h4>
+    <div class="fc on"><div class="bx"></div>HNC — IDF<div class="n">147</div></div>
+    <div class="fc"><div class="bx"></div>FDF<div class="n">121</div></div>
+    <div class="fc"><div class="bx"></div>BFP<div class="n">98</div></div>
+    <div class="fc"><div class="bx"></div>CWP<div class="n">64</div></div>
+
+    <h4>Chất lượng chỉ mục</h4>
+    <div style="font-size:12px;color:var(--ink-2)">Có lớp text
+      <div class="barmini"><i style="width:78%"></i></div>
+      <span style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">6,281 / 8,052 · 78%</span>
+    </div>
+    <div style="font-size:12px;color:var(--warn);margin-top:11px">1,771 bản quét OCR —
+      độ tin cậy thấp hơn</div>
+  </div>
+
+  <div class="res">
+    <div class="resh">
+      <b>23 tài liệu</b><span class="s">· 61 đoạn khớp · 0.4 s</span>
+      <div class="sort">Độ liên quan ▾</div>
+    </div>
+    <div class="tbl">
+      <table>
+        <tr><th style="width:46%">Tài liệu</th><th>Rev</th><th>Lot</th><th>Trang</th><th>Trạng thái</th></tr>
+        <tr class="sel">
+          <td><span class="dn">VP1-C-L3-G-HNC-50056</span>
+            <span class="nm">Howden IDF — Operation &amp; Maintenance Manual</span>
+            <div class="hit">7.4.2 … <mark>Alarm is set at 4.5 mm/s RMS and trip at 7.1 mm/s</mark>
+              RMS, in accordance with ISO 10816-3 …</div></td>
+          <td class="dn">D</td><td>L3</td><td>486</td><td><span class="sn new">có text</span></td></tr>
+        <tr>
+          <td><span class="dn">VP1-C-L3-I-HNC-50061</span>
+            <span class="nm">IDF Protection Logic Diagram</span>
+            <div class="hit">4.2 … <mark>vibration high-high initiates fan trip after a 3 second
+              time delay</mark> …</div></td>
+          <td class="dn">B</td><td>L3</td><td>12</td><td><span class="sn ocr">quét OCR</span></td></tr>
+        <tr>
+          <td><span class="dn">VP1-C-L3-F-HNC-50210</span>
+            <span class="nm">IDF Commissioning Test Record</span>
+            <div class="hit">Measured <mark>2.8 mm/s DE / 3.1 mm/s NDE</mark> at full load,
+              2024-11-08 …</div></td>
+          <td class="dn">0</td><td>L3</td><td>8</td><td><span class="sn new">có text</span></td></tr>
+        <tr>
+          <td><span class="dn">VP1-C-L3-I-HNC-50072</span>
+            <span class="nm">Instrument Index — Draft Plant</span>
+            <div class="hit">HNC-VI-101A / 101B — <mark>bearing vibration</mark> transmitter,
+              4–20 mA …</div></td>
+          <td class="dn">C</td><td>L3</td><td>44</td><td><span class="sn">có text</span></td></tr>
+        <tr>
+          <td><span class="dn">VP1-C-L3-G-HNC-50058</span>
+            <span class="nm">IDF Spare Parts &amp; Bearing Schedule</span>
+            <div class="hit">Bearing SKF 23064 CC/W33, <mark>replacement interval</mark>
+              50,000 running hours …</div></td>
+          <td class="dn">A</td><td>L3</td><td>96</td><td><span class="sn">có text</span></td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="insp">
+    <div class="insph">
+      <span class="dn">VP1-C-L3-G-HNC-50056</span>
+      <h2>Howden IDF — Operation &amp; Maintenance Manual</h2>
+      <dl class="meta">
+        <dt>Bản</dt><dd>Rev.D · 2024-03-18</dd>
+        <dt>Kích thước</dt><dd>486 trang · 41.2 MB</dd>
+        <dt>Hệ thống</dt><dd>HNC · Lot 3 · ngành G</dd>
+        <dt>Đoạn khớp</dt><dd>12 đoạn</dd>
+      </dl>
+    </div>
+
+    <div class="thumb">
+      <b>7.4 VIBRATION MONITORING AND PROTECTION</b>
+      Each fan bearing housing is fitted with a velocity transducer mounted radially in the
+      horizontal plane. Signals are routed to the vibration monitoring rack in the electrical
+      building and from there to the DCS.<br><br>
+      <b style="display:inline">7.4.2 Protection settings</b> —
+      <mark>Alarm is set at 4.5 mm/s RMS and trip at 7.1 mm/s RMS</mark>, in accordance with
+      ISO 10816-3 zone boundaries for Group 1 machines on rigid foundations. Both channels are
+      voted 1-out-of-2 for alarm and 2-out-of-2 for trip.
+    </div>
+
+    <div class="acts">
+      <div class="a pri">Mở tại trang 214</div>
+      <div class="a">Hỏi về tài liệu</div>
+      <div class="a">Chèn vào báo cáo</div>
+    </div>
+
+    <div class="ai">
+      <h5>◆ Tóm tắt tự động</h5>
+      <p>Tài liệu này là nguồn duy nhất có ngưỡng bảo vệ rung dạng số. Ba tài liệu còn lại
+      đều dẫn lại từ đây, nên nếu con số sai thì cả bộ sai theo.</p>
+      <p>Bản Rev.D thay Rev.C từ 03/2024 — thay đổi duy nhất ở chương 7 là hạ ngưỡng alarm
+      từ 5.0 xuống 4.5 mm/s.</p>
+    </div>
+
+    <div class="rel">
+      <h5>Liên quan</h5>
+      <div class="rl"><span class="dn">HNC-50061</span><span>logic bảo vệ · trích cùng ngưỡng</span></div>
+      <div class="rl"><span class="dn">HNC-50210</span><span>số đo nghiệm thu để so sánh</span></div>
+      <div class="rl"><span class="dn">KV-OP-25-0088</span><span>báo cáo cũ về cùng thiết bị</span></div>
+    </div>
+  </div>
+</div>

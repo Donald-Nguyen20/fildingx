@@ -1,0 +1,188 @@
+<meta charset="utf-8">
+<title>F1 — File Search</title>
+<link rel="stylesheet" href="shell.css">
+<style>
+  .work{flex:1;display:grid;grid-template-columns:1fr 372px;overflow:hidden}
+  .res{display:flex;flex-direction:column;overflow:hidden}
+  .qbar{padding:14px 20px;border-bottom:1px solid var(--line);background:var(--panel-2)}
+  .qrow{display:flex;gap:10px;align-items:center}
+  .qrow .field{flex:1}
+  .folder{display:flex;align-items:center;gap:8px;height:38px;padding:0 12px;
+          border:1px solid var(--line);border-radius:var(--r-md);background:var(--panel-2);
+          font-family:var(--mono);font-size:var(--t-xs);color:var(--ink-2);max-width:330px}
+  .syn{display:flex;gap:6px;margin-top:10px;align-items:center}
+  .syn .lb{font-size:10px;letter-spacing:1.1px;text-transform:uppercase;
+           color:var(--ink-3);font-weight:700;margin-right:3px}
+  .syn code{font-family:var(--mono);font-size:10.5px;color:var(--ink-2);
+            border:1px solid var(--line);border-radius:var(--r-sm);padding:3px 8px;
+            background:var(--panel)}
+  .syn code b{color:var(--accent);font-weight:400}
+  .meta{display:flex;align-items:center;gap:14px;padding:10px 20px;
+        font-size:var(--t-sm);color:var(--ink-3);border-bottom:1px solid var(--line)}
+  .meta .c{color:var(--ink);font-size:var(--t-md);font-weight:600}
+  .grp{padding:9px 20px;font-size:var(--t-xs);color:var(--ink-3);
+       background:var(--panel-2);border-bottom:1px solid var(--line);
+       font-family:var(--mono);display:flex;gap:9px;align-items:center}
+  .grp b{color:var(--ink-2);font-weight:400}
+  .tw{flex:1;overflow:hidden}
+  td .tag{display:inline-block;font-family:var(--mono);font-size:10px;padding:2px 7px;
+          border-radius:4px;border:1px solid var(--line);color:var(--ink-3);margin-right:4px}
+  td .tag.ok{color:var(--accent);border-color:var(--accent-dim)}
+  td .tag.sc{color:var(--warn);border-color:#4a3a14}
+
+  /* preview gắn liền, không còn là một điểm đến riêng trong rail */
+  .prev{border-left:1px solid var(--line);background:var(--panel-2);
+        display:flex;flex-direction:column;overflow:hidden}
+  .ph{padding:14px 16px;border-bottom:1px solid var(--line)}
+  .ph .t{font-size:var(--t-md);color:var(--ink);line-height:1.4}
+  .thumb{margin:16px;height:250px;border-radius:var(--r-md);border:1px solid var(--line);
+         background:#f5f2ea;color:#2b2b2b;padding:16px 18px;font-family:Georgia,serif;
+         font-size:10.5px;line-height:1.7;overflow:hidden}
+  .thumb h5{font-size:11px;margin-bottom:8px;letter-spacing:.4px}
+  .thumb em{background:#ffe9a8;font-style:normal}
+  .pf{padding:0 16px 14px;display:flex;flex-direction:column;gap:7px}
+  .pk{display:flex;font-size:var(--t-sm);padding:4px 0;color:var(--ink-3)}
+  .pk b{width:110px;font-weight:400}
+  .pk span{color:var(--ink-2);font-family:var(--mono);font-size:var(--t-xs)}
+  .pacts{margin-top:auto;padding:14px 16px;border-top:1px solid var(--line);
+         display:flex;flex-direction:column;gap:8px}
+</style>
+
+<div class="nav">
+  <div class="logo"><i></i>Finding · VP1</div>
+  <div class="navh">Tra cứu</div>
+  <div class="ni on"><div class="ic">🔍</div><b>File Search</b><div class="n">8,052</div></div>
+  <div class="ni"><div class="ic">▤</div><b>DB Search</b><div class="n">8,052</div></div>
+  <div class="navh">Nghiên cứu</div>
+  <div class="ni"><div class="ic">▦</div><b>NotebookLM</b><div class="n">12</div></div>
+  <div class="ni"><div class="ic">🤖</div><b>Data Brain</b></div>
+  <div class="navh">Kho</div>
+  <div class="ni"><div class="ic">▣</div><b>Containers</b><div class="n">7</div></div>
+  <div class="ni"><div class="ic">⚙</div><b>Tools</b></div>
+  <div class="ni"><div class="ic">✚</div><b>Add-ons</b></div>
+  <div class="navfoot">
+    <div class="kv"><span>Kho tài liệu</span><b>AB Drawings</b></div>
+    <div class="kv"><span>Đã lập chỉ mục</span><b>8,052</b></div>
+    <div class="bar"><i style="width:78%"></i></div>
+    <div class="kv"><span>Có lớp text</span><b>6,281 · 78%</b></div>
+    <div class="warnline">1,771 bản quét OCR — số liệu cần đối chiếu bản gốc</div>
+  </div>
+</div>
+
+<div class="main">
+  <div class="top">
+    <h1>File Search</h1>
+    <div class="sub">tìm theo TÊN file · không đọc nội dung</div>
+    <div class="r">
+      <div class="pill">23 kết quả</div>
+      <div class="btn ghost">Nhóm theo Lot ▾</div>
+      <div class="btn">Xuất danh sách</div>
+    </div>
+  </div>
+
+  <div class="work">
+    <div class="res">
+      <div class="qbar">
+        <div class="qrow">
+          <div class="folder">📁 D:/3.VP/6.Library/AB Drawings</div>
+          <div class="btn">Đổi thư mục</div>
+          <div class="field"><span style="color:var(--ink-3)">🔍</span>
+            <div class="ph" style="color:var(--ink)">HNC*bearing</div>
+            <div class="k">Enter</div></div>
+        </div>
+        <div class="syn">
+          <div class="lb">Cú pháp</div>
+          <code><b>A,B</b> hoặc</code>
+          <code><b>A*B</b> và</code>
+          <code><b>A%B</b> loại trừ</code>
+          <code><b>@fuzzy</b> gần đúng</code>
+          <code><b>folder:</b>tên</code>
+          <code><b>$stats</b> thống kê</code>
+        </div>
+      </div>
+
+      <div class="meta">
+        <div class="c">23 tệp</div><span>·</span><span>trong 4 thư mục</span>
+        <span>·</span><span class="mono">tìm hết 0.2 s</span>
+      </div>
+
+      <div class="grp"><b>▾ Lot 3 — Balance of Plant</b><span>18 tệp</span></div>
+
+      <div class="tw">
+        <table>
+          <thead><tr>
+            <th style="width:40%">Tên tệp</th><th>Sửa đổi</th><th>Loại</th>
+            <th>Dung lượng</th><th>Trạng thái</th>
+          </tr></thead>
+          <tbody>
+            <tr class="on"><td>
+                <div class="nm">VP1-C-L3-G-HNC-50056-Rev.D.pdf</div>
+                <div class="sn">…/12_O&amp;M Manual/Howden IDF</div></td>
+              <td class="mono">2024-03-18</td><td class="mono">.pdf</td>
+              <td class="mono">41.2 MB</td>
+              <td><span class="tag ok">có text</span><span class="tag">486 tr.</span></td></tr>
+            <tr><td>
+                <div class="nm">VP1-C-L3-I-HNC-50061-Rev.B.pdf</div>
+                <div class="sn">…/13_Logic Diagram</div></td>
+              <td class="mono">2023-11-02</td><td class="mono">.pdf</td>
+              <td class="mono">6.4 MB</td>
+              <td><span class="tag sc">quét OCR</span><span class="tag">12 tr.</span></td></tr>
+            <tr><td>
+                <div class="nm">VP1-C-L3-F-HNC-50210-Rev.0.pdf</div>
+                <div class="sn">…/09_Commissioning/Test Record</div></td>
+              <td class="mono">2024-11-08</td><td class="mono">.pdf</td>
+              <td class="mono">2.1 MB</td>
+              <td><span class="tag ok">có text</span><span class="tag">8 tr.</span></td></tr>
+            <tr><td>
+                <div class="nm">VP1-C-L3-G-HNC-50058-Rev.A.xlsx</div>
+                <div class="sn">…/12_O&amp;M Manual/Spare Parts</div></td>
+              <td class="mono">2023-08-21</td><td class="mono">.xlsx</td>
+              <td class="mono">0.9 MB</td>
+              <td><span class="tag ok">có text</span></td></tr>
+            <tr><td>
+                <div class="nm">VP1-C-L3-I-HNC-50072-Rev.C.pdf</div>
+                <div class="sn">…/13_Instrument Index</div></td>
+              <td class="mono">2024-01-15</td><td class="mono">.pdf</td>
+              <td class="mono">11.8 MB</td>
+              <td><span class="tag ok">có text</span><span class="tag">44 tr.</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="grp" style="border-top:1px solid var(--line)">
+        <b>▸ Lot 2 — Tuabin &amp; Máy phát</b><span>5 tệp</span></div>
+    </div>
+
+    <!-- Preview không còn là 1 mục riêng bên rail — nó nằm ngay cạnh kết quả -->
+    <div class="prev">
+      <div class="ph">
+        <h4>Xem trước</h4>
+        <div class="t">Howden IDF — Operation &amp; Maintenance Manual</div>
+        <div class="doc" style="margin-top:6px">VP1-C-L3-G-HNC-50056 · Rev.D</div>
+      </div>
+
+      <div class="thumb">
+        <h5>7.4 VIBRATION MONITORING AND PROTECTION</h5>
+        Each fan bearing housing is fitted with a velocity transducer mounted radially
+        in the horizontal plane. Signals are routed to the vibration monitoring rack in
+        the electrical building and from there to the DCS.<br><br>
+        <b>7.4.2 Protection settings</b><br>
+        <em>Alarm is set at 4.5 mm/s RMS and trip at 7.1 mm/s RMS</em>, in accordance
+        with ISO 10816-3 zone boundaries for Group 1 machines on rigid foundations.
+        Both channels are voted 1-out-of-2 for alarm and 2-out-of-2 for trip.
+      </div>
+
+      <div class="pf">
+        <div class="pk"><b>Lot / Ngành</b><span>L3 · G — Sổ tay O&amp;M</span></div>
+        <div class="pk"><b>Hệ thống</b><span>HNC — Quạt hút khói</span></div>
+        <div class="pk"><b>Số trang</b><span>486</span></div>
+        <div class="pk"><b>Trong container</b><span>IDF · Howden · Lot 3</span></div>
+      </div>
+
+      <div class="pacts">
+        <div class="btn primary">Mở tệp gốc</div>
+        <div class="btn">Hỏi Data Brain về tệp này</div>
+      </div>
+    </div>
+  </div>
+</div>
