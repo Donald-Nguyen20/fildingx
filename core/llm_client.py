@@ -8,11 +8,37 @@ from core.llm_config import (
     DEFAULT_GROQ_MODEL, DEFAULT_GEMINI_MODEL,
 )
 
-# Generation limits
+# Generation limits.
+#
+# These budgets cover the model's *whole* output, and on a reasoning model the
+# private thinking is spent out of the same pot before a single visible
+# character is written. The replacements for the withdrawn models -- gpt-oss
+# and Gemini 3.x -- both reason by default, and the old budgets left them
+# nothing to answer with: on the AI grouping prompt gpt-oss burned all 900
+# tokens thinking and returned an empty string, while Gemini spent 1962 of its
+# 2048 and got cut off mid-line. Grouping looked like it had gotten worse; in
+# fact it was never seeing a complete reply. Measured need on that prompt is
+# ~1600-3400 tokens for gpt-oss and ~2900 total for Gemini.
+#
+# The chat ceiling cannot simply be set generously, though: Groq's free tier
+# allows 8000 tokens a minute and reserves prompt + max_tokens against that
+# budget up front, so an over-large ceiling is refused outright with HTTP 413
+# on exactly the big result sets that need it most. 4000 covers a 40-file
+# grouping prompt with room to spare. A full 100-file one it does not: that
+# prompt alone is ~2000 tokens, and gpt-oss wants more thinking than the
+# remaining ~6000 the tier would allow -- 100-file grouping is simply past
+# what this model and tier can do together, and it now says so and hands the
+# job to Gemini instead of returning half a grouping. Gemini is not metered
+# this way and finishes the same prompt inside its own ceiling.
 _OLLAMA_NUM_PREDICT = 700
 _OLLAMA_NUM_CTX     = 4096
-_MAX_TOKENS_CHAT    = 900
-_MAX_TOKENS_GEMINI  = 2048
+_MAX_TOKENS_CHAT    = 4000
+_MAX_TOKENS_GEMINI  = 6000
+
+# Gemini 3.x grows its thinking to fill whatever budget it is given, so raising
+# the ceiling alone does not help it -- the level has to be asked for directly.
+# Older Gemini models do not know this field, hence the one-shot retry below.
+_GEMINI_THINKING_LEVEL = "low"
 
 # Provider keys used internally + labels shown in UI
 PROVIDERS: List[Tuple[str, str]] = [
@@ -23,6 +49,12 @@ PROVIDERS: List[Tuple[str, str]] = [
 ]
 
 class BaseLLMClient:
+    # Set by generate() when the model stopped because it hit the token
+    # ceiling rather than because it had finished speaking. A cut-off reply is
+    # still a non-empty string, so callers that only test for emptiness accept
+    # half an answer as a whole one -- this is the only way to tell them apart.
+    last_truncated = False
+
     def generate(self, prompt: str) -> str:
         raise NotImplementedError
 
@@ -48,6 +80,7 @@ class LLMClientOllama(BaseLLMClient):
         )
         r.raise_for_status()
         data = r.json()
+        self.last_truncated = data.get("done_reason") == "length"
         return (data.get("response") or "").strip()
 
 class OpenAICompatibleChatClient(BaseLLMClient):
@@ -77,6 +110,7 @@ class OpenAICompatibleChatClient(BaseLLMClient):
         choices = data.get("choices") or []
         if not choices:
             return ""
+        self.last_truncated = choices[0].get("finish_reason") == "length"
         msg = choices[0].get("message") or {}
         return (msg.get("content") or "").strip()
 
@@ -122,11 +156,22 @@ class LLMClientGemini(BaseLLMClient):
         }
         payload = {
             "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {"temperature": 0.2, "maxOutputTokens": _MAX_TOKENS_GEMINI},
+            "generationConfig": {
+                "temperature": 0.2,
+                "maxOutputTokens": _MAX_TOKENS_GEMINI,
+                "thinkingConfig": {"thinkingLevel": _GEMINI_THINKING_LEVEL},
+            },
         }
         delays = [15, 30, 60]
         for attempt, wait in enumerate(delays + [None]):
             r = requests.post(url, headers=headers, json=payload, timeout=self.timeout)
+            # thinkingConfig only exists from Gemini 3 on. If the configured
+            # model predates it the request is rejected outright, so drop the
+            # field and repeat this same attempt -- a tuning hint the model has
+            # never heard of should not cost a call or a rate-limit retry.
+            if r.status_code == 400 and "thinkingConfig" in payload["generationConfig"]:
+                payload["generationConfig"].pop("thinkingConfig")
+                r = requests.post(url, headers=headers, json=payload, timeout=self.timeout)
             if r.status_code == 429 and wait is not None:
                 time.sleep(wait)
                 continue
@@ -134,9 +179,22 @@ class LLMClientGemini(BaseLLMClient):
             break
         data = r.json()
         try:
-            return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+            candidate = data["candidates"][0]
         except (KeyError, IndexError):
             return ""
+        self.last_truncated = candidate.get("finishReason") == "MAX_TOKENS"
+        try:
+            parts = candidate["content"]["parts"]
+        except KeyError:
+            return ""
+        # A reasoning model may return its thinking as parts of the same reply,
+        # flagged with "thought", and may split the answer itself across
+        # several parts. Reading parts[0] alone could hand back a fragment --
+        # or the thinking instead of the answer.
+        answer = "".join(
+            p.get("text", "") for p in parts if not p.get("thought")
+        )
+        return answer.strip()
 
 
 
@@ -165,7 +223,13 @@ def create_llm_client(provider_key: str, model_override: str = "") -> BaseLLMCli
         model = model_override or cfg.get("gemini_model", DEFAULT_GEMINI_MODEL)
         return LLMClientGemini(api_key=api_key, model=model)
 
-    # fallback
-    model = (cfg.get("ollama_model") or DEFAULT_OLLAMA_MODEL).strip()
-    host = (cfg.get("ollama_host") or "http://localhost:11434").strip()
-    return LLMClientOllama(model=model, host=host)
+    # An unrecognised provider used to fall through to Ollama. That turned a
+    # typo in the config into a connection error against localhost, which
+    # names the wrong problem entirely -- nothing is wrong with Ollama, the
+    # provider key is simply not one of the four. Say which key was given and
+    # what the valid ones are; every caller already reports the exception.
+    valid = ", ".join(key for key, _label in PROVIDERS)
+    raise ValueError(
+        f"Unknown LLM provider {provider_key!r}. Choose one of: {valid} "
+        "-- set it in ⚙ LLM Settings."
+    )
