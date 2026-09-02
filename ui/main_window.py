@@ -840,6 +840,7 @@ class FileSearchApp(QMainWindow):
         pairs  = result.get("pairs", self._last_results)
         groups = result.get("groups", [])
         dupes  = result.get("dupes", [])
+        copies = result.get("copies", [])
 
         self.tree_widget.clear()
         total = 0
@@ -860,34 +861,54 @@ class FileSearchApp(QMainWindow):
                 total += 1
             self.tree_widget.addTopLevelItem(header)
 
-        if dupes:
-            dup_header = self.sort_helper.make_item(
-                name      = f"⚠️ Multiple Revisions  ({len(dupes)} document(s))",
+        # Two kinds of repeat, kept apart because they ask different questions:
+        # several revisions leave you deciding which is current, while identical
+        # copies only leave you deciding which folder to open.
+        self._add_duplicate_section(
+            f"⚠️ Multiple Revisions  ({len(dupes)} document(s))", dupes, pairs)
+        self._add_duplicate_section(
+            f"📑 Same File in Several Folders  ({len(copies)} document(s))",
+            copies, pairs)
+
+        self._mark_saved_items()
+        self.lcd_number.display(total)
+        note = result.get("note", "")
+        self.statusBar().showMessage(
+            f"Grouped into {len(groups)} categories. "
+            + (f"{len(dupes)} document(s) with several revisions. " if dupes else "")
+            + (f"{len(copies)} duplicated file(s). " if copies else "")
+            + note
+        )
+        # A fallback or a cut-off reply is easy to miss in the status bar, and
+        # both mean the grouping on screen is not what was asked for. A note
+        # that only reports a few files labelled offline does not earn a
+        # dialog -- it stays in the status bar, where it can be read and ignored.
+        if result.get("alert"):
+            QMessageBox.warning(self, "AI Group", note)
+
+    def _add_duplicate_section(self, title: str, sets: list, pairs: list):
+        if not sets:
+            return
+        header = self.sort_helper.make_item(
+            name      = title,
+            date_text = "", type_text = "DUPE",
+            size_text = "", path      = "",
+            mtime_ts=None, size_bytes=None,
+        )
+        header.setExpanded(True)
+        for entry in sets:
+            sub = self.sort_helper.make_item(
+                name      = f"  📄 {entry['base']}",
                 date_text = "", type_text = "DUPE",
                 size_text = "", path      = "",
                 mtime_ts=None, size_bytes=None,
             )
-            dup_header.setExpanded(True)
-            for dup in dupes:
-                sub = self.sort_helper.make_item(
-                    name      = f"  📄 {dup['base']}",
-                    date_text = "", type_text = "DUPE",
-                    size_text = "", path      = "",
-                    mtime_ts=None, size_bytes=None,
-                )
-                sub.setExpanded(True)
-                for fname, orig_idx in dup["files"]:
-                    _, fpath = pairs[orig_idx]
-                    sub.addChild(self._make_tree_item(fname, fpath))
-                dup_header.addChild(sub)
-            self.tree_widget.addTopLevelItem(dup_header)
-
-        self._mark_saved_items()
-        self.lcd_number.display(total)
-        self.statusBar().showMessage(
-            f"Grouped into {len(groups)} categories. "
-            + (f"{len(dupes)} duplicate document(s) detected." if dupes else "")
-        )
+            sub.setExpanded(True)
+            for fname, orig_idx in entry["files"]:
+                _, fpath = pairs[orig_idx]
+                sub.addChild(self._make_tree_item(fname, fpath))
+            header.addChild(sub)
+        self.tree_widget.addTopLevelItem(header)
 
     def display_folder_results(self, results: list):
         self.tree_widget.clear()

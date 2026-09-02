@@ -18,6 +18,15 @@ from ui.hud_widgets import qss_hud_metal_header_feel, qss_white_results
 
 _DB_LIST_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "db_list.json")
 
+# How many rows one database may contribute to a search.
+#
+# The old cap of 200, taken in plain alphabetical order, quietly threw away the
+# most relevant half of every large result. "VP1-" sorts near the end of the
+# alphabet, so on a search for "pump" -- 2642 matches, 2206 of them properly
+# numbered VP1 documents -- the first 200 names held just 23 of them. The
+# library's own documents were the ones being cut.
+_RESULT_LIMIT = 500
+
 
 def _load_db_list() -> list:
     try:
@@ -140,14 +149,14 @@ class IndexSearchWidget(QWidget):
             return
 
         selected_data = self.db_selector.currentData()
+        targets = self.db_paths if selected_data is None else [selected_data]
         rows = []
-        if selected_data is None:
-            for db in self.db_paths:
-                for row in self._search_single(db, keyword):
-                    rows.append((*row, db))
-        else:
-            for row in self._search_single(selected_data, keyword):
-                rows.append((*row, selected_data))
+        capped = False
+        for db in targets:
+            found, hit_cap = self._search_single(db, keyword)
+            capped = capped or hit_cap
+            for row in found:
+                rows.append((*row, db))
 
         self._last_rows = rows
         self.result_table.clear()
@@ -156,32 +165,46 @@ class IndexSearchWidget(QWidget):
                 item = QTreeWidgetItem([name, path])
                 item.setData(0, Qt.UserRole, db_path)
                 self.result_table.addTopLevelItem(item)
-            self.lbl_count.setText(f"Found {len(rows)} result(s) for \"{keyword}\"")
+            capped_note = (
+                f" — more than {_RESULT_LIMIT} matched, so only the closest are "
+                "shown. Add another word to narrow it."
+                if capped else ""
+            )
+            self.lbl_count.setText(
+                f"Found {len(rows)} result(s) for \"{keyword}\"{capped_note}"
+            )
             self.btn_group.setEnabled(True)
         else:
             self.lbl_count.setText(f"No results for \"{keyword}\"")
             self.btn_group.setEnabled(False)
 
-    def _search_single(self, db_path: str, keyword: str) -> list:
+    def _search_single(self, db_path: str, keyword: str) -> tuple:
+        """Search one database. Returns (rows, whether the cap was reached)."""
         try:
             conn = sqlite3.connect(db_path)
             cur = conn.cursor()
             like = f"%{keyword}%"
+            # A file whose *name* carries the keyword is a closer match than one
+            # that merely mentions it somewhere on page 300, so those come first
+            # and survive the cap. Within each half the order stays alphabetical.
+            # One row past the cap is fetched purely to tell "exactly the cap"
+            # apart from "more than we are showing".
             cur.execute(
                 """
                 SELECT name, path, type FROM files
                 WHERE (name LIKE ? OR content LIKE ?)
                   AND name != 'BASE_PATH'
-                ORDER BY name LIMIT 200
+                ORDER BY (name LIKE ?) DESC, name
+                LIMIT ?
                 """,
-                (like, like),
+                (like, like, like, _RESULT_LIMIT + 1),
             )
             rows = cur.fetchall()
             conn.close()
-            return rows
+            return rows[:_RESULT_LIMIT], len(rows) > _RESULT_LIMIT
         except Exception as e:
             QMessageBox.warning(self, "DB Error", f"Failed to search {db_path}: {e}")
-            return []
+            return [], False
 
     def _copy_name(self):
         item = self.result_table.currentItem()
@@ -224,6 +247,7 @@ class IndexSearchWidget(QWidget):
         rows = self._last_rows
         groups = result.get("groups", [])
         dupes = result.get("dupes", [])
+        copies = result.get("copies", [])
 
         self.result_table.clear()
         total = 0
@@ -241,24 +265,44 @@ class IndexSearchWidget(QWidget):
                 total += 1
             self.result_table.addTopLevelItem(header)
 
-        if dupes:
-            dup_header = QTreeWidgetItem([f"⚠️ Multiple Revisions  ({len(dupes)} document(s))", ""])
-            dup_header.setExpanded(True)
-            for dup in dupes:
-                sub = QTreeWidgetItem([f"  📄 {dup['base']}", ""])
-                sub.setExpanded(True)
-                for fname, orig_idx in dup["files"]:
-                    _, fpath, _type, db_path = rows[orig_idx]
-                    child = QTreeWidgetItem([fname, fpath])
-                    child.setData(0, Qt.UserRole, db_path)
-                    sub.addChild(child)
-                dup_header.addChild(sub)
-            self.result_table.addTopLevelItem(dup_header)
+        # Two kinds of repeat, kept apart because they ask different questions:
+        # several revisions leave you deciding which is current, while identical
+        # copies only leave you deciding which folder to open.
+        self._add_duplicate_section(
+            f"⚠️ Multiple Revisions  ({len(dupes)} document(s))", dupes, rows)
+        self._add_duplicate_section(
+            f"📑 Same File in Several Folders  ({len(copies)} document(s))",
+            copies, rows)
 
+        note = result.get("note", "")
         self.lbl_count.setText(
             f"Grouped into {len(groups)} categories. "
-            + (f"{len(dupes)} duplicate document(s) detected." if dupes else "")
+            + (f"{len(dupes)} document(s) with several revisions. " if dupes else "")
+            + (f"{len(copies)} duplicated file(s). " if copies else "")
+            + note
         )
+        # A fallback or a cut-off reply is easy to miss in a small grey label,
+        # and both mean the grouping on screen is not what was asked for. A
+        # note that only reports a few files labelled offline does not earn a
+        # dialog -- it stays in the label, where it can be read and ignored.
+        if result.get("alert"):
+            QMessageBox.warning(self, "AI Group", note)
+
+    def _add_duplicate_section(self, title: str, sets: list, rows: list):
+        if not sets:
+            return
+        header = QTreeWidgetItem([title, ""])
+        header.setExpanded(True)
+        for entry in sets:
+            sub = QTreeWidgetItem([f"  📄 {entry['base']}", ""])
+            sub.setExpanded(True)
+            for fname, orig_idx in entry["files"]:
+                _, fpath, _type, db_path = rows[orig_idx]
+                child = QTreeWidgetItem([fname, fpath])
+                child.setData(0, Qt.UserRole, db_path)
+                sub.addChild(child)
+            header.addChild(sub)
+        self.result_table.addTopLevelItem(header)
 
     def _open_file(self, item: QTreeWidgetItem, _column: int):
         db_path = item.data(0, Qt.UserRole)
