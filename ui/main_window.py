@@ -20,14 +20,16 @@ from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QFrame,
     QLabel, QLineEdit, QPushButton, QFileDialog,
     QTreeWidget, QListWidget, QListWidgetItem, QMessageBox,
-    QTextEdit, QDialog, QMenu, QLCDNumber, QApplication,
-    QStackedWidget, QSplitter, QTabWidget,
+    QTextEdit, QDialog, QMenu, QApplication,
+    QStackedWidget, QSplitter, QTabWidget, QToolButton, QSizePolicy,
 )
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QCursor, QPalette, QColor, QAction, QKeySequence, QBrush
+from PySide6.QtCore import Qt, QSize
+from PySide6.QtGui import QCursor, QColor, QAction, QKeySequence, QBrush
 
 import paths
 from ui import themes as _themes
+from ui import icons as _icons
+from ui import count_pill
 import core.search_engine    as search_engine
 import core.container_manager as container_manager
 from core.container_manager import get_file_containers
@@ -103,7 +105,8 @@ class MultiFolderDialog(QDialog):
             self._add_row(val, i + 1)
 
         # Nút Add source
-        btn_add = QPushButton("＋ Add source")
+        btn_add = QPushButton("Add source")
+        btn_add.setIcon(_icons.icon("plus", _icons.INK_NATIVE, 14))
         btn_add.setFixedHeight(32)
         btn_add.clicked.connect(self._add_empty_row)
         outer.addWidget(btn_add)
@@ -123,11 +126,15 @@ class MultiFolderDialog(QDialog):
         entry.setPlaceholderText(f"Folder {n} (leave empty to skip)")
         entry.setFixedHeight(34)
         entry.setText(value)
-        btn_browse = QPushButton("📂")
+        # This dialog hangs off the main window, while the theme is set on
+        # main_widget, so it stays a light native dialog and needs a dark ink.
+        btn_browse = QPushButton()
+        btn_browse.setIcon(_icons.icon("folder-open", _icons.INK_NATIVE, 18))
         btn_browse.setFixedSize(34, 34)
         btn_browse.setToolTip("Browse")
         btn_browse.clicked.connect(lambda _=False, e=entry: self._browse(e))
-        btn_remove = QPushButton("✕")
+        btn_remove = QPushButton()
+        btn_remove.setIcon(_icons.icon("x", _icons.INK_NATIVE, 14))
         btn_remove.setFixedSize(28, 34)
         btn_remove.setToolTip("Remove")
         btn_remove.clicked.connect(lambda _=False, w=row_widget, e=entry: self._remove_row(w, e))
@@ -174,6 +181,10 @@ class FileSearchApp(QMainWindow):
         self._group_worker         = None
         self._last_results:   list = []
         self._sidebar_btns:   list = []
+        self._sidebar_icons:  list = []
+        # (widget, icon name, size) for every icon painted in the theme ink, so
+        # _apply_theme can redraw the whole set when the palette changes.
+        self._themed_icons:   list = []
         self._right_stack          = None
 
         self.main_widget = QWidget()
@@ -267,24 +278,19 @@ class FileSearchApp(QMainWindow):
             "&nbsp;&nbsp;<code>$stats</code> → view file-open statistics"
         )
         h.addWidget(self.filename_entry, 3)
-        self.search_btn = QPushButton("🔍  Search")
+        self.search_btn = QPushButton("Search")
+        self._themed_icon(self.search_btn, "search")
         self.search_btn.setMinimumWidth(120)
         self.search_btn.setMinimumHeight(40)
         self.search_btn.clicked.connect(self.search_files)
         h.addWidget(self.search_btn)
 
-        self.lcd_number = QLCDNumber()
-        self.lcd_number.setDigitCount(6)
-        self.lcd_number.setFixedSize(96, 36)
-        self.lcd_number.display(0)
-        pal = self.lcd_number.palette()
-        pal.setColor(QPalette.WindowText, QColor("black"))
-        pal.setColor(QPalette.Light,      QColor("#4a5d23"))
-        pal.setColor(QPalette.Dark,       QColor("black"))
-        self.lcd_number.setPalette(pal)
-        h.addWidget(self.lcd_number)
+        self.result_count = count_pill.make(
+            "How many items the last search returned")
+        h.addWidget(self.result_count)
 
-        self.btn_group = QPushButton("🤖 Group")
+        self.btn_group = QPushButton("Group")
+        self._themed_icon(self.btn_group, "bot")
         self.btn_group.setMinimumWidth(100)
         self.btn_group.setMinimumHeight(40)
         self.btn_group.setEnabled(False)
@@ -296,7 +302,8 @@ class FileSearchApp(QMainWindow):
         # part of this page: it sits in the File Search splitter and exists on no
         # other tab. From the sidebar the button was reachable from all four tabs
         # and did nothing on three of them.
-        self.btn_preview = QPushButton("📄 Preview")
+        self.btn_preview = QPushButton("Preview")
+        self._themed_icon(self.btn_preview, "file-text")
         self.btn_preview.setMinimumWidth(110)
         self.btn_preview.setMinimumHeight(40)
         self.btn_preview.setCheckable(True)
@@ -320,6 +327,54 @@ class FileSearchApp(QMainWindow):
 
         return toolbar
 
+    def _make_sidebar_button(self, icon_name: str, label: str, tooltip: str):
+        """One 72x72 sidebar button: a large icon over a small caption.
+
+        Returns the button and its icon label, because a button that can have a
+        panel open needs its icon re-tinted later by _paint_sidebar_icons().
+        """
+        from PySide6.QtGui import QFont as _QFont
+
+        btn = QPushButton()
+        btn.setFixedSize(72, 72)
+        btn.setToolTip(tooltip)
+        btn.setCursor(QCursor(Qt.PointingHandCursor))
+        btn.setStyleSheet("""
+            QPushButton {
+                background: transparent;
+                border: none;
+                border-radius: 8px;
+            }
+            QPushButton:hover {
+                background: rgba(255,255,255,30);
+                border: 1px solid rgba(255,255,255,70);
+            }
+            QPushButton:checked {
+                background: rgba(40,180,110,50);
+                border-left: 3px solid rgba(60,210,140,220);
+            }
+        """)
+
+        # Layout bên trong button: icon lớn + label nhỏ
+        v = QVBoxLayout(btn)
+        v.setContentsMargins(0, 6, 0, 4)
+        v.setSpacing(1)
+
+        lbl_icon = QLabel()
+        lbl_icon.setPixmap(_icons.pixmap(icon_name, _icons.INK_SIDEBAR, 26))
+        lbl_icon.setAlignment(Qt.AlignCenter)
+        lbl_icon.setAttribute(Qt.WA_TransparentForMouseEvents)
+
+        lbl_text = QLabel(label)
+        lbl_text.setAlignment(Qt.AlignCenter)
+        lbl_text.setFont(_QFont("Segoe UI", 7))
+        lbl_text.setStyleSheet("color: rgba(200,220,255,200);")
+        lbl_text.setAttribute(Qt.WA_TransparentForMouseEvents)
+
+        v.addWidget(lbl_icon)
+        v.addWidget(lbl_text)
+        return btn, lbl_icon
+
     def _setup_body(self):
         """Sidebar (left) + TabWidget (center) + QStackedWidget (right)."""
         toolbar = self._setup_toolbar()
@@ -340,8 +395,6 @@ class FileSearchApp(QMainWindow):
                 background: transparent;
                 border: none;
                 border-radius: 8px;
-                font-family: "Segoe UI Emoji";
-                font-size: 28px;
                 color: rgba(220,230,255,200);
                 padding-top: 6px;
             }
@@ -361,53 +414,24 @@ class FileSearchApp(QMainWindow):
         sb_lay.setSpacing(4)
         sb_lay.setAlignment(Qt.AlignTop)
 
-        from PySide6.QtGui import QFont as _QFont
-
-        for emoji, tip, idx in [("🗂️","Containers",0),("🛠️","Tools",1),
-                                 ("🧩","Add-ons",2)]:
-            btn = QPushButton()
-            btn.setFixedSize(72, 72)
-            btn.setToolTip(tip)
+        for icon_name, tip, idx in [("folders","Containers",0),("wrench","Tools",1),
+                                    ("puzzle","Add-ons",2)]:
+            btn, lbl_icon = self._make_sidebar_button(icon_name, tip, tip)
             btn.setCheckable(True)
-            btn.setCursor(QCursor(Qt.PointingHandCursor))
-            btn.setStyleSheet("""
-                QPushButton {
-                    background: transparent;
-                    border: none;
-                    border-radius: 8px;
-                }
-                QPushButton:hover {
-                    background: rgba(255,255,255,30);
-                    border: 1px solid rgba(255,255,255,70);
-                }
-                QPushButton:checked {
-                    background: rgba(40,180,110,50);
-                    border-left: 3px solid rgba(60,210,140,220);
-                }
-            """)
-
-            # Layout bên trong button: emoji lớn + label nhỏ
-            v = QVBoxLayout(btn)
-            v.setContentsMargins(0, 6, 0, 4)
-            v.setSpacing(1)
-
-            lbl_icon = QLabel(emoji)
-            lbl_icon.setAlignment(Qt.AlignCenter)
-            lbl_icon.setFont(_QFont("Segoe UI Emoji", 22))
-            lbl_icon.setAttribute(Qt.WA_TransparentForMouseEvents)
-
-            lbl_text = QLabel(tip)
-            lbl_text.setAlignment(Qt.AlignCenter)
-            lbl_text.setFont(_QFont("Segoe UI", 7))
-            lbl_text.setStyleSheet("color: rgba(200,220,255,200);")
-            lbl_text.setAttribute(Qt.WA_TransparentForMouseEvents)
-
-            v.addWidget(lbl_icon)
-            v.addWidget(lbl_text)
-
             btn.clicked.connect(lambda _, i=idx, b=btn: self._switch_panel(i, b))
+            self._sidebar_icons.append((lbl_icon, icon_name))
             self._sidebar_btns.append(btn)
             sb_lay.addWidget(btn)
+
+        # The LLM models and keys are shared by every tab — grouping in File
+        # Search and DB Search, Data Brain, translate — so the button belongs
+        # beside the panels rather than inside one tab's header. It opens a
+        # dialog instead of a panel, so it is deliberately kept out of
+        # _sidebar_btns and _sidebar_icons: it never checks and never lights up.
+        btn_llm, _ = self._make_sidebar_button(
+            "settings", "Config LLM", "Config LLM models & API keys")
+        btn_llm.clicked.connect(self._open_llm_settings)
+        sb_lay.addWidget(btn_llm)
 
         sb_lay.addStretch()
         body.addWidget(sidebar)
@@ -480,13 +504,17 @@ class FileSearchApp(QMainWindow):
         self._splitter.setStyleSheet("QSplitter::handle { background: rgba(255,255,255,15); border-radius: 2px; }")
         fs_lay.addWidget(self._splitter, 1)
 
-        self._search_tabs.addTab(file_search_page,       "🔍 File Search")
+        self._tab_icons = ["search", "database", "notebook-pen", "brain"]
+        self._search_tabs.setIconSize(QSize(16, 16))
+        self._search_tabs.addTab(file_search_page,       "File Search")
         self.db_search_widget = IndexSearchWidget()
-        self._search_tabs.addTab(self.db_search_widget,  "🗄 DB Search")
+        self._search_tabs.addTab(self.db_search_widget,  "DB Search")
         self.notebooklm_widget = NotebookLMWidget()
-        self._search_tabs.addTab(self.notebooklm_widget, "📓 NotebookLM")
+        self._search_tabs.addTab(self.notebooklm_widget, "NotebookLM")
         self.claude_assistant_widget = ClaudeAssistantWidget()
-        self._search_tabs.addTab(self.claude_assistant_widget, "🤖 Data Brain")
+        self._search_tabs.addTab(self.claude_assistant_widget, "Data Brain")
+        self._search_tabs.currentChanged.connect(lambda _i: self._paint_tab_icons())
+        self._paint_tab_icons()
         self.notebooklm_widget.open_preview.connect(self._open_preview_from_nlm)
         self.notebooklm_widget.goto_page_signal.connect(self.pdf_preview.goto_page)
         self.notebooklm_widget.request_mindmap.connect(self._mindmap_from_nlm_source)
@@ -548,6 +576,41 @@ class FileSearchApp(QMainWindow):
             for btn in self._sidebar_btns:
                 btn.setChecked(False)
             clicked_btn.setChecked(True)
+        self._paint_sidebar_icons()
+
+    def _paint_sidebar_icons(self):
+        """Light the icon of whichever sidebar button has its panel open."""
+        for (lbl, name), btn in zip(self._sidebar_icons, self._sidebar_btns):
+            colour = _icons.INK_SIDEBAR_ON if btn.isChecked() else _icons.INK_SIDEBAR
+            lbl.setPixmap(_icons.pixmap(name, colour, 26))
+
+    def _open_llm_settings(self):
+        """LLM models and API keys — one setting for the whole app."""
+        from ui.pdf_preview import LLMSettingsDialog
+        LLMSettingsDialog(self).exec()
+
+    def _paint_tab_icons(self):
+        """The selected tab's label turns white, so its icon follows it."""
+        current = self._search_tabs.currentIndex()
+        for i, name in enumerate(self._tab_icons):
+            colour = _icons.INK_TAB_ON if i == current else _icons.INK_TAB
+            self._search_tabs.setTabIcon(i, _icons.icon(name, colour, 16))
+
+    def _themed_icon(self, widget, name: str, size: int = 18):
+        """Give `widget` an icon that follows the theme ink from now on."""
+        self._themed_icons.append((widget, name, size))
+        widget.setIcon(_icons.icon(name, _themes.ink(), size))
+
+    def _tool_button(self, name: str, text: str) -> QToolButton:
+        """Tools-panel button: icon stacked over its label, where the emoji sat."""
+        btn = QToolButton()
+        btn.setText(text)
+        btn.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
+        btn.setIconSize(QSize(24, 24))
+        btn.setCursor(QCursor(Qt.PointingHandCursor))
+        btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self._themed_icon(btn, name, 24)
+        return btn
 
     def _build_containers_page(self) -> QFrame:
         page = QFrame()
@@ -575,17 +638,17 @@ class FileSearchApp(QMainWindow):
         lay.setSpacing(6)
         lay.setAlignment(Qt.AlignTop)
 
-        dup_btn = QPushButton("🔍\nDuplicates")
+        dup_btn = self._tool_button("copy", "Duplicates")
         dup_btn.clicked.connect(self.search_duplicates)
         self.search_duplicates_button = dup_btn
 
         tools = [
-            (QPushButton("📋\nList Files"),         self.list_files_in_folder),
-            (QPushButton("🔄\nSync Folders"),        self.sync_folders),
-            (dup_btn,                                None),
-            (QPushButton("📝\nOpen Notes"),          self.open_or_create_notes),
-            (QPushButton("🔗\nHyperlink Notes"),     self.get_hyperlink_from_tree_view),
-            (QPushButton("📊\nGoogle Sheet"),        self.check_google_sheet),
+            (self._tool_button("list",       "List Files"),      self.list_files_in_folder),
+            (self._tool_button("refresh-cw", "Sync Folders"),    self.sync_folders),
+            (dup_btn,                                            None),
+            (self._tool_button("square-pen", "Open Notes"),      self.open_or_create_notes),
+            (self._tool_button("link-2",     "Hyperlink Notes"), self.get_hyperlink_from_tree_view),
+            (self._tool_button("sheet",      "Google Sheet"),    self.check_google_sheet),
         ]
 
         grid = QGridLayout()
@@ -606,7 +669,8 @@ class FileSearchApp(QMainWindow):
         lay.setContentsMargins(8, 8, 8, 8)
         lay.setSpacing(6)
 
-        add_exe_btn = QPushButton("ADD ON ➕")
+        add_exe_btn = QPushButton("ADD ON")
+        add_exe_btn.setIcon(_icons.icon("plus", "#FFFFFF", 16))
         f = add_exe_btn.font(); f.setPointSize(12); add_exe_btn.setFont(f)
         add_exe_btn.setStyleSheet("""
             QPushButton { background:#4CAF50; color:white; border-radius:8px; padding:5px; }
@@ -630,6 +694,8 @@ class FileSearchApp(QMainWindow):
         _themes.set_index(index)
         t = _themes.get_current()
         self.main_widget.setStyleSheet(t["qss"])
+        for widget, name, size in self._themed_icons:
+            widget.setIcon(_icons.icon(name, t["ink"], size))
         self.main_widget.repaint()
         from ui.hud_widgets import HudPanel
         for panel in self.findChildren(HudPanel):
@@ -761,7 +827,7 @@ class FileSearchApp(QMainWindow):
             self._apply_theme(int(_cm.group(1)))
             return
 
-        self.search_btn.setText("⏳  Searching…")
+        self.search_btn.setText("Searching…")
         self.search_btn.setEnabled(False)
         QApplication.setOverrideCursor(Qt.WaitCursor)
         QApplication.processEvents()
@@ -786,7 +852,7 @@ class FileSearchApp(QMainWindow):
         finally:
             QApplication.restoreOverrideCursor()
             self.search_btn.setEnabled(True)
-            self.search_btn.setText("🔍  Search")
+            self.search_btn.setText("Search")
 
     def display_results(self, results: list):
         self.tree_widget.clear()
@@ -798,11 +864,11 @@ class FileSearchApp(QMainWindow):
             for name, path in unique:
                 self.tree_widget.addTopLevelItem(self._make_tree_item(name, path))
             self._mark_saved_items()
-            self.lcd_number.display(len(unique))
+            count_pill.set_count(self.result_count, len(unique))
             self.statusBar().showMessage(f"Found {len(unique)} file(s).")
             self.btn_group.setEnabled(True)
         else:
-            self.lcd_number.display(0)
+            count_pill.set_count(self.result_count, 0)
             self.statusBar().showMessage("No files found.")
             self.btn_group.setEnabled(False)
             self.tree_widget.addTopLevelItem(
@@ -820,19 +886,19 @@ class FileSearchApp(QMainWindow):
         from core.llm_config import load_llm_config
         provider = load_llm_config().get("translate_provider", "gemini")
         self.btn_group.setEnabled(False)
-        self.btn_group.setText("⏳ Grouping…")
+        self.btn_group.setText("Grouping…")
         self._group_worker = GroupWorker(self._last_results, provider)
         self._group_worker.done.connect(self._on_group_done)
         self._group_worker.error.connect(self._on_group_error)
         self._group_worker.start()
 
     def _on_group_done(self, result: dict):
-        self.btn_group.setText("🤖 Group")
+        self.btn_group.setText("Group")
         self.btn_group.setEnabled(True)
         self._display_grouped(result)
 
     def _on_group_error(self, msg: str):
-        self.btn_group.setText("🤖 Group")
+        self.btn_group.setText("Group")
         self.btn_group.setEnabled(True)
         QMessageBox.warning(self, "AI Group Error", msg)
 
@@ -871,7 +937,7 @@ class FileSearchApp(QMainWindow):
             copies, pairs)
 
         self._mark_saved_items()
-        self.lcd_number.display(total)
+        count_pill.set_count(self.result_count, total)
         note = result.get("note", "")
         self.statusBar().showMessage(
             f"Grouped into {len(groups)} categories. "
@@ -929,10 +995,10 @@ class FileSearchApp(QMainWindow):
                     size_bytes = None,
                 )
                 self.tree_widget.addTopLevelItem(item)
-            self.lcd_number.display(len(unique))
+            count_pill.set_count(self.result_count, len(unique))
             self.statusBar().showMessage(f"Found {len(unique)} folder(s).")
         else:
-            self.lcd_number.display(0)
+            count_pill.set_count(self.result_count, 0)
             self.statusBar().showMessage("No folders found.")
             self.tree_widget.addTopLevelItem(
                 self.sort_helper.make_item("No matches found", "", "", "", "",
@@ -988,10 +1054,10 @@ class FileSearchApp(QMainWindow):
 
     def _on_duplicates_found(self, groups: list):
         self.search_duplicates_button.setEnabled(True)
-        self.search_duplicates_button.setText("Search Duplicates")
+        self.search_duplicates_button.setText("Duplicates")
 
         if not groups:
-            self.lcd_number.display(0)
+            count_pill.set_count(self.result_count, 0)
             self.statusBar().showMessage("No duplicates found.")
             self.tree_widget.addTopLevelItem(
                 self.sort_helper.make_item("No duplicates found", "", "", "", "",
@@ -1013,7 +1079,7 @@ class FileSearchApp(QMainWindow):
                 parent.addChild(self._make_tree_item(name, path))
 
         self._mark_saved_items()
-        self.lcd_number.display(total)
+        count_pill.set_count(self.result_count, total)
         self.statusBar().showMessage(
             f"Found {len(groups)} duplicate group(s), {total} files total."
         )
@@ -1043,30 +1109,35 @@ class FileSearchApp(QMainWindow):
         file_path = item.text(4)
         is_dir = item.text(2) == "DIR"
         menu = QMenu(self)
-        menu.addAction("Open Folder").triggered.connect(
+
+        def act(icon_name: str, label: str):
+            """No theme styles QMenu, so it keeps the light native look and a dark ink."""
+            return menu.addAction(_icons.icon(icon_name, _icons.INK_NATIVE, 16), label)
+
+        act("folder-open", "Open Folder").triggered.connect(
             lambda: self._open_folder_path(file_path if is_dir else os.path.dirname(file_path))
         )
-        menu.addAction("📋 Copy Path").triggered.connect(
+        act("copy", "Copy Path").triggered.connect(
             lambda: self.get_link_from_tree_view()
         )
-        menu.addAction("📋 Copy Name").triggered.connect(
+        act("clipboard-copy", "Copy Name").triggered.connect(
             lambda: self.get_name_from_tree_view()
         )
         menu.addSeparator()
-        menu.addAction("📓 Add to NotebookLM").triggered.connect(
+        act("notebook-pen", "Add to NotebookLM").triggered.connect(
             self._add_selected_to_notebooklm
         )
-        menu.addAction("💬 Ask NbLM about this file").triggered.connect(
+        act("message-circle", "Ask NbLM about this file").triggered.connect(
             lambda: self._ask_nlm_about_file(file_path)
         )
         menu.addSeparator()
-        menu.addAction("📋 Copy to folder").triggered.connect(
+        act("copy-plus", "Copy to folder").triggered.connect(
             lambda: self._copy_files_from_tree(item)
         )
-        menu.addAction("📁 Move to folder").triggered.connect(
+        act("folder-input", "Move to folder").triggered.connect(
             lambda: self._move_files_from_tree(item)
         )
-        menu.addAction("🗑 Delete file").triggered.connect(
+        act("trash-2", "Delete file").triggered.connect(
             lambda: self._delete_file_from_tree(item, file_path)
         )
 
@@ -1083,7 +1154,7 @@ class FileSearchApp(QMainWindow):
             ]
             targets = checked_dirs or [file_path]
             menu.addSeparator()
-            menu.addAction("➕ Add to search folders").triggered.connect(
+            act("folder-plus", "Add to search folders").triggered.connect(
                 lambda: self._add_to_search_folders(targets)
             )
 
@@ -1122,7 +1193,7 @@ class FileSearchApp(QMainWindow):
         from ui.notebooklm_window import is_nlm_logged_in, NotebookLMWidget, TempChatWorker
         if not is_nlm_logged_in():
             QMessageBox.warning(self, "Not Logged In",
-                "Please log in to NotebookLM first.\n\nGo to the 📓 NotebookLM tab and click 🔑 Switch Account.")
+                "Please log in to NotebookLM first.\n\nGo to the NotebookLM tab and click 🔑 Switch Account.")
             return
         NLM_SUPPORTED = {".pdf", ".txt", ".doc", ".docx", ".pptx", ".md"}
         if os.path.splitext(file_path)[1].lower() not in NLM_SUPPORTED:
@@ -1322,7 +1393,7 @@ class FileSearchApp(QMainWindow):
         from ui.notebooklm_window import is_nlm_logged_in, NLMNotebookPickerDialog, AddSourceWorker, ListSourcesWorker
         if not is_nlm_logged_in():
             QMessageBox.warning(self, "Not Logged In",
-                "Please log in to NotebookLM first.\n\nGo to the 📓 NotebookLM tab and click 🔑 Switch Account.")
+                "Please log in to NotebookLM first.\n\nGo to the NotebookLM tab and click 🔑 Switch Account.")
             return
         selected = self._checked_or_selected_items()
         if not selected:
@@ -1401,7 +1472,7 @@ class FileSearchApp(QMainWindow):
 
     def _reveal_pdf_preview(self):
         """Đảm bảo pdf_preview thực sự nhìn thấy được: chuyển _search_tabs về
-        tab "🔍 File Search" (nơi pdf_preview thực sự nằm trong splitter) rồi mới show."""
+        tab "File Search" (nơi pdf_preview thực sự nằm trong splitter) rồi mới show."""
         self._search_tabs.setCurrentIndex(0)
         # Through the button, so the Preview toggle on this page matches what the
         # page is actually showing; opening the panel behind its back would leave
@@ -1494,7 +1565,7 @@ class FileSearchApp(QMainWindow):
         from ui.notebooklm_window import is_nlm_logged_in, NLMNotebookPickerDialog, ListSourcesWorker
         if not is_nlm_logged_in():
             QMessageBox.warning(self, "Not Logged In",
-                "Please log in to NotebookLM first.\n\nGo to the 📓 NotebookLM tab and click 🔑 Switch Account.")
+                "Please log in to NotebookLM first.\n\nGo to the NotebookLM tab and click 🔑 Switch Account.")
             return
         NLM_SUPPORTED = {".pdf", ".txt", ".doc", ".docx", ".pptx", ".md"}
         if all_files:

@@ -571,7 +571,7 @@ IMPORTANT RULES:
         if not providers:
             raise ValueError(
                 "No API key configured.\n"
-                "Go to DB Search -> Config LLM to enter a Gemini or OpenRouter key.\n"
+                "Open Config LLM in the left sidebar to enter a Gemini or OpenRouter key.\n"
                 "(Groq is not usable here: none of its models accept images.)"
             )
 
@@ -1936,7 +1936,7 @@ class ImageChatWorker(QThread):
             if not providers:
                 raise RuntimeError(
                     "Chưa có API key Vision AI.\n"
-                    "Vào ⚙ Config LLM để nhập key Gemini hoặc OpenRouter.\n"
+                    "Vào ⚙ Config LLM ở sidebar trái để nhập key Gemini hoặc OpenRouter.\n"
                     "(Groq không dùng được cho ảnh — không model nào nhận input ảnh.)"
                 )
 
@@ -2590,10 +2590,6 @@ class NotebookLMWidget(QWidget):
         self.btn_language.setFixedHeight(32)
         self.btn_language.setToolTip("Set NbLM output language (global setting)")
         self.btn_language.clicked.connect(self._pick_language)
-        self.btn_llm_config = QPushButton("⚙ Config LLM")
-        self.btn_llm_config.setFixedHeight(32)
-        self.btn_llm_config.setToolTip("Config LLM models & API keys")
-        self.btn_llm_config.clicked.connect(self._open_llm_settings)
         self.btn_refresh = QPushButton("🔄 Refresh")
         self.btn_refresh.setFixedHeight(32)
         self.btn_refresh.clicked.connect(self._load_notebooks)
@@ -2607,7 +2603,6 @@ class NotebookLMWidget(QWidget):
         header.addWidget(self.btn_login)
         header.addWidget(self.btn_save_login)
         header.addWidget(self.btn_language)
-        header.addWidget(self.btn_llm_config)
         header.addWidget(self.btn_refresh)
         header.addWidget(self.btn_toggle_studio)
         lay.addLayout(header)
@@ -3004,11 +2999,6 @@ class NotebookLMWidget(QWidget):
         ))
         w.finished.connect(w.deleteLater)
         self._start_worker(w)
-
-    def _open_llm_settings(self):
-        from ui.pdf_preview import LLMSettingsDialog
-        dlg = LLMSettingsDialog(self)
-        dlg.exec()
 
     def _on_login_error(self, msg: str):
         self.lbl_status.setText("🔴 Login failed")

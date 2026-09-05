@@ -16,6 +16,7 @@ THEMES = [
     # ── 0) ORIGINAL: Metal Pastel Blue ────────────────────────────────────────
     {
         "name": "Metal Blue",
+        "ink":  "#0A192D",   # icon colour on buttons, matches this theme's button text
         "hud": {
             "base":    [_c(255,255,255,245), _c(248,250,252,245), _c(240,245,250,250)],
             "sheen":   None,
@@ -93,6 +94,7 @@ QHeaderView::section {
     # ── 1) Deep Navy Gold ─────────────────────────────────────────────────────
     {
         "name": "Navy Gold",
+        "ink":  "#140F05",   # icon colour on buttons, matches this theme's button text
         "hud": {
             "base":    [_c(22,28,55,250), _c(18,24,46,250), _c(14,20,38,255)],
             "sheen":   [_c(255,210,100,22), _c(255,200,80,8), _c(255,180,50,0)],
@@ -170,6 +172,7 @@ QHeaderView::section {
     # ── 2) Obsidian Emerald ───────────────────────────────────────────────────
     {
         "name": "Emerald",
+        "ink":  "#05140C",   # icon colour on buttons, matches this theme's button text
         "hud": {
             "base":    [_c(10,16,14,255), _c(12,20,17,255), _c(8,14,12,255)],
             "sheen":   [_c(0,200,100,20), _c(0,180,80,8), _c(0,150,60,0)],
@@ -247,6 +250,7 @@ QHeaderView::section {
     # ── 3) Midnight Violet ────────────────────────────────────────────────────
     {
         "name": "Violet",
+        "ink":  "#0C061C",   # icon colour on buttons, matches this theme's button text
         "hud": {
             "base":    [_c(22,10,45,255), _c(28,14,58,255), _c(18,8,38,255)],
             "sheen":   [_c(140,80,255,22), _c(120,60,220,9), _c(100,40,180,0)],
@@ -324,6 +328,7 @@ QHeaderView::section {
     # ── 4) Carbon Rose Gold ───────────────────────────────────────────────────
     {
         "name": "Rose Gold",
+        "ink":  "#1C0C08",   # icon colour on buttons, matches this theme's button text
         "hud": {
             "base":    [_c(22,18,22,255), _c(28,23,27,255), _c(18,14,18,255)],
             "sheen":   [_c(232,160,130,22), _c(210,140,110,9), _c(185,115,90,0)],
@@ -401,6 +406,7 @@ QHeaderView::section {
     # ── 5) Arctic Frost ───────────────────────────────────────────────────────
     {
         "name": "Arctic",
+        "ink":  "#FFFFFF",   # icon colour on buttons, matches this theme's button text
         "hud": {
             "base":    [_c(235,242,252,255), _c(225,235,250,255), _c(212,226,246,255)],
             "sheen":   [_c(255,255,255,120), _c(220,238,255,55), _c(190,220,255,0)],
@@ -478,6 +484,7 @@ QHeaderView::section {
     # ── 6) Ghost Purple ───────────────────────────────────────────────────────
     {
         "name": "Ghost Purple",
+        "ink":  "#140C22",   # icon colour on buttons, matches this theme's button text
         "hud": {
             "base":    [_c(26,22,38,255), _c(32,27,46,255), _c(21,17,31,255)],
             "sheen":   [_c(190,150,255,24), _c(170,130,245,9), _c(150,110,225,0)],
@@ -558,6 +565,11 @@ _current_index = 0
 
 def get_current() -> dict:
     return THEMES[_current_index]
+
+def ink() -> str:
+    """Icon colour for the active theme — see ui/icons.py."""
+    return THEMES[_current_index]["ink"]
+
 
 def get_index() -> int:
     return _current_index

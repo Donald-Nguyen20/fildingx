@@ -8,12 +8,12 @@ import webbrowser
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QComboBox,
     QLineEdit, QTreeWidget, QTreeWidgetItem, QFileDialog,
-    QMessageBox, QLCDNumber, QApplication, QLabel, QMenu,
+    QMessageBox, QApplication, QLabel, QMenu,
     QTreeWidgetItemIterator,
 )
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QPalette, QColor
 from ui import themes
+from ui import count_pill
 
 
 def _pick_folders_native() -> list[str]:
@@ -104,14 +104,8 @@ class _ListFilesWindow(QDialog):
         # ── Filter / action bar ───────────────────────────────────
         bar = QHBoxLayout()
 
-        self.lcd = QLCDNumber()
-        self.lcd.setDigitCount(6)
-        self.lcd.setFixedSize(80, 30)
-        pal = self.lcd.palette()
-        pal.setColor(QPalette.WindowText, QColor("black"))
-        pal.setColor(QPalette.Light,      QColor("blue"))
-        pal.setColor(QPalette.Dark,       QColor("black"))
-        self.lcd.setPalette(pal)
+        self.file_count = count_pill.make(
+            "Files currently listed", height=35, width=72)
 
         self.format_combo = QComboBox()
         self.format_combo.addItem("All types")
@@ -132,7 +126,7 @@ class _ListFilesWindow(QDialog):
         btn_rename     = QPushButton("✏ Batch Rename")
         btn_add_search = QPushButton("➕ Add to Search")
 
-        for w in [self.lcd,
+        for w in [self.file_count,
                   QLabel("Type:"), self.format_combo,
                   QLabel("Size:"), self.min_size, self.max_size, btn_size,
                   btn_expand, btn_collapse,
@@ -168,7 +162,7 @@ class _ListFilesWindow(QDialog):
         for fp in folder_paths:
             self._build_root(fp)
         self.format_combo.addItems(sorted(self._ext_set))
-        self.lcd.display(self._total_files)
+        count_pill.set_count(self.file_count, self._total_files)
 
     # ══════════════════════════════════════════════════════════════
     #  BUILD TREE
@@ -456,4 +450,4 @@ class _ListFilesWindow(QDialog):
         for ext in new_items:
             if ext not in current:
                 self.format_combo.addItem(ext)
-        self.lcd.display(self._total_files)
+        count_pill.set_count(self.file_count, self._total_files)

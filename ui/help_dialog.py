@@ -822,11 +822,11 @@ class HelpDialog(QDialog):
         <ul>
           <li>Tab <b>Notes</b> → bấm <b>🌐 VI</b> để dịch sang tiếng Việt qua LLM API.</li>
           <li>Bấm lại để toggle về bản gốc.</li>
-          <li>Provider dịch cấu hình tại <b>⚙ Settings</b> → <i>Translate Provider</i>.</li>
+          <li>Provider dịch cấu hình tại <b>⚙ Config LLM</b> → <i>Translate Provider</i>.</li>
         </ul>
 
         <h3>Cấu hình LLM (API Keys &amp; Models)</h3>
-        <p>Bấm <b>⚙</b> trong tab Notes → <b>LLM Settings</b>. Có thể nhập key và <b>chỉnh model</b> cho từng provider:</p>
+        <p>Bấm <b>⚙ Config LLM</b> ở thanh sidebar trái (dưới <b>Add-ons</b>) để mở <b>LLM Settings</b>. Có thể nhập key và <b>chỉnh model</b> cho từng provider:</p>
         <table>
           <tr><th>Provider</th><th>Model mặc định</th><th>Ghi chú</th></tr>
           <tr><td>Gemini</td><td>gemini-3.6-flash</td><td>Hỗ trợ Vision AI cho bản vẽ — provider Vision chính</td></tr>
@@ -835,7 +835,7 @@ class HelpDialog(QDialog):
           <tr><td>Ollama</td><td>llama3.1:8b</td><td>Chạy local, không cần key, không cần internet</td></tr>
         </table>
         <div class="hint">Model trên cloud bị nhà cung cấp gỡ bỏ theo thời gian. Nếu gặp lỗi
-        <code>404 model not found</code>, mở <b>⚙ LLM Settings</b> và nhập tên model mới.</div>
+        <code>404 model not found</code>, mở <b>⚙ Config LLM</b> và nhập tên model mới.</div>
         <div class="hint">File cấu hình: <code>&lt;thư mục app&gt;\\llm_config.json</code></div>
         </body>
         """
