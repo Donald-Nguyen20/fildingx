@@ -9,6 +9,17 @@ import sys
 
 
 def main():
+    # Document text comes out of the plant's own files, not out of this program,
+    # and json.dumps is called with ensure_ascii=False. Roughly 40% of the
+    # indexed chunks carry a character the Windows console codepage cannot
+    # encode -- primes in dimensions, Greek letters in formulas, katakana in the
+    # Toshiba manuals -- and each one would otherwise end the query with a
+    # UnicodeEncodeError reported as though the database itself had failed.
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
     if len(sys.argv) < 3:
         print("Usage: db_query.py <db_path> <sql>")
         sys.exit(1)

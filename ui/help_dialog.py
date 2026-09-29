@@ -337,7 +337,7 @@ class HelpDialog(QDialog):
         <body>
         <h2>Claude Assistant (AI Co-Pilot)</h2>
         <p>Tab <b>🤖 Claude</b> là trợ lý AI chạy bằng Claude Code SDK, có thể đọc database tài liệu kỹ thuật
-        (schema <code>chunks_fts</code> theo <code>CLAUDE.md</code> — khác với DB đơn giản của tab DB Search),
+        (schema <code>chunks_fts</code> theo <code>DATABRAIN.md</code> — khác với DB đơn giản của tab DB Search),
         chẩn đoán sự cố và tự soạn báo cáo vận hành.</p>
 
         <h3>Đăng nhập (chỉ cần 1 lần)</h3>

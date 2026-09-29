@@ -5,7 +5,7 @@ Build:
 
 
   
-pyinstaller --noconfirm --clean --onedir --windowed --name "Finding9.4.1" "Finding8.py" --icon "icon.ico" `
+pyinstaller --noconfirm --clean --onedir --windowed --name "Finding9.5.3" "Finding8.py" --icon "icon.ico" `
   --add-data "$env:LOCALAPPDATA\ms-playwright\chromium-1208;ms-playwright\chromium-1208" `
   --add-data "$env:LOCALAPPDATA\ms-playwright\ffmpeg-1011;ms-playwright\ffmpeg-1011" `
   --add-data "$env:LOCALAPPDATA\ms-playwright\winldd-1007;ms-playwright\winldd-1007" `
@@ -36,7 +36,14 @@ pyinstaller --noconfirm --clean --onedir --windowed --name "Finding9.4.1" "Findi
   --hidden-import=win32com.client --hidden-import=win32api `
   --hidden-import=rapidfuzz --hidden-import=bs4 `
   --hidden-import=docx --hidden-import=pptx --hidden-import=fitz `
-  --hidden-import=openpyxl --hidden-import=requests
+  --hidden-import=openpyxl --hidden-import=requests `
+  --add-data "DATABRAIN.md;." `
+  --add-data "ui/dcs_logic/*.json;ui/dcs_logic"
+
+After the build, copy DATABRAIN.md beside the .exe as well: the --add-data copy
+above is only a fallback inside the bundle, and the one outside can be edited
+without rebuilding. db_query.py and logic_query.py no longer need copying --
+the exe runs them itself through --db-query / --logic-query.
 
 
 """
@@ -51,6 +58,27 @@ if getattr(sys, "frozen", False):
     _browsers = os.path.join(_internal, "ms-playwright")
     if os.path.isdir(_browsers):
         os.environ["PLAYWRIGHT_BROWSERS_PATH"] = _browsers
+
+# ── Helper CLI mode: the exe is its own interpreter ───────────────
+# The Data Brain agent reads the databases by running db_query.py and
+# logic_query.py through Bash. A packaged build has no python.exe beside it,
+# so the agent calls this exe with --db-query / --logic-query instead and the
+# arguments go straight to the matching script. The two imports are spelt out
+# rather than resolved through importlib because that is also what makes
+# PyInstaller bundle the modules. Placed above the PySide6 import so a query
+# never loads Qt, and sys.argv is rewritten rather than the scripts changed,
+# so both still run on their own from source.
+_HELPER_FLAGS = {"--db-query": "db_query.py", "--logic-query": "logic_query.py"}
+
+if __name__ == "__main__" and len(sys.argv) > 1 and sys.argv[1] in _HELPER_FLAGS:
+    _helper_name = _HELPER_FLAGS[sys.argv[1]]
+    if sys.argv[1] == "--db-query":
+        import db_query as _helper
+    else:
+        import logic_query as _helper
+    sys.argv = [_helper_name, *sys.argv[2:]]   # both helpers read sys.argv directly
+    _helper.main()
+    sys.exit(0)
 
 from PySide6.QtWidgets import QApplication
 from ui.main_window import FileSearchApp

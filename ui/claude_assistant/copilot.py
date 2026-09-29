@@ -17,7 +17,7 @@ import time
 from contextlib import closing
 from typing import Optional
 
-from paths import APP_DIR
+from paths import APP_DIR, db_query_cmd, logic_query_cmd
 
 _HISTORY_FILE = os.path.join(APP_DIR, "diagnosis_history.json")
 _HISTORY_MAX = 50
@@ -42,7 +42,7 @@ CONTROL LOGIC (Toshiba DCS engineering databases)
 Folder: "{dcs_folder}"  — one SQLite file per controller.
 Query it ONLY through this command (read-only):
 
-  python logic_query.py <command> "{dcs_folder}" <args>
+  {logic_query_cmd()} <command> "{dcs_folder}" <args>
 
   find  "<text>"            search signal names across every controller
   why   "<signal>"          one-line cause, e.g. AND( a, /b )
@@ -99,7 +99,7 @@ ANSWERING WITH A TREE
 
 # ── System prompt: hướng dẫn Claude chạy quy trình chẩn đoán ──────────────
 
-def build_diagnosis_system_prompt(db_path: str, claude_md: str = "") -> str:
+def build_diagnosis_system_prompt(db_path: str, domain_md: str = "") -> str:
     """Tạo system prompt cho chế độ chẩn đoán đa hop."""
     instr = f"""Bạn là KỸ SƯ CHẨN ĐOÁN SỰ CỐ của Nhà máy Nhiệt điện Van Phong 1 BOT.
 Nhiệm vụ: từ MỘT triệu chứng vận hành, suy luận ra cây nguyên nhân gốc, mỗi
@@ -107,15 +107,15 @@ nguyên nhân phải kèm BẰNG CHỨNG trích dẫn chính xác từ tài li�
 
 File DB tài liệu: "{db_path}"
 Truy vấn DB CHỈ bằng lệnh Bash (read-only, chỉ SELECT):
-  python db_query.py "{db_path}" "SQL query"
+  {db_query_cmd()} "{db_path}" "SQL query"
 
 QUY TRÌNH SUY LUẬN — thực hiện tuần tự, mỗi bước 1-2 query:
 
   ① Xác định THIẾT BỊ + system_code từ triệu chứng:
-     python db_query.py "{db_path}" "SELECT DISTINCT system_code,discipline,name,doc_number FROM files WHERE id IN (SELECT rowid FROM files_fts WHERE files_fts MATCH '<từ khóa thiết bị>*') AND name!='BASE_PATH' LIMIT 8"
+     {db_query_cmd()} "{db_path}" "SELECT DISTINCT system_code,discipline,name,doc_number FROM files WHERE id IN (SELECT rowid FROM files_fts WHERE files_fts MATCH '<từ khóa thiết bị>*') AND name!='BASE_PATH' LIMIT 8"
 
   ② Lấy ALARM / TRIP SETPOINT (ưu tiên discipline I — I&C):
-     python db_query.py "{db_path}" "SELECT f.doc_number,c.heading,c.content FROM chunks c JOIN files f ON f.id=c.file_id WHERE c.id IN (SELECT rowid FROM chunks_fts WHERE chunks_fts MATCH 'alarm OR trip OR setpoint') AND f.system_code='<code>' ORDER BY rank LIMIT 6"
+     {db_query_cmd()} "{db_path}" "SELECT f.doc_number,c.heading,c.content FROM chunks_fts JOIN chunks c ON c.id=chunks_fts.rowid JOIN files f ON f.id=c.file_id WHERE chunks_fts MATCH 'alarm OR trip OR setpoint' AND f.system_code='<code>' ORDER BY rank LIMIT 6"
 
   ③ Lấy INTERLOCK / LOGIC (cái gì trip cái gì):
      NẾU system prompt có phần CONTROL LOGIC → dùng `logic_query.py tree "<tên tín
@@ -160,8 +160,8 @@ NGUYÊN TẮC BẰNG CHỨNG:
 ```
 
 Khối JSON là BẮT BUỘC và phải nằm ở CUỐI câu trả lời. CHỈ dùng SELECT, không chạy lệnh shell khác."""
-    if claude_md:
-        return claude_md.strip() + "\n\n" + instr
+    if domain_md:
+        return domain_md.strip() + "\n\n" + instr
     return instr
 
 
@@ -651,18 +651,18 @@ def build_precedent_block(symptom: str, max_cases: int = 5) -> str:
 
 # ── Quick-Reference Card: Claude gom thông tin thiết bị → JSON → app render ───
 
-def build_quickcard_system_prompt(db_path: str, claude_md: str = "") -> str:
+def build_quickcard_system_prompt(db_path: str, domain_md: str = "") -> str:
     """System prompt: Claude gom thông tin 1 thiết bị từ DB rồi trả JSON thẻ tra cứu."""
     instr = f"""Bạn là kỹ sư tạo THẺ TRA CỨU NHANH (quick-reference card) cho thiết bị
 nhà máy điện. Từ TÊN/MÃ thiết bị, gom thông tin súc tích từ tài liệu trong DB.
 
 File DB: "{db_path}"
 Truy vấn DB CHỈ bằng Bash (read-only, chỉ SELECT):
-  python db_query.py "{db_path}" "SQL query"
+  {db_query_cmd()} "{db_path}" "SQL query"
 
 QUY TRÌNH:
   ① Xác định thiết bị + system_code:
-     python db_query.py "{db_path}" "SELECT DISTINCT system_code,doc_number,name FROM files WHERE id IN (SELECT rowid FROM files_fts WHERE files_fts MATCH '<từ khóa>*') AND name!='BASE_PATH' LIMIT 10"
+     {db_query_cmd()} "{db_path}" "SELECT DISTINCT system_code,doc_number,name FROM files WHERE id IN (SELECT rowid FROM files_fts WHERE files_fts MATCH '<từ khóa>*') AND name!='BASE_PATH' LIMIT 10"
   ② Lấy thông số kỹ thuật, setpoint, quy trình khởi động/dừng, sự cố thường gặp:
      tra chunks_fts MATCH 'specification OR rating OR setpoint OR startup OR shutdown OR trouble'
 
@@ -674,8 +674,8 @@ NGUYÊN TẮC:
 - KHÔNG viết script, KHÔNG tạo file. App sẽ tự render thẻ từ JSON bạn trả về.
 
 ĐẦU RA: sau khi gom xong, trả về DUY NHẤT một khối ```json``` theo schema (chỉ SELECT)."""
-    if claude_md:
-        return claude_md.strip() + "\n\n" + instr
+    if domain_md:
+        return domain_md.strip() + "\n\n" + instr
     return instr
 
 
@@ -777,7 +777,7 @@ def render_quickcard(card: dict) -> str:
 
 # ── Work Package: gom trọn bộ hồ sơ chuẩn bị cho 1 công việc → JSON → docx ───
 
-def build_workpackage_system_prompt(db_path: str, claude_md: str = "") -> str:
+def build_workpackage_system_prompt(db_path: str, domain_md: str = "") -> str:
     """System prompt: Claude gom procedure/drawing/setpoint/safety cho 1 công việc."""
     instr = f"""Bạn là kỹ sư lập GÓI CHUẨN BỊ CÔNG VIỆC (work package) cho nhà máy điện.
 Từ MÔ TẢ CÔNG VIỆC (VD "thay bearing IDF-A"), gom trọn bộ tài liệu và thông tin
@@ -785,11 +785,11 @@ cần chuẩn bị từ DB tài liệu.
 
 File DB: "{db_path}"
 Truy vấn DB CHỈ bằng Bash (read-only, chỉ SELECT):
-  python db_query.py "{db_path}" "SQL query"
+  {db_query_cmd()} "{db_path}" "SQL query"
 
 QUY TRÌNH:
   ① Xác định thiết bị + system_code liên quan công việc:
-     python db_query.py "{db_path}" "SELECT DISTINCT system_code,doc_number,name,discipline FROM files WHERE id IN (SELECT rowid FROM files_fts WHERE files_fts MATCH '<từ khóa thiết bị>*') AND name!='BASE_PATH' LIMIT 10"
+     {db_query_cmd()} "{db_path}" "SELECT DISTINCT system_code,doc_number,name,discipline FROM files WHERE id IN (SELECT rowid FROM files_fts WHERE files_fts MATCH '<từ khóa thiết bị>*') AND name!='BASE_PATH' LIMIT 10"
   ② Tìm PROCEDURE liên quan (ưu tiên discipline G — O&M manual, F — commissioning):
      tra chunks_fts MATCH '<công việc> OR maintenance OR replacement OR overhaul OR procedure'
   ③ Tìm DRAWING liên quan (discipline M/P/I — bản vẽ lắp, P&ID, logic):
@@ -806,8 +806,8 @@ NGUYÊN TẮC:
 - KHÔNG viết script, KHÔNG tạo file. App sẽ tự render .docx từ JSON bạn trả về.
 
 ĐẦU RA: sau khi gom xong, trả về DUY NHẤT một khối ```json``` theo schema (chỉ SELECT)."""
-    if claude_md:
-        return claude_md.strip() + "\n\n" + instr
+    if domain_md:
+        return domain_md.strip() + "\n\n" + instr
     return instr
 
 

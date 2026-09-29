@@ -28,3 +28,24 @@ PARENTS_FILE   = os.path.join(APP_DIR, "container_parents.json")
 UI_STATE_FILE  = os.path.join(APP_DIR, "ui_state.json")
 SYNC_CONFIG_FILE      = os.path.join(APP_DIR, "sync_config.json")
 GSHEET_CONFIG_FILE    = os.path.join(APP_DIR, "gsheet_config.json")
+
+
+# ── Helper CLI commands for the Data Brain agent ──────────────────
+# The agent queries the databases by running db_query.py / logic_query.py
+# through Bash. A packaged build has no python.exe beside it, so "python
+# db_query.py" cannot work there; the exe dispatches both scripts itself (see
+# Finding8.py). Prompts must take the command from here instead of spelling it
+# out, so the source and packaged forms cannot drift apart.
+
+def db_query_cmd() -> str:
+    """Command prefix that runs db_query.py -- frozen or from source."""
+    if getattr(sys, "frozen", False):
+        return f'"{sys.executable}" --db-query'
+    return "python db_query.py"
+
+
+def logic_query_cmd() -> str:
+    """Command prefix that runs logic_query.py -- frozen or from source."""
+    if getattr(sys, "frozen", False):
+        return f'"{sys.executable}" --logic-query'
+    return "python logic_query.py"

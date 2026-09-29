@@ -29,14 +29,21 @@ from core.llm_config import (
 # remaining ~6000 the tier would allow -- 100-file grouping is simply past
 # what this model and tier can do together, and it now says so and hands the
 # job to Gemini instead of returning half a grouping. Gemini is not metered
-# this way and finishes the same prompt inside its own ceiling.
+# this way, so its ceiling is free to be generous -- and has to be. Measured
+# on a 500-file grouping prompt: at 6000 the reply was cut off and only 87 of
+# 500 files came back placed; at 16000 it finished, all 500 placed, in the
+# same 26 seconds. The visible reply is only ~900 tokens of that -- the rest
+# is thinking. Nothing is charged for a ceiling left unused, so a short chat
+# answer still costs what it always did.
 _OLLAMA_NUM_PREDICT = 700
 _OLLAMA_NUM_CTX     = 4096
 _MAX_TOKENS_CHAT    = 4000
-_MAX_TOKENS_GEMINI  = 6000
+_MAX_TOKENS_GEMINI  = 16000
 
 # Gemini 3.x grows its thinking to fill whatever budget it is given, so raising
 # the ceiling alone does not help it -- the level has to be asked for directly.
+# With the level pinned here, the ceiling above then does its job: thinking
+# stops growing and the extra budget goes to the answer.
 # Older Gemini models do not know this field, hence the one-shot retry below.
 _GEMINI_THINKING_LEVEL = "low"
 

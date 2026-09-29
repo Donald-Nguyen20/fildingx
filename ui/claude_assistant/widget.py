@@ -1368,18 +1368,35 @@ class ClaudeAssistantWidget(QWidget):
         except Exception as e:
             QMessageBox.warning(self, "Open file error", str(e))
 
-    def _load_claude_md(self) -> str:
-        """Đọc CLAUDE.md cạnh app (theo paths.APP_DIR) làm system context.
+    def _load_domain_md(self) -> str:
+        """Load the plant-document domain notes used as the agent's system context.
 
-        Dùng APP_DIR để khi đóng gói (.exe) chỉ cần copy CLAUDE.md cạnh exe là
-        chạy đúng — nhất quán với db_query.py / report_helper.py (Bash cwd=APP_DIR).
+        DATABRAIN.md holds the schema, the VP1 naming convention and the report
+        workflow. CLAUDE.md used to hold those as well, alongside a codebase
+        guide the agent has no use for, so it stays only as a fallback for an
+        install that has not been updated yet.
+
+        APP_DIR is tried first -- the folder holding the .exe when frozen, and
+        also the agent's cwd -- so a copy left beside the .exe wins and the
+        notes can be edited without rebuilding. The copy inside the bundle is
+        only the fallback, so a build shipped on its own still answers with the
+        domain context rather than with none.
         """
         try:
             import paths
-            with open(os.path.join(paths.APP_DIR, "CLAUDE.md"), "r", encoding="utf-8") as f:
-                return f.read()
+            roots = [paths.APP_DIR]
+            bundled = getattr(sys, "_MEIPASS", "")
+            if bundled:
+                roots.append(bundled)
+            for root in roots:
+                for name in ("DATABRAIN.md", "CLAUDE.md"):
+                    path = os.path.join(root, name)
+                    if os.path.isfile(path):
+                        with open(path, "r", encoding="utf-8") as f:
+                            return f.read()
         except Exception:
-            return ""
+            pass
+        return ""
 
     def _append(self, html: str):
         self._chat.moveCursor(QTextCursor.End)
@@ -1435,22 +1452,22 @@ class ClaudeAssistantWidget(QWidget):
         self._highlight_search_hits(msg)
 
         system = self._inp_system.text().strip()
-        claude_md = self._load_claude_md()
+        domain_md = self._load_domain_md()
 
         if self._mode == "diagnose":
             self._diag_retried = False
             self._cur_symptom = msg
             self._diag_panel.set_analyzing(msg)
-            diag_system = copilot.build_diagnosis_system_prompt(self._db_path, claude_md)
+            diag_system = copilot.build_diagnosis_system_prompt(self._db_path, domain_md)
             merged_system = (diag_system + "\n" + system).strip()
             precedent = copilot.build_precedent_block(msg)   # hop ⑤ — đối chiếu ca cũ
             prompt = copilot.build_diagnosis_prompt(msg, precedent)
         elif self._mode == "quickcard":
-            qc_system = copilot.build_quickcard_system_prompt(self._db_path, claude_md)
+            qc_system = copilot.build_quickcard_system_prompt(self._db_path, domain_md)
             merged_system = (qc_system + "\n" + system).strip()
             prompt = copilot.build_quickcard_prompt(msg)
         elif self._mode == "workpackage":
-            wp_system = copilot.build_workpackage_system_prompt(self._db_path, claude_md)
+            wp_system = copilot.build_workpackage_system_prompt(self._db_path, domain_md)
             merged_system = (wp_system + "\n" + system).strip()
             prompt = copilot.build_workpackage_prompt(msg)
         elif self._db_path:
@@ -1458,20 +1475,20 @@ class ClaudeAssistantWidget(QWidget):
                 f'Bạn là trợ lý kỹ thuật Nhà máy Nhiệt điện Van Phong 1 BOT.\n'
                 f'File DB tài liệu: "{self._db_path}"\n\n'
                 f'Để truy vấn DB, dùng lệnh Bash:\n'
-                f'  python db_query.py "{self._db_path}" "SQL query"\n\n'
+                f'  {paths.db_query_cmd()} "{self._db_path}" "SQL query"\n\n'
                 f'Ví dụ tìm tài liệu:\n'
-                f'  python db_query.py "{self._db_path}" "SELECT name,doc_number,system_code'
+                f'  {paths.db_query_cmd()} "{self._db_path}" "SELECT name,doc_number,system_code'
                 f' FROM files WHERE id IN (SELECT rowid FROM files_fts WHERE files_fts MATCH'
                 f" 'IDF*') AND name!='BASE_PATH' LIMIT 10\"\n\n"
                 f'Ví dụ tìm nội dung (dùng khi làm báo cáo):\n'
-                f'  python db_query.py "{self._db_path}" "SELECT f.name,c.heading,c.content'
-                f' FROM chunks c JOIN files f ON f.id=c.file_id WHERE c.id IN'
-                f" (SELECT rowid FROM chunks_fts WHERE chunks_fts MATCH 'IDF*')"
-                f' ORDER BY rank LIMIT 8"\n\n'
+                f'  {paths.db_query_cmd()} "{self._db_path}" "SELECT f.name,c.heading,c.content'
+                f' FROM chunks_fts JOIN chunks c ON c.id=chunks_fts.rowid'
+                f' JOIN files f ON f.id=c.file_id'
+                f" WHERE chunks_fts MATCH 'IDF*' ORDER BY rank LIMIT 8\"\n\n"
                 f'CHỈ dùng câu lệnh SELECT. Không chạy lệnh shell khác.\n'
             )
-            if claude_md:
-                db_system = claude_md + "\n\n" + db_system
+            if domain_md:
+                db_system = domain_md + "\n\n" + db_system
             merged_system = (db_system + "\n" + system).strip()
             prompt = msg
         else:
@@ -1504,8 +1521,8 @@ class ClaudeAssistantWidget(QWidget):
         self._diag_panel.set_analyzing(symptom)
 
         system = self._inp_system.text().strip()
-        claude_md = self._load_claude_md()
-        diag_system = copilot.build_diagnosis_system_prompt(self._db_path, claude_md)
+        domain_md = self._load_domain_md()
+        diag_system = copilot.build_diagnosis_system_prompt(self._db_path, domain_md)
         merged_system = (diag_system + "\n" + system).strip()
         options = make_options(system_prompt=self._with_logic(merged_system),
                                db_path=self._db_path,

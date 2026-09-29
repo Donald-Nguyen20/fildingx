@@ -26,7 +26,15 @@ from PySide6.QtCore import QThread, Signal
 
 from core.doc_naming import UNCLASSIFIED, classify, duplicate_sets
 
-_MAX_FILES = 100  # cap to avoid token overflow
+# A backstop against a runaway search, not a working limit. VP1 file names
+# average 74 characters, so 1000 of them build a ~24k-token prompt -- well
+# inside every cloud provider's context, and a size real searches here do not
+# reach. Ollama is the exception: its 4096-token num_ctx covers prompt and
+# reply together, so past roughly 100 files it truncates the prompt and
+# answers from a partial list. Groq's free tier reserves prompt + max_tokens
+# up front and will return 413 long before this cap; _provider_order() falls
+# through to the next provider when it does.
+_MAX_FILES = 1000
 # DUPE lines are no longer requested; a model that emits them anyway is simply
 # ignored here, since duplicate_sets() has already answered that question.
 _LINE_RE = re.compile(

@@ -1,202 +1,124 @@
-# Van Phong 1 BOT Thermal Power Plant — Document Intelligence Project
+# CLAUDE.md
 
-## Mục tiêu
-Project này dùng Cowork/Claude để tra cứu tài liệu kỹ thuật và tạo báo cáo vận hành cho **Nhà máy Nhiệt điện Van Phong 1 BOT**. Toàn bộ tài liệu đã được index vào file SQLite `.db` — Claude chỉ cần query DB để lấy thông tin, không cần đọc file gốc.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
----
+This file covers the **application codebase**: `Finding8.py`, a PySide6 desktop app for searching plant documents.
 
-## File DB
+The **document-database domain** — the schema of `Databasev3.db`, the VP1 document naming convention and the operation-report workflow — lives in `DATABRAIN.md`. Read that file when asked to answer a question *from the documents* rather than change code. It is not merely documentation: `_load_domain_md()` in `ui/claude_assistant/widget.py` loads it at runtime as the Data Brain agent's system prompt, so editing it changes how the shipped app answers.
 
-| File | Nội dung |
-|------|----------|
-| `AB Drawings.db` | ~7,500 tài liệu kỹ thuật, bản vẽ, O&M manual, commissioning procedure |
+## Commands
 
-**BASE_PATH gốc:** `D:/3.VP/6.Library/AB Drawings`
-(Đường dẫn tuyệt đối trong DB — dùng để mở file gốc nếu cần)
-
----
-
-## Schema Database
-
-### Bảng `files` — metadata và toàn bộ nội dung file
-```sql
-CREATE TABLE files (
-    id            INTEGER PRIMARY KEY,
-    name          TEXT,           -- Tên file (ví dụ: VP1-C-L3-G-HNC-50056-Rev.D.pdf)
-    path          TEXT UNIQUE,    -- Đường dẫn tương đối so với BASE_PATH
-    type          TEXT,           -- Phần mở rộng: .pdf, .docx, .xlsx ...
-    content       TEXT,           -- Toàn bộ text đã extract
-    doc_number    TEXT,           -- Ví dụ: VP1-C-L3-G-HNC-50056
-    lot           TEXT,           -- L1, L2, L3, L4
-    discipline    TEXT,           -- A/C/E/F/G/I/M/P/Q/R (xem bảng bên dưới)
-    system_code   TEXT,           -- Ví dụ: HNC, FDF, IDF, BFP ...
-    revision      TEXT,           -- Rev.A, Rev.B, D, AB0 ...
-    is_scanned    INTEGER,        -- 1 = file scan/OCR, 0 = có text layer
-    page_count    INTEGER,
-    file_size_kb  INTEGER,
-    indexed_date  TEXT
-)
+```bash
+pip install -r requirements.txt
+python Finding8.py                    # run the app; no CLI arguments
 ```
 
-> **Lưu ý:** Có 1 bản ghi đặc biệt `name = 'BASE_PATH'` lưu thư mục gốc — luôn loại trừ khi đếm hoặc tìm kiếm file thực.
+`requirements.txt` does **not** list `claude_agent_sdk`, which `ui/claude_assistant/agent.py` imports. Install it separately if the Data Brain tab fails to load.
 
-### Bảng `chunks` — nội dung đã chia nhỏ (dùng cho Cowork)
-```sql
-CREATE TABLE chunks (
-    id          INTEGER PRIMARY KEY,
-    file_id     INTEGER,    -- FK → files.id
-    chunk_index INTEGER,    -- Thứ tự chunk trong file
-    heading     TEXT,       -- Tên section/heading (nếu phát hiện được)
-    content     TEXT,       -- Nội dung đoạn, tối đa ~1200 ký tự
-    char_start  INTEGER,
-    char_end    INTEGER
-)
+**Build (PyInstaller).** The complete, current onedir command lives in the docstring at the top of `Finding8.py` — copy it from there rather than reconstructing it. The three `.spec` files on disk are gitignored and drift, so they are not a reliable source. New modules under `ui/` or `core/` are picked up by Analysis automatically and need no spec change; new *data* files (JSON, the CLI helpers) do.
+
+PyInstaller 6 puts everything listed in `datas` under `_internal/`, but `paths.APP_DIR` is the folder holding the `.exe` — so a file the app opens through `APP_DIR` cannot be shipped through the spec at all. **`DATABRAIN.md` has to be copied beside the `.exe` by hand after the build**; the `--add-data` copy inside the bundle is only the fallback `_load_domain_md()` reaches for when the outer one is missing, so the notes stay editable without a rebuild. The two CLI helpers need no copying — see below. No dist built before this was carried any of them, which is why Data Brain's DB mode had never worked from a packaged build.
+
+**There is no test suite, no linter and no packaging config.** No `pytest`, `pyproject.toml`, `setup.cfg` or `tox.ini` exists anywhere in the tree. Do not invent a test command. The two checks actually used here are:
+
+```bash
+python -c "import ast; ast.parse(open('ui/main_window.py', encoding='utf-8').read())"   # syntax
+python -c "from ui.main_window import FileSearchApp; print('ok')"                       # import smoke test
 ```
 
-### Virtual tables (FTS5)
-- `files_fts` — FTS index trên `files(name, doc_number, system_code, content)`
-- `chunks_fts` — FTS index trên `chunks(heading, content)`
+The app is normally running live under the VS Code debugger while you work — never kill stray `python.exe` processes without checking which one it is.
 
----
+**The two read-only CLI helpers.** These exist so the Data Brain agent can drive them through `Bash`, and they are also the fastest way for you to inspect the data yourself:
 
-## Cách Query
-
-### Tìm file theo tên / doc number / system code
-```sql
-SELECT name, path, doc_number, lot, discipline, system_code, revision, is_scanned
-FROM files
-WHERE id IN (SELECT rowid FROM files_fts WHERE files_fts MATCH 'IDF*')
-  AND name != 'BASE_PATH'
-ORDER BY lot, name
-LIMIT 20;
+```bash
+python db_query.py "<db path>" "SELECT ..."       # SELECT only; opens file:...?mode=ro
+python logic_query.py cpus  <dcs_folder>
+python logic_query.py find  <dcs_folder> <signal>
+python logic_query.py why   <dcs_folder> <signal>   # what makes this signal go true
+python logic_query.py tree  <dcs_folder> <signal>
+python logic_query.py trace <dcs_folder> <signal>
 ```
 
-### Tìm nội dung liên quan — DÙNG CÁI NÀY KHI LÀM BÁO CÁO
-```sql
-SELECT f.name, f.doc_number, f.path, c.heading, c.content
-FROM chunks c
-JOIN files f ON f.id = c.file_id
-WHERE c.id IN (SELECT rowid FROM chunks_fts WHERE chunks_fts MATCH 'lube oil temperature*')
-ORDER BY rank
-LIMIT 10;
-```
+Each prints exactly one JSON object on stdout; failures print `{"error": ...}` and exit non-zero. Signals are addressed by name or by `ref` = `"<db file>|<sheet>|<net>"`.
 
-### Tìm trong file cụ thể
-```sql
-SELECT c.heading, c.content
-FROM chunks c
-JOIN files f ON f.id = c.file_id
-WHERE f.doc_number = 'VP1-C-L3-G-HNC-50056'
-  AND c.id IN (SELECT rowid FROM chunks_fts WHERE chunks_fts MATCH 'alarm setpoint*')
-ORDER BY c.chunk_index;
-```
+A packaged build ships no `python.exe`, so `python db_query.py …` cannot run there. The exe dispatches both scripts itself: `Finding8.py` checks for `--db-query` / `--logic-query` before Qt is imported and hands the remaining arguments to the same `main()`, and the literal `import db_query` / `import logic_query` in that block is also what makes PyInstaller bundle them. **Prompts must build the command from `paths.db_query_cmd()` / `paths.logic_query_cmd()`**, never spell out `python db_query.py`, or they break in the frozen app. Both return the `python …` form from source, so the scripts stay usable on their own and dev behaviour is unchanged.
 
-### Lấy toàn bộ nội dung 1 file (khi cần đọc đầy đủ)
-```sql
-SELECT content FROM files WHERE doc_number = 'VP1-C-L3-G-HNC-50056';
-```
+## Architecture
 
-### FTS5 — Cú pháp tìm kiếm
-| Cú pháp | Ý nghĩa |
-|---------|---------|
-| `vibration*` | Prefix match: vibration, vibrating, vibrate |
-| `"lube oil"` | Cụm từ chính xác |
-| `IDF AND bearing` | Phải có cả hai từ |
-| `IDF OR FDF` | Có một trong hai |
-| `vibration NOT alarm` | Có vibration, không có alarm |
+### The shell
 
----
+`Finding8.py` sets `PLAYWRIGHT_BROWSERS_PATH` when frozen, then hands everything to `FileSearchApp(QMainWindow)` in `ui/main_window.py`. `_setup_body()` builds three regions:
 
-## Quy ước Đặt Tên Tài Liệu VP1
+- a fixed 80 px `QFrame#sidebar` — three *checkable* panel buttons (Containers / Tools / Add-ons) plus a *non-checkable* **Config LLM** button. That last button is deliberately excluded from `_sidebar_btns` / `_sidebar_icons` so it never latches or lights up green; keep it that way.
+- `self._search_tabs` — four tabs in order: **File Search** (built inline), **DB Search** (`ui/index_search_window.py`), **NotebookLM** (`ui/notebooklm_window.py`), **Data Brain** (`ui/claude_assistant/widget.py`).
+- `self._right_stack` — a `QStackedWidget` whose pages 0/1/2 are containers / tools / exe add-ons, revealed by the sidebar buttons.
 
-**Format:** `VP1-[Unit]-L[Lot]-[Discipline]-[SystemCode]-[DocNo]_Rev[X]`
+`core/` is UI-free logic and should stay importable without Qt; the exceptions are `core/workers.py` and `core/ai_grouper.py`, which own the `QThread` workers. `ui/` is all PySide6.
 
-**Ví dụ:** `VP1-C-L3-G-HNC-50056-Rev.D.pdf`
+**Never hardcode a path.** `paths.py` defines every one, and `get_app_dir()` returns `os.path.dirname(sys.executable)` when frozen but the module directory otherwise. A hardcoded path works in development and breaks the packaged exe silently.
 
-### Discipline codes
-| Code | Ngành |
-|------|-------|
-| A | Architectural |
-| C | Civil / Structural |
-| E | Electrical |
-| F | Commissioning / Testing |
-| G | General (O&M, manuals) |
-| I | Instrumentation & Control |
-| M | Mechanical |
-| P | Piping |
-| Q | Quality |
-| R | Process / PFD |
+### Two databases, two schemas — do not unify
 
-### Lot
-| Lot | Phạm vi |
-|-----|---------|
-| L1 | Boiler & Fuel system |
-| L2 | Turbine & Generator |
-| L3 | Balance of Plant (BOP) |
-| L4 | Civil / Common |
+This is the most important structural rule in the repo.
 
-### System codes thường gặp
-| Code | Thiết bị |
-|------|----------|
-| HNC | Howden — IDF (Induced Draft Fan) |
-| FDF | Forced Draft Fan |
-| BFP | Boiler Feed Pump |
-| CEP | Condensate Extraction Pump |
-| CWP | Circulating Water Pump |
-| ACT | Air Cooled Turbine |
+| Tab | Config file | Database | Access |
+|---|---|---|---|
+| **DB Search** | `db_list.json` | `AB Drawings.db` — `files` table, plain `LIKE` (not FTS), always `name != 'BASE_PATH'`, `_RESULT_LIMIT = 500` | read-only |
+| **Data Brain** | `claude_db.json` | `Databasev3.db` plus a `dcs_folder` of Toshiba DCS CAD databases | read-only |
 
----
+The two schemas are **intentionally different, one per tab**. Do not merge them, do not add cross-schema detection, and do not add a "limited mode" that degrades one into the other. `AB Drawings.db` is the live daily database and the DCS databases are the plant's design masters: always open with `sqlite3.connect(f"file:{path}?mode=ro", uri=True)` and never write.
 
-## Tài liệu Quan Trọng
+`ui/index_search_window.py` fetches `_RESULT_LIMIT + 1` rows so it can tell the user there are more results than it is showing.
 
-| Doc Number | Mô tả | Ghi chú |
-|------------|-------|---------|
-| `VP1-C-L3-G-HNC-50056` | **Howden IDF O&M Manual** | ~654k ký tự, tài liệu chính về IDF |
-| Discipline F | Commissioning procedures | Toàn bộ test record và procedure |
-| Discipline I | I&C drawings, logic diagram | Alarm setpoints, interlock |
+### `ui/dcs_logic/` is a vendored copy
 
----
+It is a verbatim copy of `T_Designer_Lite/core`, kept unmodified so upstream fixes can be re-copied rather than re-merged. **Do not refactor, restyle or tidy anything inside it.** Only `__init__.py` is local. Two deliberate departures from upstream, both documented in place:
 
-## Quy trình Làm Báo Cáo Vận Hành
+- `dbreader.connect()` opens `file:...?mode=ro` — the design masters are never written.
+- `project_index` writes its index to a caller-supplied `out_path=` under `APP_DIR`, hashed per DCS folder, instead of the shared `~/.tdesigner_index.db`.
 
-### Bước 1 — Tìm context liên quan
-```sql
--- Tìm các đoạn liên quan đến sự cố
-SELECT f.name, f.doc_number, c.heading, c.content
-FROM chunks c JOIN files f ON f.id = c.file_id
-WHERE c.id IN (
-    SELECT rowid FROM chunks_fts
-    WHERE chunks_fts MATCH '[từ khóa sự cố]*'
-)
-ORDER BY rank LIMIT 15;
-```
+The importer, the Qt UI, the symbol geometry and the simulators were deliberately left behind. Entry points `logic_query.py` uses: `project_index.find`, `cond_tree.formula` / `build` / `blockers`, `signal_graph.trace_project`.
 
-### Bước 2 — Xác nhận thông số kỹ thuật
-```sql
--- Tìm alarm setpoint, design value
-SELECT c.heading, c.content
-FROM chunks c JOIN files f ON f.id = c.file_id
-WHERE f.doc_number LIKE 'VP1-%-I-%'   -- Discipline I&C
-  AND c.id IN (SELECT rowid FROM chunks_fts WHERE chunks_fts MATCH '[tag name]*');
-```
+### The LLM layer
 
-### Bước 3 — Viết báo cáo theo format chuẩn
-Báo cáo vận hành VP1 gồm các phần:
-1. **Introduction** — Mô tả sự cố, thời điểm, thiết bị liên quan
-2. **Abnormal Status** — Diễn biến thực tế (kèm giá trị đo)
-3. **Analysis** — Nguyên nhân gốc rễ (Root Cause), tham chiếu tài liệu
-4. **Suggestion** — Kiến nghị xử lý
-5. **Execution Plan** — Kế hoạch thực hiện (có bảng: Action / Responsible / Target Date)
-6. **Conclusion**
-7. **Attachment** — Log sheet, trend data
+- **`core/llm_config.py` is the one place a default model name may live.** The three names originally shipped had all been withdrawn and were 404-ing from six separate call sites; `LEGACY_MODEL_REPLACEMENTS` now silently upgrades retired names on load. Vision defaults are separate (`DEFAULT_VISION_*`) because Groq serves no image-input model. The config file resolves next to the exe when frozen, else the repo root; writes are atomic (tmp + fsync + `os.replace`); loading never raises — it falls back to `DEFAULT_CONFIG`.
+- **`core/llm_client.py`** — four providers (`ollama`, `openrouter`, `groq`, `gemini`) behind `create_llm_client(provider_key, model_override="")`. The token budgets near the top each carry a comment recording the *measured* reason they are what they are (reasoning models spend the same budget on hidden thinking; Groq's free tier reserves prompt + `max_tokens` up front and returns HTTP 413). Change them only against a new measurement.
+- **`core/ai_grouper.py`** — grouping is split on purpose: duplicate detection is deterministic and fully offline via `core/doc_naming.py` (`classify`, `duplicate_sets`), and only "what is this about" goes to a model. `_build_note()` reports a partial grouping rather than failing.
+- **`ui/claude_assistant/agent.py`** switches its tool set on mode: with a `db_path` or `dcs_folder` set it gives the agent `["Bash", "WebSearch", "WebFetch"]` so it drives `db_query.py` / `logic_query.py`; otherwise `["Read", "Glob", "Grep", ...]`.
+- `llm_config.json` holds the API keys and is gitignored. Never print a key value — report it as `<set, N chars>`.
 
-**File name convention:** `KV-OP-YY-XXXX_[Title].docx`
+### Theming and icons
 
----
+- `ui/themes.py` holds **7** themes (0 Metal Blue … 6 Ghost Purple). `_current_index` is module-level and **not persisted**, so every launch starts on Metal Blue. The only way to switch is the hidden keyword `@colour0`…`@colour6` typed into the Keyword box (matched in `ui/main_window.py` around line 824). There is no visible picker.
+- The theme QSS styles the results-tree body too, and its background is **white under Metal Blue and Arctic but dark under the other five** — any fixed colour chosen against a white tree will fail on the dark ones.
+- `ui/icons.py` embeds 25 monochrome Lucide SVGs. **Qt does not resolve SVG `currentColor` — it renders black.** Icons are tinted by painting the shape, then `QPainter.CompositionMode_SourceIn` + `fillRect(colour)`. That is why every call site passes an explicit colour.
+- Which colour depends on the surface. *Themed* widgets live under `self.main_widget` and follow `themes.ink()`. *Native* surfaces — `QMenu`, `MultiFolderDialog`, anything parented straight to the `QMainWindow` — are light Windows surfaces and must use the fixed dark `icons.INK_NATIVE`.
+- **A widget's own `setStyleSheet` overrides the theme QSS** applied to `main_widget`. This is why parts of the chrome stay blue in every theme.
+- `HudPanel` in `ui/hud_widgets.py` is never instantiated, so all seven `"hud"` dicts in `ui/themes.py` are dead configuration.
 
-## Lưu ý Khi Dùng DB
+### The File Search keyword DSL
 
-- Luôn dùng `chunks_fts` thay vì `files_fts` khi cần nội dung để viết báo cáo — chính xác hơn, tiết kiệm token hơn
-- File `is_scanned = 1` là bản scan OCR — nội dung có thể có lỗi nhận dạng ký tự
-- Khi trích dẫn trong báo cáo, ghi rõ: `Doc: [doc_number], Section: [heading]`
-- DB không chứa hình ảnh — nếu cần bản vẽ P&ID thì phải mở file gốc
+The keyword box is a small language implemented in `core/search_engine.py` and `core/percent_exclude_search.py`:
+
+| Input | Meaning |
+|---|---|
+| `A,B` | name contains A **or** B (any number of comma-separated terms) |
+| `A%B` | contains A, does **not** contain B |
+| `A*B` | contains both, in either order |
+| anything else | case-insensitive substring |
+
+### Runtime state
+
+Almost every file the app writes is gitignored — the repo is code only: `containers_data.json`, `container_parents.json`, `db_list.json`, `claude_db.json`, `llm_config.json`, `gsheet_config.json`, `sync_config.json`, `file_stats.json`, `synonyms.json`, `summaries.json`, `exe_addons.json`, `nlm_source_map.json`, plus all `*.db`, `images/`, `mindmaps/` and `reports/`. (`ui_state.json` is the one that *is* tracked.) Reach them through `paths.py` and assume they may be absent.
+
+## Conventions
+
+- **Write new code, comments and UI strings in English.** Much of the existing code and its docstrings are Vietnamese; leave what you are not otherwise touching alone, but do not add new Vietnamese.
+- PySide6 traps that have bitten this codebase before: compare `item.checkState(0) == Qt.Checked` (never wrap it in `int()`); guard checkbox handlers with the `self._blocking` flag or they loop; `QPushButton.clicked` passes a `bool checked` argument, so connect with `lambda:` when the slot takes none.
+- Files are CRLF in the working tree (`core.autocrlf=true`). When writing Python that rewrites a source file, use `io.open(..., newline="\r\n")`.
+- The console here is cp1258 — a script that prints Vietnamese or emoji needs `sys.stdout.reconfigure(encoding="utf-8")`.
+- Git: the working branch is **`new-layout`**, not `main`. `origin` is a **public** GitHub repo — plant PDFs and the vendor-manual-derived `macro_catalog.json` / `macro_manual.json` must never be pushed, and are gitignored. Never `git add -A` or `git add .`; stage named files.
+
+## About `CODEBASE.md`
+
+There is a second architecture document, `CODEBASE.md`, in Vietnamese. It is useful background but **verifiably stale**: it documents a `core/rag/` package and a root `vector_store_builder.py` that do not exist, says "6 bộ màu" where `ui/themes.py` has 7, and predates `ui/claude_assistant/`, `ui/dcs_logic/`, `ui/icons.py`, `core/ai_grouper.py`, `logic_query.py` and `db_query.py`. Prefer this file, and verify anything you take from `CODEBASE.md` against the code.
