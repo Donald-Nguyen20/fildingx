@@ -9,6 +9,7 @@ import sqlite3
 import subprocess
 import sys
 from contextlib import closing
+from datetime import date
 from pathlib import Path
 from typing import NamedTuple
 
@@ -19,9 +20,9 @@ from PySide6.QtWidgets import (
     QPushButton, QToolButton, QLabel, QLineEdit, QTextEdit, QFileDialog,
     QDialog, QMessageBox, QSizePolicy, QTextBrowser,
 )
-from PySide6.QtCore import Qt, QRectF, QSize, QTimer, QThread, Signal
+from PySide6.QtCore import Qt, QRectF, QSize, QTimer, QThread, QUrl, Signal
 from PySide6.QtGui import (
-    QFont, QFontMetrics, QIcon, QPainter, QPixmap, QTextCursor,
+    QDesktopServices, QFont, QFontMetrics, QIcon, QPainter, QPixmap, QTextCursor,
 )
 
 from ui.claude_assistant.agent import make_options
@@ -33,7 +34,7 @@ from ui.claude_assistant.neural_orb_widget import (
 )
 from ui.claude_assistant.orb_controls import OrbControls
 from ui.claude_assistant.sources_panel import CitedSource, CitedSourcesPanel
-from ui.claude_assistant import chat_render, copilot
+from ui.claude_assistant import chat_render, copilot, web_research
 
 def _load_saved_paths() -> dict:
     """Đọc các đường dẫn đã lưu, bỏ đường dẫn không còn tồn tại."""
@@ -133,6 +134,11 @@ _ACTIONS = [
     # State 5 rather than the 2 this used to share with Diagnose: it is the warm
     # red->yellow one, and Trend Data was the mode with no look of its own.
     ("📈", "Trend Data",  "",                                5, "trend"),
+    # The one mode that does not read this plant's documents at all: it answers
+    # from the live web and has to show where each sentence came from. Last in
+    # the list on purpose -- it takes the full width of the grid's final row,
+    # which is also how it reads as the odd one out.
+    ("🌐", "Web Ask",     "",                                1, "web"),
 ]
 
 # What a mode button puts in front of the question. It is an instruction to
@@ -665,6 +671,12 @@ class ClaudeAssistantWidget(QWidget):
         self._ans_start: int = -1
         self._tool_counts: dict[str, int] = {}   # tools this answer used
         self._cited_codes: frozenset[str] = frozenset()  # codes that resolved
+        # Every tool call of this answer, with its arguments. Web research needs
+        # them: which URLs WebFetch really opened is the only way to tell a page
+        # the answer read from one it merely credited.
+        self._tool_calls: list[tuple[str, dict]] = []
+        self._web_retried: bool = False   # asked once for a missing SOURCES block
+        self._web_question: str = ""      # the question a retry has to repeat
 
         # Idle timer — sau khi hoàn thành/lỗi, orb tự về REST sau vài giây
         self._idle_timer = QTimer(self)
@@ -870,17 +882,19 @@ class ClaudeAssistantWidget(QWidget):
         root.addWidget(splitter, 1)
 
     def _build_modes_column(self) -> QWidget:
-        """The seven modes, lifted out from under the orb into their own column.
+        """The modes, lifted out from under the orb into their own column.
 
         Laid out as proposal E draws them: Ask across the full width in the
-        accent colour, then the other six as a two-column grid of tiles with
-        the icon stacked over the label. Ask is the mode the tab opens in and
-        the one every other mode falls back to, so it reads as the default
-        rather than as the fourth cell of a grid.
+        accent colour, then the rest as a two-column grid of tiles with the icon
+        stacked over the label. Ask is the mode the tab opens in and the one
+        every other mode falls back to, so it reads as the default rather than
+        as the fourth cell of a grid.
 
-        The six keep the order they have in _ACTIONS, which fills the grid the
+        The tiles keep the order they have in _ACTIONS, which fills the grid the
         way E has it -- Find Docs beside Make Report, Diagnose beside Quick
-        Card, Work Pack beside Trend Data.
+        Card, Work Pack beside Trend Data. An odd tile at the end takes the whole
+        last row rather than leaving a hole beside it, which is where Web Ask
+        sits.
         """
         col = QWidget()
         col.setStyleSheet("background: #06090f;")
@@ -902,7 +916,9 @@ class ClaudeAssistantWidget(QWidget):
         grid.setSpacing(_MODE_GAP)
         rest = [a for a in _ACTIONS if a[1] != _PRIMARY_MODE]
         for i, action in enumerate(rest):
-            grid.addWidget(self._build_mode_button(action), i // 2, i % 2)
+            alone = i == len(rest) - 1 and i % 2 == 0   # odd count: span the row
+            grid.addWidget(self._build_mode_button(action),
+                           i // 2, i % 2, 1, 2 if alone else 1)
         lay.addLayout(grid)
 
         lay.addStretch(1)
@@ -1158,6 +1174,20 @@ class ClaudeAssistantWidget(QWidget):
                 self._mode = "chat"
                 self._set_jarvis(0)
             return
+        elif mode == "web":
+            # No DB check: this mode deliberately never touches the document
+            # database, so it is the one mode that works with nothing selected.
+            self._show_diag_panel(False)
+            self._inp_msg.clear()
+            self._inp_msg.setPlaceholderText(
+                "Ask the internet… answers come back with sources (Enter to send)"
+            )
+            self._append(
+                '<p style="color:#64809c;font-size:11px;margin:4px 0">'
+                '🌐 Web research — answers from the internet, not from the '
+                'document DB. Every claim is cited, and each source is checked '
+                'against the pages actually opened.</p>'
+            )
         else:
             self._show_diag_panel(False)
             self._inp_msg.setPlaceholderText("Type a question… (Enter to send)")
@@ -1417,12 +1447,17 @@ class ClaudeAssistantWidget(QWidget):
         self._sources_panel.clear()
 
     def _on_chat_anchor(self, url) -> None:
-        """Click a document code in an answer → open that file.
+        """Click a link in an answer → open what it points at.
 
-        Resolved through the same lookup the orb markers and the source cards
-        use, so all three agree on which file a code names.
+        A document code resolves through the same lookup the orb markers and the
+        source cards use, so all three agree on which file a code names. A web
+        source goes to the system browser: this pane renders a subset of HTML 4
+        and is no place to try to show a page.
         """
         text = url.toString()
+        if chat_render.is_web_link(text):
+            QDesktopServices.openUrl(QUrl(text))
+            return
         if not text.startswith(chat_render.DOC_LINK_SCHEME):
             return
         code = text[len(chat_render.DOC_LINK_SCHEME):]
@@ -1588,7 +1623,11 @@ class ClaudeAssistantWidget(QWidget):
         # about to be sent is what the orb answers from here.
         self._clear_answer_sources()
         self._orb_controls.reset()
-        self._highlight_search_hits(msg)
+        # The orb highlight answers "where does this topic live in the DB", which
+        # a web question is not asking: lighting it up would claim the plant's
+        # documents had something to do with the answer.
+        if self._mode != "web":
+            self._highlight_search_hits(msg)
 
         system = self._inp_system.text().strip()
         domain_md = self._load_domain_md()
@@ -1609,6 +1648,15 @@ class ClaudeAssistantWidget(QWidget):
             wp_system = copilot.build_workpackage_system_prompt(self._db_path, domain_md)
             merged_system = (wp_system + "\n" + system).strip()
             prompt = copilot.build_workpackage_prompt(msg)
+        elif self._mode == "web":
+            # Nothing from the document DB goes in here, not even the domain
+            # notes: this answer has to stand on pages it can show.
+            self._web_retried = False
+            self._web_question = msg
+            web_system = web_research.build_web_system_prompt(
+                date.today().isoformat())
+            merged_system = (web_system + "\n" + system).strip()
+            prompt = msg
         elif self._db_path:
             db_system = (
                 f'Bạn là trợ lý kỹ thuật Nhà máy Nhiệt điện Van Phong 1 BOT.\n'
@@ -1634,13 +1682,28 @@ class ClaudeAssistantWidget(QWidget):
             merged_system = system
             prompt = msg
 
-        # Appended in every mode rather than made a mode of its own: a trip is
-        # explained by the manual and asserted by the logic, and the answer is
-        # only right when both are on the table. Empty when no folder is set.
-        options = make_options(system_prompt=self._with_logic(merged_system),
-                               db_path=self._db_path,
-                               dcs_folder=self._dcs_folder)
+        if self._mode == "web":
+            options = self._web_options(merged_system)
+        else:
+            # Appended in every mode rather than made a mode of its own: a trip
+            # is explained by the manual and asserted by the logic, and the
+            # answer is only right when both are on the table. Empty when no
+            # folder is set.
+            options = make_options(system_prompt=self._with_logic(merged_system),
+                                   db_path=self._db_path,
+                                   dcs_folder=self._dcs_folder)
         self._run_agent(prompt, options)
+
+    def _web_options(self, system: str):
+        """Options for web research: the two web tools and nothing else.
+
+        db_path and dcs_folder are left out deliberately. They are what switch
+        the agent's tool set to Bash, and a question about a standard has no
+        business running shell commands -- so this is also the narrowest tool
+        set any mode here hands out.
+        """
+        return make_options(system_prompt=system,
+                            allowed_tools=["WebSearch", "WebFetch"])
 
     def _with_logic(self, system: str) -> str:
         """The system prompt plus the control-logic instructions, if a folder is set."""
@@ -1703,6 +1766,7 @@ class ClaudeAssistantWidget(QWidget):
         self._response_started = False
         self._resp_buffer = ""
         self._tool_counts = {}
+        self._tool_calls = []
         self._cited_codes = frozenset()
         self._ans_start = -1
         self._append(chat_render.user_turn_html(msg) + chat_render.spacer_html(8))
@@ -1713,6 +1777,7 @@ class ClaudeAssistantWidget(QWidget):
         self._worker = AgentWorker(prompt, options)
         self._worker.text_chunk.connect(self._on_text_chunk)
         self._worker.tool_used.connect(self._on_tool_used)
+        self._worker.tool_call.connect(self._on_tool_call)
         self._worker.done.connect(self._on_done)
         self._worker.error.connect(self._on_error)
         self._worker.start()
@@ -1756,6 +1821,15 @@ class ClaudeAssistantWidget(QWidget):
             f'⚙️ {tool_name}</p>'
         )
 
+    def _on_tool_call(self, tool_name: str, args: dict):
+        """Keep the call with its arguments — the record the source audit reads.
+
+        A cheap append per call and nothing on screen: _on_tool_used already
+        shows that the tool ran. What this adds is *what it ran on*, so a cited
+        page can be checked against the pages actually fetched.
+        """
+        self._tool_calls.append((tool_name, args if isinstance(args, dict) else {}))
+
     def _finalize_answer(self):
         """Swap the streamed plain text for the rendered document.
 
@@ -1791,7 +1865,14 @@ class ClaudeAssistantWidget(QWidget):
         self._inp_msg.setFocus()
         # Sources first: it resolves the cited codes against the DB, and only a
         # code that resolved is worth turning into a link in the text below.
-        self._show_answer_sources()  # orb marks the documents the answer cited
+        if self._mode == "web":
+            # A web answer rests on pages, not on this plant's drawings. Marking
+            # the orb and counting "cited documents" here would claim the
+            # documents had something to do with it, the same reason the search
+            # highlight is skipped when the question is sent.
+            self._cited_codes = frozenset()
+        else:
+            self._show_answer_sources()  # orb marks the documents cited
         self._finalize_answer()
 
         # Chẩn đoán: parse khối JSON cây nguyên nhân → đổ vào panel
@@ -1821,6 +1902,78 @@ class ClaudeAssistantWidget(QWidget):
         elif self._mode == "workpackage":
             self._mode = "chat"
             self._render_workpackage_from_buffer()
+        elif self._mode == "web":
+            # Stays in web mode: unlike a report or a card, a web question is
+            # something people ask several of in a row.
+            self._finish_web_answer()
+
+    # ── Web research ──────────────────────────────────────────────────
+    def _finish_web_answer(self) -> None:
+        """Check the answer's citations against what the agent actually opened.
+
+        Three outcomes, and the difference between them is the point of the mode:
+        every cited page was opened, some were cited without being opened, or
+        nothing was cited at all. Only the last one is worth asking again for --
+        a partly-sourced answer is still useful once the app says which parts to
+        take on trust.
+        """
+        sources = web_research.extract_sources(self._resp_buffer)
+        fetched, queries = web_research.tool_urls(self._tool_calls)
+
+        if not sources and not self._web_retried:
+            self._web_retried = True
+            self._retry_web_sources()
+            return
+
+        audited = web_research.audit(sources, fetched)
+        line, level = web_research.verdict(audited, queries, fetched)
+        colour = {"ok": "#166534", "warn": "#b45309"}.get(level, "#dc2626")
+        mark = {"ok": "✅", "warn": "⚠"}.get(level, "⚠")
+        safe = line.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        self._append(
+            f'<p style="color:{colour};font-size:11px;margin:2px 0 10px 0">'
+            f'{mark} {safe}</p>'
+        )
+
+        # Cards carry the audit per source, where the single line above can only
+        # carry the count. A page nobody opened says so on its own card.
+        self._sources_panel.set_sources([
+            CitedSource(code=self._source_label(s), url=s.url,
+                        verified=s.opened, quote=s.note)
+            for s in audited
+        ])
+
+    @staticmethod
+    def _source_label(src) -> str:
+        """"[n] Title" for a card head, falling back to the domain."""
+        title = (src.title or src.domain or src.url)[:120]
+        return f"[{src.n}] {title}" if src.n else title
+
+    def _retry_web_sources(self) -> None:
+        """Ask once more when an answer came back with no sources at all.
+
+        A fresh agent run, so the question and the answer so far both have to go
+        back in the prompt -- each query() is its own session and remembers
+        nothing of the one before it.
+        """
+        self._set_busy(True)
+        self._orb.set_active(True)
+        self._set_jarvis(1)
+        self._append(
+            '<p style="color:#94a3b8;margin:6px 0;font-size:11px">'
+            '↻ That answer cited nothing — asking again, with sources…</p>'
+        )
+        prompt = web_research.build_retry_prompt(
+            self._web_question, self._resp_buffer)
+        self._resp_buffer = ""
+        # All three belong to the attempt being replaced: the audit must see
+        # only the pages this run opens, and the tool chip above the retried
+        # answer must not count the first run's calls a second time.
+        self._tool_calls = []
+        self._tool_counts = {}
+        options = self._web_options(
+            web_research.build_web_system_prompt(date.today().isoformat()))
+        self._run_agent(prompt, options)
 
     def _render_workpackage_from_buffer(self):
         """Parse JSON work package → app render .docx → mở file."""

@@ -42,6 +42,10 @@ _TOOL_TEXT = "#8a6d3b"
 # Same orange the orb paints cited neurons and the sources panel titles cards
 # with: a code in the text and a marker on the orb are one fact, shown twice.
 _DOC_LINK = "#ff7e2e"
+# A link out to the web is a different kind of thing from a document in this
+# plant's database, so it does not borrow the orange: blue and underlined, the
+# way a browser draws one.
+_WEB_LINK = "#2563eb"
 
 # Heading level → (size, colour). Levels past 4 fall back to the smallest.
 _HEADINGS = {
@@ -63,9 +67,35 @@ _SEP_CELL_RE = re.compile(r"^:?-{2,}:?$")
 # code to a file and opens it.
 DOC_LINK_SCHEME = "doc:"
 
+# Web research answers carry their sources as markdown links or as bare URLs.
+# Both become real anchors; the widget hands an http(s) target to the browser.
+_MD_LINK_RE = re.compile(r"\[([^\]\n]{1,300})\]\((https?://[^)\s]+)\)")
+_BARE_URL_RE = re.compile(r"(?<![\"'=(])\bhttps?://[^\s<>\"'`)\]]+")
+# Punctuation that ends the sentence rather than the address.
+_URL_TRAIL = ".,;:!?”’"
+
+
+def is_web_link(href: str) -> bool:
+    """True for a target that belongs in the system browser, not in this app."""
+    return href.lower().startswith(("http://", "https://"))
+
 
 def _esc(text: str) -> str:
     return html.escape(text, quote=False)
+
+
+def _shorten_url(url: str, limit: int = 64) -> str:
+    """A full URL is unreadable in running text; keep the ends, drop the middle."""
+    if len(url) <= limit:
+        return url
+    head = limit - 26
+    return url[:head] + "…" + url[-22:]
+
+
+def _web_link_html(label: str, url: str) -> str:
+    text = _esc(label.strip() or _shorten_url(url))
+    return (f'<a href="{html.escape(url, quote=True)}" '
+            f'style="color:{_WEB_LINK};text-decoration:underline">{text}</a>')
 
 
 def _inline(text: str, doc_codes: frozenset[str] = frozenset()) -> str:
@@ -73,15 +103,30 @@ def _inline(text: str, doc_codes: frozenset[str] = frozenset()) -> str:
 
     Order matters: escaping first means a ``<`` in the answer can never open a
     tag, and every mark added after it is ours. Code spans are pulled out before
-    the emphasis passes so that ``**`` inside backticks stays literal.
+    the emphasis passes so that ``**`` inside backticks stays literal, and web
+    links before everything, so neither the emphasis passes nor the document-code
+    linker can rewrite anything inside an ``href``.
     """
     spans: list[str] = []
+    links: list[tuple[str, str]] = []
 
     def _stash(match: re.Match) -> str:
         spans.append(match.group(1))
         return f"\x00{len(spans) - 1}\x00"
 
+    def _stash_md_link(match: re.Match) -> str:
+        links.append((match.group(1), match.group(2).rstrip(_URL_TRAIL)))
+        return f"\x01{len(links) - 1}\x01"
+
+    def _stash_bare_url(match: re.Match) -> str:
+        url = match.group(0).rstrip(_URL_TRAIL)
+        tail = match.group(0)[len(url):]
+        links.append(("", url))
+        return f"\x01{len(links) - 1}\x01{tail}"
+
     out = re.sub(r"`([^`]+)`", _stash, text)
+    out = _MD_LINK_RE.sub(_stash_md_link, out)
+    out = _BARE_URL_RE.sub(_stash_bare_url, out)
     out = _esc(out)
     out = re.sub(r"\*\*(.+?)\*\*", rf'<b style="color:{_STRONG}">\1</b>', out)
     out = re.sub(r"__(.+?)__", rf'<b style="color:{_STRONG}">\1</b>', out)
@@ -104,6 +149,9 @@ def _inline(text: str, doc_codes: frozenset[str] = frozenset()) -> str:
             f'<span style="background:{_CODE_BG};color:{_CODE_TEXT}">'
             f"&nbsp;{body}&nbsp;</span>",
         )
+
+    for i, (label, url) in enumerate(links):
+        out = out.replace(f"\x01{i}\x01", _web_link_html(label, url))
     return out
 
 

@@ -21,6 +21,7 @@ import os
 from typing import NamedTuple
 
 from PySide6.QtCore import QUrl
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QLabel, QMessageBox, QTextBrowser, QVBoxLayout, QWidget,
 )
@@ -46,12 +47,18 @@ _MAX_PANEL_H = 340
 
 
 class CitedSource(NamedTuple):
-    """One document an answer cited.
+    """One source an answer cited — a document in the DB, or a page on the web.
 
     ``path`` is filled when the citation was already resolved against the file
     list the orb loads; diagnosis evidence arrives with a code only and is
     resolved on click instead. ``verified`` is None when there was no quote to
     check.
+
+    ``url`` is set instead of ``path`` for a page cited from the web. For one of
+    those ``verified`` carries the audit result: True when the agent really
+    opened that page with WebFetch, False when it cited the address without ever
+    reading it. Same field, because it answers the same question either way --
+    can this citation be trusted as evidence.
     """
 
     code: str
@@ -59,6 +66,7 @@ class CitedSource(NamedTuple):
     section: str = ""
     quote: str = ""
     verified: bool | None = None
+    url: str = ""
 
 
 def _esc(s: str) -> str:
@@ -162,6 +170,8 @@ class CitedSourcesPanel(QWidget):
             self._sync_height()
 
     def _card_html(self, index: int, src: CitedSource) -> str:
+        if src.url:
+            return self._web_card_html(src)
         head = f'<b>{_esc(src.code)}</b>'
         if src.section:
             head += f'<span style="color:{_MUTED}"> › {_esc(src.section)}</span>'
@@ -192,6 +202,47 @@ class CitedSourcesPanel(QWidget):
             f'📄 Open file</a></div>'
         )
 
+        return self._wrap(parts)
+
+    def _web_card_html(self, src: CitedSource) -> str:
+        """A page cited from the web, with the audit of it stated on the card.
+
+        The verification line is the reason this panel exists in web mode. An
+        answer can name a URL it only saw in a search result, and the engineer
+        reading it cannot tell the difference -- unless the app says so here.
+        """
+        host = src.url.split("://", 1)[-1].split("/", 1)[0].lower()
+        if host.startswith("www."):
+            host = host[4:]
+
+        parts = [
+            f'<div style="color:{_SOURCE_COLOR_HEX};font-size:11px">'
+            f'<b>{_esc(src.code)}</b></div>',
+            f'<div style="color:{_MUTED};font-size:10px">{_esc(host)}</div>',
+        ]
+        if src.verified is True:
+            parts.append(
+                f'<div style="color:{_OK};font-size:10px">'
+                f'✓ Page opened and read</div>'
+            )
+        elif src.verified is False:
+            parts.append(
+                f'<div style="color:{_WARN};font-size:10px">'
+                f'⚠ Cited, but this page was never opened</div>'
+            )
+        if src.quote:
+            parts.append(
+                f'<div style="color:{_MUTED};font-size:10px">{_esc(src.quote)}</div>'
+            )
+        parts.append(
+            f'<div style="margin-top:3px">'
+            f'<a href="{_esc(src.url)}" style="color:{_LINK};'
+            f'text-decoration:none">🌐 Open in browser</a></div>'
+        )
+        return self._wrap(parts)
+
+    def _wrap(self, parts: list[str]) -> str:
+        """One card. A table because Qt rich text has no padded, tinted block."""
         return (
             f'<table width="100%" bgcolor="{_CARD_BG}" border="0"'
             f' cellspacing="0" cellpadding="7">'
@@ -201,8 +252,14 @@ class CitedSourcesPanel(QWidget):
 
     # ── Slots ─────────────────────────────────────────────────────────
     def _on_anchor(self, url: QUrl) -> None:
-        """Click 'open:<index>' → open the file that citation resolved to."""
+        """Click 'open:<index>' → open the file that citation resolved to.
+
+        A web card links straight to its page, which goes to the system browser.
+        """
         text = url.toString()
+        if text.lower().startswith(("http://", "https://")):
+            QDesktopServices.openUrl(QUrl(text))
+            return
         if not text.startswith("open:"):
             return
         try:

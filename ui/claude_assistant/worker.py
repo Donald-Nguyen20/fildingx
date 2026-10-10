@@ -17,6 +17,10 @@ apply_no_console_patch()
 class AgentWorker(QThread):
     text_chunk = Signal(str)   # text streaming từng đoạn
     tool_used  = Signal(str)   # tên tool đang dùng
+    # tool_used says only which tool ran; tool_call carries the arguments too,
+    # so web research can audit the URLs WebFetch actually opened against the
+    # ones the answer cites. Both fire -- tool_used keeps its existing slots.
+    tool_call  = Signal(str, dict)
     done       = Signal()
     error      = Signal(str)
 
@@ -42,6 +46,9 @@ class AgentWorker(QThread):
                             self.text_chunk.emit(block.text)
                         elif hasattr(block, "name"):
                             self.tool_used.emit(block.name)
+                            args = getattr(block, "input", None)
+                            self.tool_call.emit(
+                                block.name, args if isinstance(args, dict) else {})
             self.done.emit()
         except Exception as e:
             self.error.emit(str(e))
