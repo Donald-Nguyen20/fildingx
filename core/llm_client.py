@@ -205,6 +205,167 @@ class LLMClientGemini(BaseLLMClient):
 
 
 
+# ── Listing the models a provider actually serves ───────────────
+#
+# Model names rot. The three this app shipped with had all been withdrawn
+# within a year and were answering 404 from six call sites, and the only real
+# cure is to ask the provider rather than keep a list here. Each one answers
+# on its own endpoint, in its own shape, and each serves models this app
+# cannot use at all -- speech, image and transcription models that take or
+# return something other than text -- so each needs its own filter. The
+# filters use the provider's own modality metadata where there is any, and
+# the model name where there is none.
+_MODEL_LIST_TIMEOUT = 25
+
+# Gemini's listing reports no output modality, so its non-text models have to
+# be recognised by name. These are stable Google naming conventions: anything
+# that speaks, draws, scores music or transcribes.
+_GEMINI_NON_TEXT = ("-tts", "-image", "transcribe", "lyria", "nano-banana", "veo")
+
+
+def _fmt_ctx(n) -> str:
+    try:
+        n = int(n)
+    except (TypeError, ValueError):
+        return ""
+    return f"{n // 1000}k context" if n >= 1000 else f"{n} context"
+
+
+def _list_ollama(host: str) -> List[dict]:
+    host = (host or "http://localhost:11434").rstrip("/")
+    r = requests.get(f"{host}/api/tags", timeout=_MODEL_LIST_TIMEOUT)
+    r.raise_for_status()
+    out = []
+    for m in r.json().get("models") or []:
+        name = (m.get("name") or "").strip()
+        if not name:
+            continue
+        gb = (m.get("size") or 0) / 1e9
+        out.append({"id": name, "tip": f"{gb:.1f} GB on disk" if gb else ""})
+    out.sort(key=lambda m: m["id"])
+    return out
+
+
+def _list_openrouter(api_key: str) -> List[dict]:
+    # The catalogue is public. The key is sent only when there is one, so the
+    # list still loads before anybody has pasted a key.
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    r = requests.get("https://openrouter.ai/api/v1/models",
+                     headers=headers, timeout=_MODEL_LIST_TIMEOUT)
+    r.raise_for_status()
+    out = []
+    for m in r.json().get("data") or []:
+        mid = (m.get("id") or "").strip()
+        arch = m.get("architecture") or {}
+        if not mid or "text" not in (arch.get("output_modalities") or ["text"]):
+            continue
+        price = (m.get("pricing") or {}).get("prompt")
+        try:
+            per_m = f"${float(price) * 1e6:.2f}/M tokens" if price is not None else ""
+        except (TypeError, ValueError):
+            per_m = ""
+        bits = [b for b in (_fmt_ctx(m.get("context_length")), per_m) if b]
+        out.append({"id": mid, "tip": "  ·  ".join(bits),
+                    "_free": mid.endswith(":free")})
+    # Free models first: this app's own defaults are free ones, and anybody
+    # opening a 400-entry list is usually looking for another of those.
+    out.sort(key=lambda m: (not m["_free"], m["id"]))
+    for m in out:
+        m.pop("_free", None)
+    return out
+
+
+def _list_groq(api_key: str) -> List[dict]:
+    if not api_key:
+        raise ValueError("Missing API key.")
+    r = requests.get("https://api.groq.com/openai/v1/models",
+                     headers={"Authorization": f"Bearer {api_key}"},
+                     timeout=_MODEL_LIST_TIMEOUT)
+    r.raise_for_status()
+    out = []
+    for m in r.json().get("data") or []:
+        mid = (m.get("id") or "").strip()
+        if not mid or m.get("active") is False:
+            continue
+        # Groq serves Whisper (audio in) and Orpheus (speech out) from the
+        # same endpoint; both answer a text prompt with an error.
+        if "text" not in (m.get("input_modalities") or ["text"]):
+            continue
+        if "text" not in (m.get("output_modalities") or ["text"]):
+            continue
+        ctx = int(m.get("context_window") or m.get("context_length") or 0)
+        out.append({"id": mid, "tip": _fmt_ctx(ctx), "_ctx": ctx})
+    # Biggest context first. The prompt-guard classifiers are text-to-text and
+    # so pass the filter, but hold 512 tokens -- less than this app's shortest
+    # prompt -- and belong at the bottom of the list rather than hidden from it.
+    out.sort(key=lambda m: (-m["_ctx"], m["id"]))
+    for m in out:
+        m.pop("_ctx", None)
+    return out
+
+
+def _list_gemini(api_key: str) -> List[dict]:
+    if not api_key:
+        raise ValueError("Missing API key.")
+    # Paged. The key goes in a header, not in the URL, for the same reason
+    # generate() puts it there: requests copies the full URL into every
+    # HTTPError it raises, and callers show that text to the user as-is.
+    models, token = [], None
+    while True:
+        url = f"{LLMClientGemini.BASE}?pageSize=200"
+        if token:
+            url += f"&pageToken={token}"
+        r = requests.get(url, headers={"x-goog-api-key": api_key},
+                         timeout=_MODEL_LIST_TIMEOUT)
+        r.raise_for_status()
+        data = r.json()
+        models += data.get("models") or []
+        token = data.get("nextPageToken")
+        if not token:
+            break
+    out = []
+    for m in models:
+        name = (m.get("name") or "").split("/", 1)[-1].strip()
+        if not name:
+            continue
+        # Embedding, live-audio and video models answer on other methods.
+        if "generateContent" not in (m.get("supportedGenerationMethods") or []):
+            continue
+        if any(bad in name for bad in _GEMINI_NON_TEXT):
+            continue
+        bits = [b for b in (_fmt_ctx(m.get("inputTokenLimit")),
+                            (m.get("displayName") or "").strip()) if b]
+        out.append({"id": name, "tip": "  ·  ".join(bits)})
+    out.sort(key=lambda m: m["id"])
+    return out
+
+
+def list_models(provider_key: str, api_key: str = "", host: str = "") -> List[dict]:
+    """Ask one provider which models it serves right now.
+
+    Returns [{"id": <exact model name>, "tip": <short human note>}], most
+    useful first. "id" is exactly what belongs in the config -- never a
+    decorated label -- so whatever the UI shows can be saved unchanged.
+    Raises on failure, with a message fit to put in front of the user.
+    """
+    provider_key = (provider_key or "").strip().lower()
+    api_key = (api_key or "").strip()
+
+    if provider_key == "ollama":
+        return _list_ollama(host)
+    if provider_key == "openrouter":
+        return _list_openrouter(api_key)
+    if provider_key == "groq":
+        return _list_groq(api_key)
+    if provider_key == "gemini":
+        return _list_gemini(api_key)
+
+    valid = ", ".join(key for key, _label in PROVIDERS)
+    raise ValueError(
+        f"Unknown LLM provider {provider_key!r}. Choose one of: {valid}"
+    )
+
+
 def create_llm_client(provider_key: str, model_override: str = "") -> BaseLLMClient:
     cfg = load_llm_config()
     provider_key = (provider_key or "").strip().lower()

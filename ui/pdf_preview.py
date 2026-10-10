@@ -5,7 +5,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QDialog, QFormLayout, QLineEdit, QMessageBox, QSplitter,
     QTabWidget, QComboBox, QFileDialog, QToolButton,
-    QScrollArea, QMenu,
+    QScrollArea, QMenu, QCompleter,
 )
 from PySide6.QtCore import Qt, QThread, Signal, QUrl
 from PySide6.QtGui import QPixmap, QImage, QTextCharFormat, QFont, QDesktopServices, QKeySequence, QShortcut
@@ -13,7 +13,7 @@ from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineSettings
 from PySide6.QtWebEngineWidgets import QWebEngineView
 
 import paths
-from core.llm_client import create_llm_client, PROVIDERS
+from core.llm_client import create_llm_client, list_models, PROVIDERS
 from core.llm_config import (
     load_llm_config, save_llm_config, get_config_path,
     DEFAULT_OLLAMA_MODEL, DEFAULT_OPENROUTER_MODEL,
@@ -30,6 +30,52 @@ class MindMapPage(QWebEnginePage):
         if message.startswith("mm:"):
             self.action.emit(message)
         # suppress all other console noise silently
+
+
+# A fetch that outlives the dialog it was started from. Closing the dialog
+# while one is in flight would otherwise collect the QThread mid-request --
+# "QThread: Destroyed while thread is still running", and sometimes a crash.
+# The dialog disconnects its slots on close and leaves the request to finish
+# into nothing; this set is what keeps it alive until it does.
+_live_model_workers = set()
+
+# OpenRouter publishes its catalogue to anyone, so Load works there before a
+# key has been pasted -- which is exactly when somebody is shopping for a
+# model. Groq and Gemini answer the listing only for an authenticated caller.
+_KEY_REQUIRED = ("groq", "gemini")
+
+
+class ModelListWorker(QThread):
+    """Fetches one provider's model list off the UI thread.
+
+    The dialog is modal, so a blocking request here would freeze the whole
+    window for as long as the provider takes to answer -- and OpenRouter
+    answers with 466 models.
+    """
+
+    done  = Signal(str, list)   # provider key, [{"id", "tip"}]
+    error = Signal(str, str)    # provider key, message
+
+    def __init__(self, provider: str, api_key: str, host: str, parent=None):
+        super().__init__(parent)
+        self.provider = provider
+        self.api_key  = api_key
+        self.host     = host
+
+    def run(self):
+        try:
+            self.done.emit(
+                self.provider,
+                list_models(self.provider, self.api_key, self.host),
+            )
+        except Exception as e:
+            msg = f"{type(e).__name__}: {e}"
+            # requests copies the request into the exceptions it raises. None
+            # of these endpoints carries the key in its URL, but a redirect or
+            # a future endpoint could -- and this message goes on screen.
+            if self.api_key:
+                msg = msg.replace(self.api_key, "<api key>")
+            self.error.emit(self.provider, msg)
 
 
 class LLMSettingsDialog(QDialog):
@@ -76,17 +122,27 @@ class LLMSettingsDialog(QDialog):
         self.ed_ollama_host = QLineEdit(cfg.get("ollama_host", "http://localhost:11434"))
         form.addRow("Ollama host:", self.ed_ollama_host)
 
-        self.ed_ollama_model = QLineEdit(cfg.get("ollama_model", DEFAULT_OLLAMA_MODEL))
-        form.addRow("Ollama model:", self.ed_ollama_model)
+        # Each model field is an editable combo with a Load button beside it:
+        # click Load and the provider is asked what it serves right now. Typing
+        # a name by hand still works -- Ollama's models are local and a private
+        # deployment may not be in any list -- so the list is an offer, never a
+        # restriction.
+        self._model_boxes   = {}
+        self._load_buttons  = {}
+        self._model_workers = {}
 
-        self.ed_openrouter_model = QLineEdit(cfg.get("openrouter_model", DEFAULT_OPENROUTER_MODEL))
-        form.addRow("OpenRouter model:", self.ed_openrouter_model)
-
-        self.ed_groq_model = QLineEdit(cfg.get("groq_model", DEFAULT_GROQ_MODEL))
-        form.addRow("Groq model:", self.ed_groq_model)
-
-        self.ed_gemini_model = QLineEdit(cfg.get("gemini_model", DEFAULT_GEMINI_MODEL))
-        form.addRow("Gemini model:", self.ed_gemini_model)
+        self.ed_ollama_model = self._add_model_row(
+            form, "Ollama model:", "ollama",
+            cfg.get("ollama_model", DEFAULT_OLLAMA_MODEL))
+        self.ed_openrouter_model = self._add_model_row(
+            form, "OpenRouter model:", "openrouter",
+            cfg.get("openrouter_model", DEFAULT_OPENROUTER_MODEL))
+        self.ed_groq_model = self._add_model_row(
+            form, "Groq model:", "groq",
+            cfg.get("groq_model", DEFAULT_GROQ_MODEL))
+        self.ed_gemini_model = self._add_model_row(
+            form, "Gemini model:", "gemini",
+            cfg.get("gemini_model", DEFAULT_GEMINI_MODEL))
 
         self.cbo_translate = QComboBox()
         for key, label in PROVIDERS:
@@ -98,6 +154,16 @@ class LLMSettingsDialog(QDialog):
         form.addRow("Translate provider:", self.cbo_translate)
 
         layout.addLayout(form)
+
+        # Says what the last Load found. Silent until one is pressed, so the
+        # dialog looks exactly as it did for anyone who never uses the button.
+        self._lbl_models = QLabel("")
+        self._lbl_models.setWordWrap(True)
+        self._lbl_models.setStyleSheet(
+            "color: #5A6B82; background: transparent; "
+            "font-size: 11px; font-weight: 400;"
+        )
+        layout.addWidget(self._lbl_models)
 
         btns = QHBoxLayout()
         btns.addStretch(1)
@@ -146,7 +212,183 @@ class LLMSettingsDialog(QDialog):
             QPushButton:pressed {
                 background: #B8C8E8;
             }
+            QPushButton:disabled {
+                background: #EDF1F7;
+                color: #9AA7BC;
+                border: 1px solid #D6DCE8;
+            }
+            QComboBox {
+                background: #FFFFFF;
+                color: #1a1a1a;
+                border: 1px solid #C0C8D8;
+                border-radius: 6px;
+                padding: 5px 8px;
+                font-size: 13px;
+            }
+            QComboBox:focus {
+                border: 1px solid #4A90D9;
+            }
+            QComboBox::drop-down {
+                border: none;
+                width: 18px;
+            }
+            /* An editable combo holds a QLineEdit, which would otherwise take
+               the border and padding of the rule above and draw a box inside
+               a box. */
+            QComboBox QLineEdit {
+                border: none;
+                background: transparent;
+                padding: 0px;
+            }
+            QComboBox QAbstractItemView {
+                background: #FFFFFF;
+                color: #1a1a1a;
+                border: 1px solid #C0C8D8;
+                selection-background-color: #D0DAF0;
+                selection-color: #1a1a1a;
+                outline: none;
+            }
         """)
+
+    # ── Model lists ───────────────────────────────────
+    def _add_model_row(self, form, label: str, provider: str, current: str):
+        """One editable model combo plus the Load button that fills it."""
+        combo = QComboBox()
+        combo.setEditable(True)
+        # Nothing is added to the list by typing: the text is free-form and is
+        # read straight off the edit, so an accidental Enter must not grow the
+        # list with half-typed names.
+        combo.setInsertPolicy(QComboBox.NoInsert)
+        combo.setMinimumWidth(240)
+        combo.setCurrentText(current)
+        comp = combo.completer()
+        if comp is not None:
+            # OpenRouter alone lists 466 models; scrolling that is hopeless,
+            # but typing "oss" should still reach openai/gpt-oss-120b.
+            comp.setCompletionMode(QCompleter.PopupCompletion)
+            comp.setFilterMode(Qt.MatchContains)
+            comp.setCaseSensitivity(Qt.CaseInsensitive)
+
+        btn = QPushButton("⬇ Load")
+        btn.setFixedWidth(80)
+        btn.setToolTip(f"Ask {provider} which models it serves right now")
+        # clicked passes a bool, and _load_models takes a provider name.
+        btn.clicked.connect(lambda: self._load_models(provider))
+
+        row = QHBoxLayout()
+        row.addWidget(combo, 1)
+        row.addWidget(btn)
+        form.addRow(label, row)
+
+        self._model_boxes[provider]  = combo
+        self._load_buttons[provider] = btn
+        return combo
+
+    def _provider_key_edit(self, provider: str):
+        """The key box whose contents a provider is sent, if it has one."""
+        return {
+            "openrouter": self.ed_openrouter,
+            "groq":       self.ed_groq,
+            "gemini":     self.ed_gemini,
+        }.get(provider)
+
+    def _load_models(self, provider: str):
+        worker = self._model_workers.get(provider)
+        if worker is not None and worker.isRunning():
+            return
+
+        # The key as currently typed, not the saved one: somebody who has just
+        # pasted a fresh key expects Load to use it without saving first.
+        edit = self._provider_key_edit(provider)
+        api_key = edit.text().strip() if edit is not None else ""
+        if provider in _KEY_REQUIRED and not api_key:
+            QMessageBox.warning(
+                self, "No API key",
+                f"Paste the {provider} API key first — the list of models "
+                "comes from the provider, and it needs the key to answer.\n\n"
+                "Use 🔑 Get key on that row if you do not have one yet.",
+            )
+            return
+
+        btn = self._load_buttons[provider]
+        btn.setEnabled(False)
+        btn.setText("…")
+        self._lbl_models.setText(f"Asking {provider} for its model list…")
+
+        worker = ModelListWorker(
+            provider, api_key, self.ed_ollama_host.text().strip()
+        )
+        worker.done.connect(self._on_models)
+        worker.error.connect(self._on_models_error)
+        worker.finished.connect(lambda: _live_model_workers.discard(worker))
+        self._model_workers[provider] = worker
+        _live_model_workers.add(worker)
+        worker.start()
+
+    def _reset_load_btn(self, provider: str):
+        btn = self._load_buttons.get(provider)
+        if btn is not None:
+            btn.setEnabled(True)
+            btn.setText("⬇ Load")
+
+    def _on_models(self, provider: str, models: list):
+        self._reset_load_btn(provider)
+        combo = self._model_boxes.get(provider)
+        if combo is None:
+            return
+        if not models:
+            self._lbl_models.setText(
+                f"{provider} returned no usable text model."
+            )
+            return
+
+        # Whatever is configured stays configured. The saved name may be a
+        # private deployment the listing does not mention, and replacing it
+        # silently would change which model the app uses without being asked.
+        keep = combo.currentText().strip()
+        combo.blockSignals(True)
+        combo.clear()
+        for m in models:
+            combo.addItem(m["id"])
+            if m.get("tip"):
+                combo.setItemData(combo.count() - 1, m["tip"], Qt.ToolTipRole)
+        idx = combo.findText(keep, Qt.MatchFixedString)
+        if idx >= 0:
+            combo.setCurrentIndex(idx)
+        else:
+            combo.setCurrentText(keep)
+        combo.blockSignals(False)
+
+        here = " (still set, not in the list)" if idx < 0 and keep else ""
+        self._lbl_models.setText(
+            f"{provider}: {len(models)} models — current is "
+            f"{keep or '(empty)'}{here}. Hover an entry for its context size."
+        )
+        combo.showPopup()
+
+    def _on_models_error(self, provider: str, message: str):
+        self._reset_load_btn(provider)
+        self._lbl_models.setText(f"{provider}: could not load the model list.")
+        hint = ""
+        if provider == "ollama":
+            hint = ("\n\nOllama answers on the host above, and only while it is "
+                    "running. Start it, or check the host.")
+        elif "401" in message or "403" in message:
+            hint = "\n\nThe provider refused the key. Check it, or get a new one."
+        QMessageBox.warning(
+            self, f"Could not load {provider} models", f"{message}{hint}"
+        )
+
+    def done(self, result):
+        """Let a fetch in flight finish into nothing instead of being killed."""
+        for worker in self._model_workers.values():
+            try:
+                worker.done.disconnect()
+                worker.error.disconnect()
+            except (RuntimeError, TypeError):
+                pass          # never connected, or already gone
+        self._model_workers.clear()
+        super().done(result)
 
     def on_save(self):
         cfg = load_llm_config()
@@ -154,10 +396,10 @@ class LLMSettingsDialog(QDialog):
         cfg["groq_api_key"]        = self.ed_groq.text().strip()
         cfg["gemini_api_key"]      = self.ed_gemini.text().strip()
         cfg["ollama_host"]         = self.ed_ollama_host.text().strip() or "http://localhost:11434"
-        cfg["ollama_model"]        = self.ed_ollama_model.text().strip() or DEFAULT_OLLAMA_MODEL
-        cfg["openrouter_model"]    = self.ed_openrouter_model.text().strip() or DEFAULT_OPENROUTER_MODEL
-        cfg["groq_model"]          = self.ed_groq_model.text().strip() or DEFAULT_GROQ_MODEL
-        cfg["gemini_model"]        = self.ed_gemini_model.text().strip() or DEFAULT_GEMINI_MODEL
+        cfg["ollama_model"]        = self.ed_ollama_model.currentText().strip() or DEFAULT_OLLAMA_MODEL
+        cfg["openrouter_model"]    = self.ed_openrouter_model.currentText().strip() or DEFAULT_OPENROUTER_MODEL
+        cfg["groq_model"]          = self.ed_groq_model.currentText().strip() or DEFAULT_GROQ_MODEL
+        cfg["gemini_model"]        = self.ed_gemini_model.currentText().strip() or DEFAULT_GEMINI_MODEL
         cfg["translate_provider"]  = self.cbo_translate.currentData()
         try:
             save_llm_config(cfg)
