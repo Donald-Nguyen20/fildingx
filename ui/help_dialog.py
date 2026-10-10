@@ -342,7 +342,7 @@ class HelpDialog(QDialog):
 
         <h3>Đăng nhập (chỉ cần 1 lần)</h3>
         <ul>
-          <li>Bấm <b>🔑 Login</b> → mở cửa sổ console chạy <code>claude login</code>.</li>
+          <li>Bấm <b>🔑 Login</b> → mở cửa sổ console chạy <code>claude auth login</code>.</li>
           <li>Đăng nhập xong, tab Claude dùng được ngay, không cần lặp lại mỗi lần mở app.</li>
         </ul>
 

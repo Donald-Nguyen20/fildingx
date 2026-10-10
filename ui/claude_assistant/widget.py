@@ -493,6 +493,62 @@ def _bundled_claude() -> str:
     return "claude"
 
 
+# Keeps a console from flashing over a --windowed build. 0 on anything but
+# Windows, where subprocess rejects a non-zero value.
+_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+_AUTH_STYLES = {
+    "in":      "color: #16a34a; font-size: 11px; background: transparent;",
+    "out":     "color: #f59e0b; font-size: 11px; background: transparent;",
+    "no_cli":  "color: #dc2626; font-size: 11px; background: transparent;",
+    "unknown": "color: #64809c; font-size: 11px; background: transparent;",
+}
+
+
+class AuthStatusWorker(QThread):
+    """Reads `claude auth status --json` off the UI thread.
+
+    The CLI is a large binary that may be cold on disk, and on a machine where
+    it was never installed the call returns only after PATH has been searched --
+    neither belongs on the UI thread. Emits one dict whose "state" is "in",
+    "out", "no_cli" or "unknown", then ends; the instance is restartable, so the
+    widget keeps one and starts it again for each check.
+    """
+
+    done = Signal(dict)
+
+    def run(self):
+        try:
+            p = subprocess.run(
+                [_bundled_claude(), "auth", "status", "--json"],
+                capture_output=True, text=True, encoding="utf-8",
+                timeout=25, creationflags=_NO_WINDOW,
+            )
+        except FileNotFoundError:
+            self.done.emit({"state": "no_cli"})
+            return
+        except Exception as exc:               # timeout, OSError, ...
+            self.done.emit({"state": "unknown", "detail": str(exc)})
+            return
+
+        # --json is the documented default; ask for it anyway, and still accept
+        # a reply that will not parse rather than raising inside the thread. An
+        # empty stdout reads as signed out, which is the right answer when the
+        # CLI reports the failure on stderr instead.
+        try:
+            data = json.loads(p.stdout.strip() or "{}")
+        except ValueError:
+            self.done.emit({"state": "unknown",
+                            "detail": (p.stdout or p.stderr).strip()[:200]})
+            return
+
+        if not isinstance(data, dict):
+            self.done.emit({"state": "unknown"})
+            return
+        data["state"] = "in" if data.get("loggedIn") else "out"
+        self.done.emit(data)
+
+
 class _OrbColumn(QWidget):
     """Column that holds the orb to the top at exactly the size it draws.
 
@@ -621,6 +677,16 @@ class ClaudeAssistantWidget(QWidget):
         self._stream_timer.setInterval(200)
         self._stream_timer.timeout.connect(self._pump_stream_intensity)
 
+        # Sign-in state. The OAuth flow ends in the browser, so after the login
+        # console opens there is nothing to wait on -- the state is polled for a
+        # couple of minutes instead, and the timer stops as soon as it turns.
+        self._auth_worker = AuthStatusWorker(self)
+        self._auth_worker.done.connect(self._on_auth_status)
+        self._auth_polls = 0
+        self._auth_timer = QTimer(self)
+        self._auth_timer.setInterval(4000)
+        self._auth_timer.timeout.connect(self._poll_auth)
+
         self._build_ui()
 
         # Khôi phục DB / folder logic đã chọn lần trước (không ghi lại file)
@@ -629,6 +695,8 @@ class ClaudeAssistantWidget(QWidget):
             self._apply_db_path(saved["db_path"], persist=False)
         if saved.get("dcs_folder"):
             self._apply_dcs_folder(saved["dcs_folder"], persist=False)
+
+        self._refresh_auth_status()
 
     # ── Build UI ──────────────────────────────────────────────────────
     def _build_ui(self):
@@ -654,14 +722,17 @@ class ClaudeAssistantWidget(QWidget):
         lbl_title.setFont(QFont("Segoe UI", 13, QFont.Bold))
         lbl_title.setStyleSheet("color: #88ccff; background: transparent;")
 
-        self._lbl_status = QLabel("✅  Claude Code session")
-        self._lbl_status.setStyleSheet(
-            "color: #16a34a; font-size: 11px; background: transparent;"
-        )
+        # Filled in by _on_auth_status; it has to start out saying nothing
+        # either way, because the previous hardcoded tick claimed a session even
+        # on a machine that had never signed in.
+        self._lbl_status = QLabel("⋯  checking sign-in")
+        self._lbl_status.setStyleSheet(_AUTH_STYLES["unknown"])
 
         self._btn_login = QPushButton("🔑 Login")
         self._btn_login.setFixedHeight(26)
-        self._btn_login.setToolTip("Open Claude Code login window")
+        self._btn_login.setToolTip(
+            "Sign in to Claude Code — opens the OAuth flow in a console window"
+        )
         self._btn_login.setStyleSheet("""
             QPushButton {
                 background: #0d2236; color: #7dd3fc;
@@ -1419,15 +1490,83 @@ class ClaudeAssistantWidget(QWidget):
 
     # ── Slots ─────────────────────────────────────────────────────────
     def _on_login(self):
-        """Mở cửa sổ console chạy 'claude login' để đăng nhập."""
+        """Open the Claude Code OAuth flow in a console window of its own.
+
+        `claude auth login` is the real subcommand. Plain `claude login` is not
+        one, so the CLI read "login" as a prompt and opened a chat session: on a
+        machine that had never signed in that happened to work, because the CLI
+        runs the OAuth flow before any session, and on one already signed in it
+        simply spent tokens on the word.
+
+        The flow needs a console because a --windowed build has none, and it
+        finishes in the browser, so the outcome is polled rather than awaited.
+        """
         cli = _bundled_claude()
-        if sys.platform == "win32":
-            subprocess.Popen(
-                [cli, "login"],
-                creationflags=subprocess.CREATE_NEW_CONSOLE,
+        try:
+            if sys.platform == "win32":
+                subprocess.Popen(
+                    [cli, "auth", "login"],
+                    creationflags=subprocess.CREATE_NEW_CONSOLE,
+                )
+            else:
+                subprocess.Popen([cli, "auth", "login"])
+        except FileNotFoundError:
+            self._on_auth_status({"state": "no_cli"})
+            QMessageBox.warning(
+                self, "Claude CLI not found",
+                "Claude Code CLI is not installed on this machine, so there is "
+                "nothing to sign in to.\n\n"
+                "Install it once:\n"
+                "    npm install -g @anthropic-ai/claude-code\n\n"
+                "then click \U0001f511 Login again.",
             )
+            return
+
+        self._auth_polls = 30          # ~2 min at 4 s, cut short once signed in
+        self._auth_timer.start()
+        self._refresh_auth_status()
+
+    # ── Sign-in state ──────────────────────────────────
+    def _refresh_auth_status(self):
+        """Ask the CLI who is signed in. Cheap, and never more than one at once."""
+        if not self._auth_worker.isRunning():
+            self._auth_worker.start()
+
+    def _poll_auth(self):
+        """Re-read the state while a login console may still be open."""
+        if self._auth_polls <= 0:
+            self._auth_timer.stop()
+            return
+        self._auth_polls -= 1
+        self._refresh_auth_status()
+
+    def _on_auth_status(self, info: dict):
+        """Paint the header badge from one `claude auth status` reply."""
+        state = info.get("state", "unknown")
+        if state == "in":
+            self._auth_polls = 0
+            self._auth_timer.stop()
+            who = info.get("email") or info.get("authMethod") or "signed in"
+            plan = info.get("subscriptionType") or ""
+            text = f"✅  {who}" + (f"  ·  {plan}" if plan else "")
+            tip = "Claude Code is signed in on this machine."
+        elif state == "out":
+            text = "⚠  not signed in"
+            tip = ("Click \U0001f511 Login and finish the OAuth flow in the console "
+                   "window that opens.")
+        elif state == "no_cli":
+            text = "⛔  Claude CLI not found"
+            tip = ("Claude Code CLI is not installed on this machine.\n"
+                   "Install it once, then click \U0001f511 Login:\n"
+                   "    npm install -g @anthropic-ai/claude-code")
         else:
-            subprocess.Popen([cli, "login"])
+            text = "⋯  sign-in unknown"
+            tip = info.get("detail") or "Could not read `claude auth status`."
+
+        self._lbl_status.setText(text)
+        self._lbl_status.setStyleSheet(
+            _AUTH_STYLES.get(state, _AUTH_STYLES["unknown"]))
+        self._lbl_status.setToolTip(tip)
 
     def _on_send(self):
         msg = self._inp_msg.text().strip()
