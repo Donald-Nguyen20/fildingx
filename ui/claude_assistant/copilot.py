@@ -178,7 +178,7 @@ def build_diagnosis_prompt(
     return base
 
 
-_TREND_MAX_CHARS = 6000
+TREND_MAX_CHARS = 6000
 
 
 def build_trend_block(data_text: str) -> str:
@@ -186,8 +186,8 @@ def build_trend_block(data_text: str) -> str:
     data = (data_text or "").strip()
     if not data:
         return ""
-    if len(data) > _TREND_MAX_CHARS:
-        data = data[:_TREND_MAX_CHARS] + "\n… (đã cắt bớt)"
+    if len(data) > TREND_MAX_CHARS:
+        data = data[:TREND_MAX_CHARS] + "\n… (đã cắt bớt)"
     return (
         "[Dữ liệu trend / log sheet kèm theo]\n"
         "```\n" + data + "\n```\n"
@@ -203,6 +203,23 @@ def build_trend_block(data_text: str) -> str:
 # ── Parse khối JSON kết quả từ stream text của Claude ─────────────────────
 
 _JSON_FENCE_RE = re.compile(r"```json\s*(\{.*?\})\s*```", re.DOTALL)
+
+
+def strip_json_fences(text: str) -> str:
+    """The answer text without the ```json``` blocks a panel has taken over.
+
+    Every panel mode asks the model to end with a JSON block, and the panel
+    draws it as a tree, a card or a report. The chat then printed the same
+    block again underneath -- a hundred monospace lines of the thing the
+    reader had just been shown properly, pushing the prose off the screen.
+
+    Display only. The caller keeps the full buffer, which is what the
+    extractors above parse and what build_retry_json_prompt is built from.
+    """
+    out = _JSON_FENCE_RE.sub("", text or "")
+    # The block sits after a blank line, so removing it leaves a run of them
+    # that would render as a gap where the block used to be.
+    return re.sub(r"\n{3,}", "\n\n", out).strip()
 
 
 def extract_diagnosis_json(full_text: str) -> Optional[dict]:

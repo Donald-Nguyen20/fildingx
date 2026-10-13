@@ -34,7 +34,7 @@ from ui.claude_assistant.neural_orb_widget import (
 )
 from ui.claude_assistant.orb_controls import OrbControls
 from ui.claude_assistant.sources_panel import CitedSource, CitedSourcesPanel
-from ui.claude_assistant import chat_render, copilot, web_research
+from ui.claude_assistant import chat_render, copilot, trend_import, web_research
 
 def _load_saved_paths() -> dict:
     """Đọc các đường dẫn đã lưu, bỏ đường dẫn không còn tồn tại."""
@@ -108,7 +108,7 @@ _MODES_COL_W = 236
 # tile stops holding its label: "Make Report" is 66px at 11px type, a tile pads
 # it by 3px a side, and the column adds a 7px gutter and 14px margins.
 _MODES_COL_MIN_W = 2 * (66 + 6) + 7 + 28
-_ORB_COL_W = 700
+_ORB_COL_W = 450
 _CHAT_COL_W = 600
 # Chat and diagnosis split what is left when the diagnosis column is open.
 _CHAT_COL_W_DIAG = 340
@@ -611,18 +611,36 @@ class TrendDataDialog(QDialog):
         lay.addWidget(lbl_sym)
         lay.addWidget(self.inp_symptom)
 
-        lbl_data = QLabel("Trend / log data (paste from DCS trend, Excel log sheet…):")
+        head = QHBoxLayout()
+        head.setSpacing(6)
+        head.addWidget(QLabel("Trend / log data (paste, or import CSV):"))
+        head.addStretch()
+        self.btn_import = QPushButton("📂 Import CSV…")
+        self.btn_import.setToolTip(
+            "Read one or more .csv / .tsv / .txt exports.\n"
+            "A long export is thinned to fit the prompt — rows are taken across "
+            "the whole time span and the highest/lowest values are always kept."
+        )
+        self.btn_import.clicked.connect(lambda: self._on_import())
+        head.addWidget(self.btn_import)
+        lay.addLayout(head)
+
         self.inp_data = QTextEdit()
         self.inp_data.setAcceptRichText(False)
         self.inp_data.setPlaceholderText(
             "Time\tTag\tValue\n"
             "02:00\tIDF-A brg vib\t4.2 mm/s\n"
             "02:30\tIDF-A brg vib\t6.8 mm/s\n"
-            "(paste bảng số liệu — giữ nguyên cột/tab)"
+            "(paste a table, keeping its columns — or use Import CSV)"
         )
         self.inp_data.setStyleSheet("font-family: Consolas, monospace; font-size: 12px;")
-        lay.addWidget(lbl_data)
         lay.addWidget(self.inp_data, 1)
+
+        self.lbl_status = QLabel("")
+        self.lbl_status.setWordWrap(True)
+        self.lbl_status.setStyleSheet("color:#6b7280;font-size:11px")
+        self.lbl_status.hide()
+        lay.addWidget(self.lbl_status)
 
         btn_row = QHBoxLayout()
         btn_row.addStretch()
@@ -634,6 +652,39 @@ class TrendDataDialog(QDialog):
         btn_row.addWidget(btn_cancel)
         btn_row.addWidget(btn_ok)
         lay.addLayout(btn_row)
+
+    def _on_import(self):
+        """Append one or more trend exports, thinned to fit the prompt budget."""
+        paths, _ = QFileDialog.getOpenFileNames(
+            self, "Import trend / log data", "",
+            "Trend data (*.csv *.tsv *.txt *.log);;All files (*)")
+        if not paths:
+            return
+
+        existing = self.inp_data.toPlainText().rstrip()
+        budget = copilot.TREND_MAX_CHARS - len(existing) - 2
+        if budget < 200:
+            QMessageBox.warning(
+                self, "Box already full",
+                "The data box already fills the prompt budget (%s chars).\n"
+                "Clear or shorten it before importing."
+                % f"{copilot.TREND_MAX_CHARS:,}")
+            return
+
+        try:
+            text, report = trend_import.read_files(paths, budget)
+        except Exception as exc:                        # noqa: BLE001 — UI edge
+            QMessageBox.critical(self, "Import failed", str(exc))
+            return
+
+        if text:
+            self.inp_data.setPlainText(existing + "\n\n" + text if existing else text)
+            self.lbl_status.setText("📂 " + report.summary())
+            self.lbl_status.show()
+        if report.failures:
+            QMessageBox.warning(
+                self, "Some files were skipped" if text else "Nothing imported",
+                report.failure_text())
 
     def _on_ok(self):
         if not self.inp_symptom.text().strip():
@@ -1839,7 +1890,33 @@ class ClaudeAssistantWidget(QWidget):
         """
         if self._ans_start < 0:
             return
-        body = chat_render.markdown_to_html(self._resp_buffer, self._cited_codes)
+        # A panel mode ends its answer with a ```json``` block that the panel
+        # beside this pane renders in full, so printing the block here as well
+        # showed the same result twice -- once as a diagnosis tree, once as raw
+        # JSON long enough to bury the recommendations above it.
+        #
+        # Taken out of the display only, and only once the block has parsed: a
+        # block that did not parse is exactly the one worth leaving on screen,
+        # because then the chat is the only place the answer exists. The buffer
+        # itself is never touched -- _on_done parses it after this runs, and
+        # the reformat retry is built from it.
+        text = self._resp_buffer
+        grab = {
+            "diagnose":    copilot.extract_diagnosis_json,
+            "report":      copilot.extract_report_json,
+            "quickcard":   copilot.extract_quickcard_json,
+            "workpackage": copilot.extract_workpackage_json,
+        }.get(self._mode)
+        stripped = grab is not None and grab(text) is not None
+        if stripped:
+            text = copilot.strip_json_fences(text)
+        body = chat_render.markdown_to_html(text, self._cited_codes)
+        if stripped and not body:
+            # The reformat retry answers with the block and nothing else, so
+            # there is no prose left once it goes. Say where the result went
+            # rather than leave the turn looking like it failed.
+            body = ('<p style="color:#94a3b8;margin:4px 0;font-size:11px">'
+                    'Result rendered in the panel.</p>')
         if not body and not self._tool_counts:
             self._ans_start = -1
             return
