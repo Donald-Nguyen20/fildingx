@@ -95,13 +95,33 @@ FROM chunks c
 JOIN files f ON f.id = c.file_id
 WHERE f.doc_number = 'VP1-C-L3-G-HNC-50056'
   AND c.id IN (SELECT rowid FROM chunks_fts WHERE chunks_fts MATCH 'alarm setpoint*')
-ORDER BY c.chunk_index;
+ORDER BY c.chunk_index
+LIMIT 50;          -- một tài liệu lớn có hàng nghìn chunk
 ```
 
-### Lấy toàn bộ nội dung 1 file (khi cần đọc đầy đủ)
+### Đọc nội dung đầy đủ của 1 file
+`db_query.py` chặn mỗi ô ở **4.000 ký tự**, nên `SELECT content FROM files`
+không bao giờ trả về cả tài liệu: 952 file trong DB dài hơn 100.000 ký tự và
+file dài nhất là 20.858.924 ký tự. Khi ô bị cắt, kết quả có `"truncated": true`
+— đừng coi phần nhận được là toàn bộ tài liệu.
+
+Đo độ dài trước:
 ```sql
-SELECT content FROM files WHERE doc_number = 'VP1-C-L3-G-HNC-50056';
+SELECT doc_number, LENGTH(content) n_chars
+FROM files
+WHERE doc_number = 'VP1-C-L3-G-HNC-50056';
 ```
+
+Rồi đọc từng đoạn 4.000 ký tự bằng `substr` (đoạn 1 bắt đầu ở 1, đoạn 2 ở 4001,
+đoạn 3 ở 8001...):
+```sql
+SELECT substr(content, 1, 4000) AS part
+FROM files
+WHERE doc_number = 'VP1-C-L3-G-HNC-50056';
+```
+
+Với tài liệu dài, **đọc theo `chunks` gần như luôn tốt hơn**: chunk đã được cắt
+theo heading nên lấy đúng phần cần, thay vì đọc tuần tự hết tài liệu.
 
 ### FTS5 — Cú pháp tìm kiếm
 | Cú pháp | Ý nghĩa |
@@ -142,15 +162,112 @@ SELECT content FROM files WHERE doc_number = 'VP1-C-L3-G-HNC-50056';
 | L3 | Balance of Plant (BOP) |
 | L4 | Civil / Common |
 
-### System codes thường gặp
-| Code | Thiết bị |
-|------|----------|
-| HNC | Howden — IDF (Induced Draft Fan) |
-| FDF | Forced Draft Fan |
-| BFP | Boiler Feed Pump |
-| CEP | Condensate Extraction Pump |
-| CWP | Circulating Water Pump |
-| ACT | Air Cooled Turbine |
+### System codes
+
+DB có **322 system_code** khác nhau, phủ 6.976/8.054 tài liệu (1.078 file không
+có code trong tên). Bảng dưới là các code nhiều tài liệu nhất; nghĩa của từng
+code đã được xác nhận bằng cách **đọc tên tài liệu thật trong DB**, không suy ra
+từ chữ viết tắt. Số `n` là số file mang code đó.
+
+**Cạm bẫy quan trọng:** code **không phải** là viết tắt tiếng Anh của tên thiết
+bị. Boiler Feed Pump là `LAC` chứ không phải `BFP`; FD Fan là `HLB` chứ không
+phải `FDF`; không có code nào tên `FDF`, `BFP`, `CEP`, `CWP` hay `ACT`. Luôn tra
+code bằng query ở cuối mục này thay vì đoán.
+
+**Lò hơi và phụ trợ**
+| Code | n | Thiết bị |
+|------|---|----------|
+| `HNC` | 36 | ID Fan (quạt khói) |
+| `HLB` | 16 | FD Fan (quạt gió chính) |
+| `HLV` | 2 | Đường gió FD |
+| `HFE` | 16 | PA Fan (quạt gió cấp 1) |
+| `HFC` | 35 | Máy nghiền than (pulverizer) |
+| `HFV` | 16 | Phụ trợ máy nghiền |
+| `UHF` | 6 | Phụ trợ máy nghiền (Lot-4) |
+| `HFB` | 7 | Máy cấp than (coal feeder) |
+| `HLD` | 20 | Bộ sấy không khí (GAH / air heater) |
+| `HCB`, `HCC` | 23 + 26 | Thổi bụi (soot blower) |
+| `H` | 141 | **Lò hơi nói chung** — legend P&ID, line list, không phải một thiết bị |
+
+**Khói, tro, FGD**
+| Code | n | Thiết bị |
+|------|---|----------|
+| `HDE` | 43 | Lọc bụi tĩnh điện (ESP) |
+| `HDC` | 62 | Hệ thống tro bay (FAHS) |
+| `ETA` | 70 | Hệ thống tro xỉ đáy lò |
+| `UES` | 26 | Phụ trợ tro xỉ |
+| `HT` | 173 | Khử lưu huỳnh nước biển (SWFGD) — line list, P&ID |
+| `UEM`, `UQX` | 22 + 10 | Phụ trợ FGD |
+
+**Tuabin, máy phát, nước**
+| Code | n | Thiết bị |
+|------|---|----------|
+| `MAA` | 17 | Tuabin hơi chính (start-up curve, MSV/CV) |
+| `MAV` | 29 | Hệ dầu tuabin (oil tank / cooler / conditioner) |
+| `MAJ` | 61 | Bình ngưng (condenser) |
+| `MKA` | 25 | Máy phát (generator) |
+| `LAC` | 34 | **Bơm cấp nước lò (MBFP/TBFP)** |
+| `XAA` | 13 | Tuabin dẫn động bơm cấp (BFP turbine) |
+| `XAV` | 20 | Đường ống STG / phụ trợ BFPT |
+| `XA` | 26 | Thử nghiệm chạy thử bơm cấp |
+| `LCB` | 22 | Bơm nước ngưng |
+| `LAA` | 8 | Bình khử khí (deaerator) |
+| `PAC` | 30 | Hệ nước làm mát tuần hoàn (CW) |
+| `GN` | 244 | Modbus list các nhà máy xử lý nước |
+| `GCB`, `GCF` | 116 + 82 | Khử muối / nước khử khoáng (DMWT) |
+
+**Điện, điều khiển**
+| Code | n | Thiết bị |
+|------|---|----------|
+| `ABA` | 68 | Trạm 500 kV AIS |
+| `ADA` | 73 | Trạm 110 kV AIS |
+| `UAG`, `BBT`, `BCT` | 9 + 8 + 7 | Máy biến áp |
+| `BOE` | 32 | Tủ phân phối / MCC |
+| `CYE`, `BG`, `BLN` | 92 + 78 + 41 | Danh mục và tuyến cáp |
+| `BLS` | 210 | Chiếu sáng |
+| `QCG` | 45 | **Alarm & Set Point List, IO list, hook-up drawing** — giá trị cao nhất khi tra thông số cài đặt |
+| `QJC` | 47 | Danh mục van |
+| `QH` | 57 | Dầu mỡ bôi trơn và danh mục van |
+| `QFB`, `QE` | 17 + 25 | Khí nén đo lường và khí dịch vụ |
+| `LD`, `GTC` | 87 + 85 | Modbus / IO list |
+
+**Than, phụ trợ, công trình**
+| Code | n | Thiết bị |
+|------|---|----------|
+| `SGC`, `EAC`, `EAY`, `ECB` | 73 + 102 + 84 + 128 | Vận chuyển than và máng than |
+| `SGA` | 77 | Bơm chữa cháy |
+| `SA` | 62 | HVAC |
+| `UHN`, `UYC`, `UZR`, `UZD`, `UMA` | 89 + 86 + 85 + 73 + 72 | Nhà và kết cấu (Lot-4) |
+
+**Code chung — không phải một thiết bị cụ thể.** Đừng diễn giải các code này
+thành tên thiết bị:
+| Code | n | Thực chất là |
+|------|---|--------------|
+| `GEN` | 607 | Báo cáo chạy thử CCC — nhiều hệ thống khác nhau |
+| `MV` | 35 | Báo cáo chạy thử CCC |
+| `H` | 141 | Lò hơi nói chung |
+| `GM`, `EA`, `SG` | 50 + 60 + 58 | Nhóm hệ thống, không phải thiết bị |
+
+**Tra code khi không nằm trong bảng.** Code → nghĩa, đọc tên tài liệu thật:
+```sql
+SELECT name, doc_number
+FROM files
+WHERE system_code = 'HDC'
+LIMIT 15;
+```
+
+Tên thiết bị → code, xếp theo số tài liệu:
+```sql
+SELECT system_code, COUNT(*) n
+FROM files
+WHERE name LIKE '%condenser%'
+GROUP BY system_code
+ORDER BY n DESC
+LIMIT 10;
+```
+Query thứ hai dễ cho kết quả sai: tên tài liệu có thể chứa `BFP` hay `CWP` chỉ
+vì đó là nhãn lô hàng, không phải thiết bị của tài liệu. Luôn chạy query thứ
+nhất để đọc tên thật trước khi kết luận.
 
 ---
 
@@ -183,7 +300,8 @@ ORDER BY rank LIMIT 15;
 SELECT c.heading, c.content
 FROM chunks c JOIN files f ON f.id = c.file_id
 WHERE f.doc_number LIKE 'VP1-%-I-%'   -- Discipline I&C
-  AND c.id IN (SELECT rowid FROM chunks_fts WHERE chunks_fts MATCH '[tag name]*');
+  AND c.id IN (SELECT rowid FROM chunks_fts WHERE chunks_fts MATCH '[tag name]*')
+LIMIT 30;
 ```
 
 ### Bước 3 — Viết báo cáo theo format chuẩn
