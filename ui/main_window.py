@@ -649,6 +649,7 @@ class FileSearchApp(QMainWindow):
             (self._tool_button("square-pen", "Open Notes"),      self.open_or_create_notes),
             (self._tool_button("link-2",     "Hyperlink Notes"), self.get_hyperlink_from_tree_view),
             (self._tool_button("sheet",      "Google Sheet"),    self.check_google_sheet),
+            (self._tool_button("database",   "Create DB"),       self.open_create_db),
         ]
 
         grid = QGridLayout()
@@ -1265,6 +1266,15 @@ class FileSearchApp(QMainWindow):
 
     def closeEvent(self, event):
         self._cleanup_temp_notebooks()
+        # The indexer is a top-level window of its own, so leaving it open keeps
+        # the application alive after this one closes. Closed here -- but not
+        # while it is indexing. That job runs for hours, and quitting would end
+        # it mid-document with nothing said; the window is left open instead,
+        # still showing its progress, so ending the run stays the user's own
+        # decision rather than a side effect of closing this window.
+        _idx = getattr(self, "_create_db_win", None)
+        if _idx is not None and not (_idx.worker and _idx.worker.isRunning()):
+            _idx.close()
         event.accept()
 
     def _cleanup_temp_notebooks(self):
@@ -1769,3 +1779,37 @@ class FileSearchApp(QMainWindow):
 
     def open_index_interface(self):
         IndexSearchWindow(self).exec()
+
+    def open_create_db(self):
+        """The v3 indexer (core/create_index_v3.py) opened as a window of this app.
+
+        Non-modal, unlike the dialogs above: a full index runs for hours, so the
+        rest of the app has to stay usable while it works. That is also why the
+        window is kept on self and reused instead of rebuilt -- an unreferenced
+        QMainWindow is garbage-collected as soon as this method returns, and it
+        would take the running IndexWorker thread with it. Reusing it also keeps
+        the folder and database already typed in, and the progress of a run still
+        going, when the window is closed and opened again.
+
+        It is deliberately given no parent, so it is a top-level window with its
+        own taskbar entry: an eighteen-hour job should not be a child window
+        pinned above this one.
+
+        APP_STYLE goes on the window, never on the QApplication. The script's own
+        __main__ block sets it application-wide, which from in here would restyle
+        every tab of this app -- it carries a bare "QWidget { ... }" rule.
+        """
+        if getattr(self, "_create_db_win", None) is None:
+            try:
+                from core.create_index_v3 import MainWindow as _IndexerWindow
+                from core.create_index_v3 import APP_STYLE as _INDEXER_STYLE
+            except Exception as e:
+                QMessageBox.critical(self, "Create DB",
+                                     f"Could not load the indexer:\n{e}")
+                return
+            self._create_db_win = _IndexerWindow()
+            self._create_db_win.setStyleSheet(_INDEXER_STYLE)
+
+        self._create_db_win.show()
+        self._create_db_win.raise_()
+        self._create_db_win.activateWindow()

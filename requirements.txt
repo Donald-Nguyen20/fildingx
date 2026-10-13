@@ -7,5 +7,7 @@ python-pptx
 beautifulsoup4
 pywin32
 rapidfuzz
+pytesseract
+Pillow
 playwright
 notebooklm-py

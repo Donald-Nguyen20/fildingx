@@ -5,7 +5,7 @@ Build:
 
 
   
-pyinstaller --noconfirm --clean --onedir --windowed --name "Finding9.5.3" "Finding8.py" --icon "icon.ico" `
+pyinstaller --noconfirm --clean --onedir --windowed --name "Finding9.6.0" "Finding8.py" --icon "icon.ico" `
   --add-data "$env:LOCALAPPDATA\ms-playwright\chromium-1208;ms-playwright\chromium-1208" `
   --add-data "$env:LOCALAPPDATA\ms-playwright\ffmpeg-1011;ms-playwright\ffmpeg-1011" `
   --add-data "$env:LOCALAPPDATA\ms-playwright\winldd-1007;ms-playwright\winldd-1007" `
@@ -37,6 +37,7 @@ pyinstaller --noconfirm --clean --onedir --windowed --name "Finding9.5.3" "Findi
   --hidden-import=rapidfuzz --hidden-import=bs4 `
   --hidden-import=docx --hidden-import=pptx --hidden-import=fitz `
   --hidden-import=openpyxl --hidden-import=requests `
+  --hidden-import=pytesseract --hidden-import=PIL `
   --add-data "DATABRAIN.md;." `
   --add-data "ui/dcs_logic/*.json;ui/dcs_logic"
 
@@ -44,6 +45,12 @@ After the build, copy DATABRAIN.md beside the .exe as well: the --add-data copy
 above is only a fallback inside the bundle, and the one outside can be edited
 without rebuilding. db_query.py and logic_query.py no longer need copying --
 the exe runs them itself through --db-query / --logic-query.
+
+Create DB (the Tools panel) runs core/create_index_v3.py, which OCRs
+scanned PDFs through pytesseract. pytesseract is only a wrapper: it calls
+tesseract.exe, which cannot be bundled and has to be installed on the
+machine and be on PATH. Without it the indexer still works, but every
+scanned document comes out as "[OCR Error: ...]".
 
 
 """
