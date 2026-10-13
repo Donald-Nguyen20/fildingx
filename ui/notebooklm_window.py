@@ -9,6 +9,41 @@ import threading
 from pathlib import Path
 from datetime import datetime
 
+from ui import themes as _themes
+
+
+# Role colours for the chat transcript. They go straight into the HTML, where no
+# stylesheet can reach them, so each is looked up again every time a line is
+# appended and follows whatever palette is current.
+def _ink_blue() -> str:
+    """Your own questions, notebook names, and links."""
+    return _themes.chrome()["nb_blue"]
+
+
+def _ink_green() -> str:
+    """Mr Finder's answers, and anything that went through."""
+    return _themes.chrome()["nb_green"]
+
+
+def _ink_red() -> str:
+    """Failures."""
+    return _themes.chrome()["nb_red"]
+
+
+def _ink_muted() -> str:
+    """Second-rank text inside the transcript."""
+    return _themes.chrome()["nb_muted"]
+
+
+def _ink_label() -> str:
+    """The tab's own labels, which sit on the panel rather than on the page."""
+    return _themes.chrome()["nb_label"]
+
+
+def _ink_label_muted() -> str:
+    """The login line under the toolbar."""
+    return _themes.chrome()["nb_label_muted"]
+
 
 def _load_source_map() -> dict:
     """Load nlm_source_map.json. Returns {} nếu chưa có hoặc lỗi.
@@ -2576,7 +2611,8 @@ class NotebookLMWidget(QWidget):
         # ── Header: Login + status ────────────────────────────────
         header = QHBoxLayout()
         self.lbl_status = QLabel("⚪ Not logged in")
-        self.lbl_status.setStyleSheet("font-size: 12px; color: #a6adc8;")
+        self.lbl_status.setStyleSheet(
+            f"font-size: 12px; color: {_ink_label_muted()};")
         self.lbl_status.setMaximumWidth(320)
         self.btn_login = QPushButton("🔑 Switch Account")
         self.btn_login.setFixedHeight(32)
@@ -2625,16 +2661,7 @@ class NotebookLMWidget(QWidget):
         self.btn_check_all_nb.setFixedHeight(30)
         self.btn_check_all_nb.setToolTip("Chọn / bỏ chọn tất cả sổ")
         self.btn_check_all_nb.setEnabled(False)
-        self.btn_check_all_nb.setStyleSheet("""
-            QPushButton {
-                background: #1e3a5f; color: #93c5fd;
-                border: 1px solid #3b82f6; border-radius: 6px;
-                font-size: 12px; padding: 0 10px;
-            }
-            QPushButton:hover   { background: #2a4f80; color: #bfdbfe; }
-            QPushButton:pressed { background: #1a3050; }
-            QPushButton:disabled { background: #1a2535; color: #4a6080; border-color: #2a3a4a; }
-        """)
+        self.btn_check_all_nb.setStyleSheet(_themes.chrome()["nb_check_all"])
         self.btn_check_all_nb.clicked.connect(self._toggle_check_all_notebooks)
         nb_header.addWidget(self.btn_check_all_nb)
         self.cmb_nb_sort = QComboBox()
@@ -2652,11 +2679,7 @@ class NotebookLMWidget(QWidget):
         self.lst_notebooks = QTreeWidget()
         self.lst_notebooks.setHeaderHidden(True)
         self.lst_notebooks.setIndentation(14)
-        self.lst_notebooks.setStyleSheet("""
-            QTreeWidget { font-size: 15px; }
-            QTreeWidget::item { padding: 4px 2px; }
-            QTreeWidget::item:selected { background: #313244; }
-        """)
+        self.lst_notebooks.setStyleSheet(_themes.chrome()["nb_list"])
         self.lst_notebooks.setContextMenuPolicy(Qt.CustomContextMenu)
         self.lst_notebooks.customContextMenuRequested.connect(self._nb_context_menu)
         self.lst_notebooks.currentItemChanged.connect(self._on_notebook_selected)
@@ -2700,7 +2723,8 @@ class NotebookLMWidget(QWidget):
         chat_lay.setSpacing(6)
 
         self.lbl_nb_name = QLabel("Select a notebook →")
-        self.lbl_nb_name.setStyleSheet("font-size: 13px; font-weight: bold; color: #89b4fa;")
+        self.lbl_nb_name.setStyleSheet(
+            f"font-size: 13px; font-weight: bold; color: {_ink_label()};")
         chat_lay.addWidget(self.lbl_nb_name)
 
         self.chat_display = ChatDisplay()
@@ -2711,7 +2735,8 @@ class NotebookLMWidget(QWidget):
         chat_lay.addWidget(self.chat_display, 1)
 
         self.lbl_thinking = QLabel("")
-        self.lbl_thinking.setStyleSheet("font-size: 14px; color: #89b4fa; padding: 2px 4px;")
+        self.lbl_thinking.setStyleSheet(
+            f"font-size: 14px; color: {_ink_label()}; padding: 2px 4px;")
         self.lbl_thinking.setVisible(False)
         chat_lay.addWidget(self.lbl_thinking)
 
@@ -2818,7 +2843,8 @@ class NotebookLMWidget(QWidget):
         src_lay.addLayout(src_btn_row)
 
         self.lbl_batch_progress = QLabel("")
-        self.lbl_batch_progress.setStyleSheet("font-size:12px; color:#89b4fa; padding:2px 0;")
+        self.lbl_batch_progress.setStyleSheet(
+            f"font-size:12px; color:{_ink_label()}; padding:2px 0;")
         self.lbl_batch_progress.setVisible(False)
         src_lay.addWidget(self.lbl_batch_progress)
 
@@ -3171,6 +3197,26 @@ class NotebookLMWidget(QWidget):
         self.chat_display.clear()
         self._load_sources()
 
+    def apply_chrome(self):
+        """Re-read the colours this tab sets itself.
+
+        Called by the main window when the palette changes. Lines already in the
+        transcript keep the ink they were written with -- rewriting the history
+        would cost it its images and links -- so only the widgets are restyled
+        here, and whatever is appended next picks up the rest.
+        """
+        c = _themes.chrome()
+        self.btn_check_all_nb.setStyleSheet(c["nb_check_all"])
+        self.lst_notebooks.setStyleSheet(c["nb_list"])
+        self.lbl_status.setStyleSheet(
+            f"font-size: 12px; color: {_ink_label_muted()};")
+        self.lbl_nb_name.setStyleSheet(
+            f"font-size: 13px; font-weight: bold; color: {_ink_label()};")
+        self.lbl_thinking.setStyleSheet(
+            f"font-size: 14px; color: {_ink_label()}; padding: 2px 4px;")
+        self.lbl_batch_progress.setStyleSheet(
+            f"font-size:12px; color:{_ink_label()}; padding:2px 0;")
+
     def _toggle_check_all_notebooks(self):
         """Check All / Uncheck All cho toàn bộ notebook trong list."""
         root = self.lst_notebooks.invisibleRootItem()
@@ -3461,7 +3507,7 @@ class NotebookLMWidget(QWidget):
             return
 
         self._right_tabs.setCurrentIndex(0)  # switch to Chat tab
-        self.chat_display.append(f"<b style='color:#89b4fa'>📄 {title}</b>")
+        self.chat_display.append(f"<b style='color:{_ink_blue()}'>📄 {title}</b>")
         self.chat_display.append("<i style='color:#888'>⏳ Loading content…</i>")
 
         class _FetchWorker(QThread):
@@ -3501,7 +3547,7 @@ class NotebookLMWidget(QWidget):
             )
 
         def _on_err(msg):
-            self.chat_display.append(f"<i style='color:#f38ba8'>Error: {msg}</i><br>")
+            self.chat_display.append(f"<i style='color:{_ink_red()}'>Error: {msg}</i><br>")
 
         fw = _FetchWorker(self._current_notebook_id, source_id)
         fw.done.connect(_on_done)
@@ -3656,11 +3702,11 @@ class NotebookLMWidget(QWidget):
                 qimg,
             )
             self.chat_display.append(
-                f"<b style='color:#89b4fa'>You:</b> {question}<br>"
+                f"<b style='color:{_ink_blue()}'>You:</b> {question}<br>"
                 f"<img src='{img_name}' width='{qimg.width()}' height='{qimg.height()}'>"
             )
         else:
-            self.chat_display.append(f"<b style='color:#89b4fa'>You:</b> {question}")
+            self.chat_display.append(f"<b style='color:{_ink_blue()}'>You:</b> {question}")
 
         self.chat_input.clear()
         self.btn_send.setEnabled(False)
@@ -3691,7 +3737,7 @@ class NotebookLMWidget(QWidget):
         self._stop_thinking()
         self._citation_refs = citations
         html = self._md_to_html(text)
-        self.chat_display.append(f"<b style='color:#a6e3a1'>Mr Finder:</b><br>{html}")
+        self.chat_display.append(f"<b style='color:{_ink_green()}'>Mr Finder:</b><br>{html}")
         if citations:
             parts = []
             for i, c in enumerate(citations, 1):
@@ -3755,8 +3801,8 @@ class NotebookLMWidget(QWidget):
         self._last_answer = text
         html = self._md_to_html(text)
         self.chat_display.append(
-            "<b style='color:#a6e3a1'>Mr Finder</b> "
-            "<span style='color:#89b4fa'>[tổng hợp]</span>:<br>" + html
+            f"<b style='color:{_ink_green()}'>Mr Finder</b> "
+            f"<span style='color:{_ink_blue()}'>[tổng hợp]</span>:<br>" + html
         )
 
         # Gộp citations từ các notebook liên quan (giữ tên notebook để biết nguồn)
@@ -3782,7 +3828,7 @@ class NotebookLMWidget(QWidget):
                     f" <a href='nlm://{i-1}' style='color:#1d4ed8;text-decoration:underline'>{source}</a>"
                     if source else ""
                 )
-                nb_html = f" <span style='color:#89b4fa'>[📓 {nbt}]</span>" if nbt else ""
+                nb_html = f" <span style='color:{_ink_blue()}'>[📓 {nbt}]</span>" if nbt else ""
                 parts.append(
                     f"<span style='color:#15803d'>[{i}]{src_html}</span>{nb_html}"
                     f" <i style='color:#374151'>\"{short}\"</i>"
@@ -3815,7 +3861,7 @@ class NotebookLMWidget(QWidget):
         for nb_title, text, citations in relevant:
             combined_text.append(text)
             self.chat_display.append(
-                f"<b style='color:#a6e3a1'>Mr Finder</b> <span style='color:#89b4fa'>[📓 {nb_title}]</span>:"
+                f"<b style='color:{_ink_green()}'>Mr Finder</b> <span style='color:{_ink_blue()}'>[📓 {nb_title}]</span>:"
             )
             self.chat_display.append(self._md_to_html(text))
             if citations:
@@ -4039,7 +4085,7 @@ class NotebookLMWidget(QWidget):
 
     def _on_chat_error(self, msg: str):
         self._stop_thinking()
-        self.chat_display.append(f"<b style='color:#f38ba8'>Error:</b> {msg}")
+        self.chat_display.append(f"<b style='color:{_ink_red()}'>Error:</b> {msg}")
         self.btn_send.setEnabled(True)
         self.btn_save_note.setEnabled(True)
 
@@ -4070,7 +4116,7 @@ class NotebookLMWidget(QWidget):
         self.btn_save_note.setText("📌 Note")
         self.btn_save_note.setEnabled(True)
         self.chat_display.append(
-            "<i style='color:#a6e3a1'>✓ Saved as note.</i><br>"
+            f"<i style='color:{_ink_green()}'>✓ Saved as note.</i><br>"
         )
         # Mở Studio panel nếu chưa mở, rồi refresh notes
         if not self._studio_widget.isVisible():
@@ -4082,7 +4128,7 @@ class NotebookLMWidget(QWidget):
         self.btn_save_note.setText("📌 Note")
         self.btn_save_note.setEnabled(True)
         self.chat_display.append(
-            f"<i style='color:#f38ba8'>✗ Failed to save note: {msg}</i><br>"
+            f"<i style='color:{_ink_red()}'>✗ Failed to save note: {msg}</i><br>"
         )
 
     def _auto_export_excel_if_table(self, text: str):
@@ -4129,7 +4175,7 @@ class NotebookLMWidget(QWidget):
         wb.save(path)
 
         self.chat_display.append(
-            f"<a href='xlsx://{path}' style='color:#89b4fa'>📊 {fname} — Click to open</a><br>"
+            f"<a href='xlsx://{path}' style='color:{_ink_blue()}'>📊 {fname} — Click to open</a><br>"
         )
 
     def _export_last_answer_to_excel(self):
@@ -4182,7 +4228,7 @@ class NotebookLMWidget(QWidget):
                 wb.save(path)
                 os.startfile(path)
                 self.chat_display.append(
-                    f"<i style='color:#a6e3a1'>✓ Exported table to {os.path.basename(path)}</i><br>"
+                    f"<i style='color:{_ink_green()}'>✓ Exported table to {os.path.basename(path)}</i><br>"
                 )
                 return
 
@@ -4202,7 +4248,7 @@ class NotebookLMWidget(QWidget):
             wb.save(path)
             os.startfile(path)
             self.chat_display.append(
-                f"<i style='color:#a6e3a1'>✓ Exported {len(items)} items to {os.path.basename(path)}</i><br>"
+                f"<i style='color:{_ink_green()}'>✓ Exported {len(items)} items to {os.path.basename(path)}</i><br>"
             )
             return
 
@@ -4217,7 +4263,7 @@ class NotebookLMWidget(QWidget):
         wb.save(path)
         os.startfile(path)
         self.chat_display.append(
-            f"<i style='color:#a6e3a1'>✓ Exported to {os.path.basename(path)}</i><br>"
+            f"<i style='color:{_ink_green()}'>✓ Exported to {os.path.basename(path)}</i><br>"
         )
 
     # ── Studio ────────────────────────────────────────────────────

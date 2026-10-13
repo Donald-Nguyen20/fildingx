@@ -182,6 +182,7 @@ class FileSearchApp(QMainWindow):
         self._last_results:   list = []
         self._sidebar_btns:   list = []
         self._sidebar_icons:  list = []
+        self._sidebar_captions: list = []
         # (widget, icon name, size) for every icon painted in the theme ink, so
         # _apply_theme can redraw the whole set when the palette changes.
         self._themed_icons:   list = []
@@ -226,13 +227,8 @@ class FileSearchApp(QMainWindow):
         toolbar = QFrame()
         toolbar.setObjectName("toolbarFrame")
         toolbar.setFixedHeight(62)
-        toolbar.setStyleSheet("""
-            QFrame#toolbarFrame {
-                background: rgba(255,255,255,8);
-                border: 1px solid rgba(255,255,255,15);
-                border-radius: 8px;
-            }
-        """)
+        self._toolbar_frame = toolbar
+        toolbar.setStyleSheet(_themes.chrome()["toolbar"])
         h = QHBoxLayout(toolbar)
         h.setContentsMargins(14, 0, 14, 0)
         h.setSpacing(8)
@@ -259,7 +255,8 @@ class FileSearchApp(QMainWindow):
 
         sep = QFrame(); sep.setFrameShape(QFrame.VLine)
         sep.setFixedHeight(28)
-        sep.setStyleSheet("color: rgba(255,255,255,40);")
+        self._toolbar_sep = sep
+        sep.setStyleSheet(_themes.chrome()["separator"])
         h.addWidget(sep)
 
         lbl_k = QLabel("Keyword:")
@@ -368,7 +365,8 @@ class FileSearchApp(QMainWindow):
         lbl_text = QLabel(label)
         lbl_text.setAlignment(Qt.AlignCenter)
         lbl_text.setFont(_QFont("Segoe UI", 7))
-        lbl_text.setStyleSheet("color: rgba(200,220,255,200);")
+        lbl_text.setStyleSheet(_themes.chrome()["sidebar_caption"])
+        self._sidebar_captions.append(lbl_text)
         lbl_text.setAttribute(Qt.WA_TransparentForMouseEvents)
 
         v.addWidget(lbl_icon)
@@ -386,29 +384,8 @@ class FileSearchApp(QMainWindow):
         sidebar = QFrame()
         sidebar.setObjectName("sidebar")
         sidebar.setFixedWidth(80)
-        sidebar.setStyleSheet("""
-            QFrame#sidebar {
-                background: rgba(30,40,60,180);
-                border-radius: 8px;
-            }
-            QPushButton {
-                background: transparent;
-                border: none;
-                border-radius: 8px;
-                color: rgba(220,230,255,200);
-                padding-top: 6px;
-            }
-            QPushButton:hover {
-                background: rgba(255,255,255,25);
-                border: 1px solid rgba(255,255,255,60);
-                color: white;
-            }
-            QPushButton:checked {
-                background: rgba(40,180,110,50);
-                border-left: 3px solid rgba(60,210,140,220);
-                color: white;
-            }
-        """)
+        self._sidebar_frame = sidebar
+        sidebar.setStyleSheet(_themes.chrome()["sidebar"])
         sb_lay = QVBoxLayout(sidebar)
         sb_lay.setContentsMargins(4, 16, 4, 8)
         sb_lay.setSpacing(4)
@@ -439,14 +416,7 @@ class FileSearchApp(QMainWindow):
         # ── Tree ─────────────────────────────────────────────────
         self.tree_widget = QTreeWidget()
         self.sort_helper = TreeSortHelper(self.tree_widget)
-        self.tree_widget.setStyleSheet("""
-            QTreeWidget { outline:0; selection-background-color: transparent; }
-            QTreeWidget::item:hover                   { background: rgba(0,120,215,25); }
-            QTreeWidget::item:selected:active,
-            QTreeWidget::item:selected:focus          { background: rgba(0,120,215,170); color:white; }
-            QTreeWidget::item:selected:!active        { background: rgba(0,120,215,80);  color:black; }
-            QTreeWidget::item:focus                   { outline: none; }
-        """)
+        self.tree_widget.setStyleSheet(_themes.chrome()["tree"])
         self.tree_widget.setFocusPolicy(Qt.StrongFocus)
         self.tree_widget.itemPressed.connect(lambda *_: self.tree_widget.setFocus())
         self.tree_widget.itemClicked.connect(lambda *_: self.tree_widget.setFocus())
@@ -472,23 +442,7 @@ class FileSearchApp(QMainWindow):
 
         # ── Tab: File Search | DB Search ─────────────────────────
         self._search_tabs = QTabWidget()
-        self._search_tabs.setStyleSheet("""
-            QTabWidget::pane { border: none; }
-            QTabBar::tab {
-                background: rgba(255,255,255,10);
-                color: rgba(220,230,255,180);
-                padding: 6px 18px;
-                border-radius: 4px;
-                margin-right: 2px;
-                font-size: 12px;
-            }
-            QTabBar::tab:selected {
-                background: rgba(40,180,110,50);
-                color: white;
-                border-bottom: 2px solid rgba(60,210,140,220);
-            }
-            QTabBar::tab:hover { background: rgba(255,255,255,20); }
-        """)
+        self._search_tabs.setStyleSheet(_themes.chrome()["tabs"])
         # ── File Search page (toolbar + tree + pdf preview) ──────
         file_search_page = QWidget()
         fs_lay = QVBoxLayout(file_search_page)
@@ -501,7 +455,7 @@ class FileSearchApp(QMainWindow):
         self._splitter.addWidget(self.pdf_preview)
         self._splitter.setSizes([10000, 0])
         self._splitter.setHandleWidth(4)
-        self._splitter.setStyleSheet("QSplitter::handle { background: rgba(255,255,255,15); border-radius: 2px; }")
+        self._splitter.setStyleSheet(_themes.chrome()["splitter"])
         fs_lay.addWidget(self._splitter, 1)
 
         self._tab_icons = ["search", "database", "notebook-pen", "brain"]
@@ -533,7 +487,7 @@ class FileSearchApp(QMainWindow):
         self._outer_splitter.addWidget(self._search_tabs)
         self._outer_splitter.addWidget(self._right_stack)
         self._outer_splitter.setHandleWidth(5)
-        self._outer_splitter.setStyleSheet("QSplitter::handle { background: rgba(255,255,255,15); border-radius: 2px; }")
+        self._outer_splitter.setStyleSheet(_themes.chrome()["splitter"])
         self._outer_splitter.setSizes([10000, 0])
         body.addWidget(self._outer_splitter, 1)
 
@@ -590,10 +544,18 @@ class FileSearchApp(QMainWindow):
         LLMSettingsDialog(self).exec()
 
     def _paint_tab_icons(self):
-        """The selected tab's label turns white, so its icon follows it."""
+        """The selected tab's label changes colour, so its icon follows it.
+
+        The two inks come from the theme's chrome rather than from ui.icons:
+        the pale blue pair there reads on a dark tab bar and disappears on a
+        white one.
+        """
+        if not getattr(self, "_tab_icons", None):
+            return
+        idle, active = _themes.chrome()["tab_ink"]
         current = self._search_tabs.currentIndex()
         for i, name in enumerate(self._tab_icons):
-            colour = _icons.INK_TAB_ON if i == current else _icons.INK_TAB
+            colour = active if i == current else idle
             self._search_tabs.setTabIcon(i, _icons.icon(name, colour, 16))
 
     def _themed_icon(self, widget, name: str, size: int = 18):
@@ -691,10 +653,43 @@ class FileSearchApp(QMainWindow):
         act.triggered.connect(lambda: HelpDialog(self).exec())
         self.addAction(act)
 
+    def _apply_chrome(self):
+        """Restyle the widgets that carry a stylesheet of their own.
+
+        The QSS on main_widget cannot reach them -- a widget's own stylesheet
+        wins over an inherited one -- so each is re-set by hand here. Every
+        lookup is guarded: _apply_theme is reachable from the keyword box long
+        after setup, but the first call arrives while the window is still
+        being built and half of these do not exist yet.
+        """
+        c = _themes.chrome()
+        for attr, key in (("_toolbar_frame",  "toolbar"),
+                          ("_toolbar_sep",    "separator"),
+                          ("_sidebar_frame",  "sidebar"),
+                          ("tree_widget",     "tree"),
+                          ("_search_tabs",    "tabs"),
+                          ("_splitter",       "splitter"),
+                          ("_outer_splitter", "splitter")):
+            widget = getattr(self, attr, None)
+            if widget is not None:
+                widget.setStyleSheet(c[key])
+        for lbl in getattr(self, "_sidebar_captions", ()):
+            lbl.setStyleSheet(c["sidebar_caption"])
+        # A tab that styles widgets of its own says so by having apply_chrome.
+        # Asking rather than naming the classes keeps this from being one more
+        # place to edit when a tab is added.
+        tabs = getattr(self, "_search_tabs", None)
+        for i in range(tabs.count() if tabs is not None else 0):
+            hook = getattr(tabs.widget(i), "apply_chrome", None)
+            if callable(hook):
+                hook()
+        self._paint_tab_icons()
+
     def _apply_theme(self, index: int):
         _themes.set_index(index)
         t = _themes.get_current()
         self.main_widget.setStyleSheet(t["qss"])
+        self._apply_chrome()
         for widget, name, size in self._themed_icons:
             widget.setIcon(_icons.icon(name, t["ink"], size))
         self.main_widget.repaint()

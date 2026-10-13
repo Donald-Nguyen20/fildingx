@@ -16,6 +16,7 @@ THEMES = [
     # ── 0) ORIGINAL: Metal Pastel Blue ────────────────────────────────────────
     {
         "name": "Metal Blue",
+        "light_page": True,   # dark frame, white page
         "ink":  "#0A192D",   # icon colour on buttons, matches this theme's button text
         "hud": {
             "base":    [_c(255,255,255,245), _c(248,250,252,245), _c(240,245,250,250)],
@@ -406,6 +407,40 @@ QHeaderView::section {
     # ── 5) Arctic Frost ───────────────────────────────────────────────────────
     {
         "name": "Arctic",
+        "light_page": True,   # dark frame, white page
+        "light_bar": True,    # ... and a near-white window behind the tabs
+        #: The shared rail is a desaturated grey beside this theme's saturated
+        #: ice; these two stops sit at hue 209/208, between the window's 214
+        #: and the accent's 196-207, so the rail belongs to both. Solid rather
+        #: than the shared rgba(...,180), which only let the pale window show
+        #: through and washed it out.
+        "chrome": {
+            "sidebar": """
+            QFrame#sidebar {
+                background: qlineargradient(x1:0,y1:0,x2:0,y2:1,
+                    stop:0 rgba(19,57,92,255), stop:1 rgba(11,39,64,255));
+                border: none;
+                border-radius: 10px;
+            }
+            QPushButton {
+                background: transparent;
+                border: none;
+                border-radius: 8px;
+                color: rgba(220,230,255,200);
+                padding-top: 6px;
+            }
+            QPushButton:hover {
+                background: rgba(125,211,252,45);
+                border: 1px solid rgba(125,211,252,90);
+                color: white;
+            }
+            QPushButton:checked {
+                background: rgba(40,180,110,50);
+                border-left: 3px solid rgba(60,210,140,220);
+                color: white;
+            }
+        """,
+        },
         "ink":  "#FFFFFF",   # icon colour on buttons, matches this theme's button text
         "hud": {
             "base":    [_c(235,242,252,255), _c(225,235,250,255), _c(212,226,246,255)],
@@ -558,10 +593,94 @@ QHeaderView::section {
 }
 """,
     },
+
+    # -- 7) Daylight: white canvas, emerald actions, sky navigation ------------
+    {
+        "name": "Daylight",
+        "light": True,
+        "light_page": True,
+        "ink":  "#13263D",   # icon colour on buttons, matches this theme's button text
+        "hud": {
+            "base":    [_c(255,255,255,250), _c(248,251,254,250), _c(238,245,252,252)],
+            "sheen":   None,
+            "vig_a":   55,
+            "vig_dark": False,
+            "glow":    [_c(16,185,129,16), _c(16,185,129,40), _c(16,185,129,100)],
+            "glow_w":  [14, 9, 2.7],
+            "hi":      [_c(255,255,255,70), _c(255,255,255,16), _c(255,255,255,0)],
+            "sh":      [_c(0,0,0,0), _c(30,50,75,28), _c(30,50,75,90)],
+            "core":    _c(190,250,225,195),
+        },
+        "qss": r"""
+QMainWindow, QWidget {
+    background: qlineargradient(x1:0,y1:0,x2:1,y2:1,
+        stop:0 rgba(248,251,254,255), stop:0.5 rgba(241,246,252,255), stop:1 rgba(232,240,249,255));
+}
+QWidget { color: rgba(17,32,51,235); font-size: 13px; }
+QFrame, QGroupBox {
+    background: rgba(255,255,255,255);
+    border: 1px solid rgba(206,220,236,255); border-radius: 12px;
+}
+QGroupBox::title { subcontrol-origin:margin; subcontrol-position:top left;
+    padding:0 8px; color:rgba(17,32,51,235); font-weight:900; }
+QLabel { background:transparent; border:none; color:rgba(17,32,51,235); font-weight:700; }
+QLineEdit, QPlainTextEdit, QTextEdit, QComboBox {
+    background:rgba(255,255,255,255); border:1px solid rgba(206,220,236,255);
+    border-radius:10px; padding:7px 10px; color:rgba(13,26,43,255);
+    selection-background-color:rgba(16,185,129,215); selection-color:rgba(255,255,255,255);
+}
+QLineEdit::placeholder { color:rgba(109,128,150,190); }
+QLineEdit:focus, QPlainTextEdit:focus, QTextEdit:focus, QComboBox:focus {
+    background:rgba(255,255,255,255); border:1px solid rgba(16,185,129,230);
+}
+QComboBox QAbstractItemView {
+    background:rgba(255,255,255,255); border:1px solid rgba(206,220,236,255);
+    color:rgba(13,26,43,255); selection-background-color:rgba(16,185,129,215); selection-color:rgba(255,255,255,255);
+}
+QPushButton, QToolButton {
+    background:qlineargradient(x1:0,y1:0,x2:0,y2:1,
+        stop:0 rgba(255,255,255,255), stop:1 rgba(238,244,251,255));
+    border:1.5px solid rgba(201,216,233,255); border-radius:10px;
+    padding:8px 14px; font-weight:900; color:rgba(19,38,61,255);
+}
+QPushButton:hover, QToolButton:hover {
+    background:qlineargradient(x1:0,y1:0,x2:0,y2:1,
+        stop:0 rgba(226,252,241,255), stop:1 rgba(190,242,220,255));
+    border:1.5px solid rgba(16,185,129,200); color:rgba(6,78,59,255);
+}
+QPushButton:pressed, QToolButton:pressed {
+    background:qlineargradient(x1:0,y1:0,x2:0,y2:1,
+        stop:0 rgba(167,235,208,255), stop:1 rgba(110,219,180,255));
+    border:1.5px solid rgba(5,150,105,230); color:rgba(5,60,45,255);
+}
+QPushButton:disabled, QToolButton:disabled {
+    background:rgba(241,245,250,255); border:1.5px solid rgba(217,227,238,255); color:rgba(148,163,184,255);
+}
+QScrollBar:vertical { background:transparent; width:10px; margin:4px; }
+QScrollBar::handle:vertical { background:rgba(148,172,198,110); border-radius:5px; min-height:30px; }
+QScrollBar::handle:vertical:hover { background:rgba(16,185,129,190); }
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height:0px; }
+QSplitter::handle { background:rgba(210,224,239,255); }
+QTreeWidget, QListWidget, QTableWidget, QTextBrowser, QWidget#pdfContent {
+    background:rgba(255,255,255,255); color:rgba(15,23,42,255);
+    border:1px solid rgba(214,226,240,255); border-radius:10px; padding:8px;
+}
+QHeaderView::section {
+    background:qlineargradient(x1:0,y1:0,x2:0,y2:1,
+        stop:0 rgba(250,252,255,255), stop:1 rgba(240,246,252,255));
+    color:rgba(30,58,92,255); padding:8px 10px;
+    border:none; border-right:1px solid rgba(226,235,245,255);
+    border-bottom:2px solid rgba(14,165,233,160); font-weight:900;
+}
+""",
+    },
 ]
 
 # Index theme đang active (lưu giữa các lần đổi)
-_current_index = 0
+# Arctic: a near-white window framing a white page, its own deep glacier rail,
+# and tab inks measured against that window rather than inherited from the dark
+# chrome. Metal Blue is still here at @colour0 and Daylight at @colour7.
+_current_index = 5
 
 def get_current() -> dict:
     return THEMES[_current_index]
@@ -582,3 +701,290 @@ def next_theme() -> dict:
     global _current_index
     _current_index = (_current_index + 1) % len(THEMES)
     return THEMES[_current_index]
+
+
+# -- Chrome ------------------------------------------------------------------
+# Six surfaces the theme QSS cannot reach. Each sets its own stylesheet when it
+# is built, and a widget's own stylesheet beats the one on main_widget, so a
+# rule in "qss" above loses to it. They were all written against a dark window
+# -- white at 3-6% alpha, pale blue captions -- which is invisible on a light
+# one, so a light theme has to supply its own set.
+#
+# _CHROME_DARK repeats, character for character, what those six widgets have
+# always carried. Themes 0-6 therefore render exactly as before; only a theme
+# marked "light": True gets the other set.
+
+_CHROME_DARK = {
+    "toolbar": """
+            QFrame#toolbarFrame {
+                background: rgba(255,255,255,8);
+                border: 1px solid rgba(255,255,255,15);
+                border-radius: 8px;
+            }
+        """,
+    "sidebar": """
+            QFrame#sidebar {
+                background: rgba(30,40,60,180);
+                border-radius: 8px;
+            }
+            QPushButton {
+                background: transparent;
+                border: none;
+                border-radius: 8px;
+                color: rgba(220,230,255,200);
+                padding-top: 6px;
+            }
+            QPushButton:hover {
+                background: rgba(255,255,255,25);
+                border: 1px solid rgba(255,255,255,60);
+                color: white;
+            }
+            QPushButton:checked {
+                background: rgba(40,180,110,50);
+                border-left: 3px solid rgba(60,210,140,220);
+                color: white;
+            }
+        """,
+    "tabs": """
+            QTabWidget::pane { border: none; }
+            QTabBar::tab {
+                background: rgba(255,255,255,10);
+                color: rgba(220,230,255,180);
+                padding: 6px 18px;
+                border-radius: 4px;
+                margin-right: 2px;
+                font-size: 12px;
+            }
+            QTabBar::tab:selected {
+                background: rgba(40,180,110,50);
+                color: white;
+                border-bottom: 2px solid rgba(60,210,140,220);
+            }
+            QTabBar::tab:hover { background: rgba(255,255,255,20); }
+        """,
+    "splitter": "QSplitter::handle { background: rgba(255,255,255,15); border-radius: 2px; }",
+    "tree": """
+            QTreeWidget { outline:0; selection-background-color: transparent; }
+            QTreeWidget::item:hover                   { background: rgba(0,120,215,25); }
+            QTreeWidget::item:selected:active,
+            QTreeWidget::item:selected:focus          { background: rgba(0,120,215,170); color:white; }
+            QTreeWidget::item:selected:!active        { background: rgba(0,120,215,80);  color:black; }
+            QTreeWidget::item:focus                   { outline: none; }
+        """,
+    "separator": "color: rgba(255,255,255,40);",
+    "sidebar_caption": "color: rgba(200,220,255,200);",
+    "nb_check_all": """
+            QPushButton {
+                background: #1e3a5f; color: #93c5fd;
+                border: 1px solid #3b82f6; border-radius: 6px;
+                font-size: 12px; padding: 0 10px;
+            }
+            QPushButton:hover   { background: #2a4f80; color: #bfdbfe; }
+            QPushButton:pressed { background: #1a3050; }
+            QPushButton:disabled { background: #1a2535; color: #4a6080; border-color: #2a3a4a; }
+        """,
+    #: The NotebookLM tab's own labels -- they sit on the panel, not on the
+    #: white page inside it, so they follow the frame like the rest of this dict.
+    "nb_label":       "#89b4fa",
+    "nb_label_muted": "#a6adc8",
+    "tab_ink": ("#DCE6FF", "#FFFFFF"),
+}
+
+#: The rail stays dark on the light theme too. It is the one surface that reads
+#: as navigation rather than content, and its active state is already the
+#: emerald this palette builds on. Only the translucency goes: 180/255 of a dark
+#: blue over a near-white window washes out to grey.
+_CHROME_LIGHT = {
+    "toolbar": """
+            QFrame#toolbarFrame {
+                background: rgba(255,255,255,255);
+                border: 1px solid rgba(206,220,236,255);
+                border-radius: 10px;
+            }
+        """,
+    "sidebar": """
+            QFrame#sidebar {
+                background: qlineargradient(x1:0,y1:0,x2:0,y2:1,
+                    stop:0 rgba(26,38,56,255), stop:1 rgba(19,29,45,255));
+                border: none;
+                border-radius: 10px;
+            }
+            QPushButton {
+                background: transparent;
+                border: none;
+                border-radius: 8px;
+                color: rgba(220,230,255,200);
+                padding-top: 6px;
+            }
+            QPushButton:hover {
+                background: rgba(255,255,255,28);
+                border: 1px solid rgba(255,255,255,65);
+                color: white;
+            }
+            QPushButton:checked {
+                background: rgba(16,185,129,60);
+                border-left: 3px solid rgba(52,211,153,235);
+                color: white;
+            }
+        """,
+    "tabs": """
+            QTabWidget::pane { border: none; }
+            QTabBar::tab {
+                background: rgba(255,255,255,0);
+                color: rgba(88,106,130,255);
+                padding: 6px 18px;
+                border-radius: 4px;
+                margin-right: 2px;
+                font-size: 12px;
+            }
+            QTabBar::tab:selected {
+                background: rgba(255,255,255,255);
+                color: rgba(12,74,110,255);
+                border-bottom: 2px solid rgba(14,165,233,230);
+            }
+            QTabBar::tab:hover { background: rgba(14,165,233,28); }
+        """,
+    "splitter": "QSplitter::handle { background: rgba(203,219,236,255); border-radius: 2px; }",
+    "tree": """
+            QTreeWidget { outline:0; selection-background-color: transparent; }
+            QTreeWidget::item:hover                   { background: rgba(14,165,233,28); }
+            QTreeWidget::item:selected:active,
+            QTreeWidget::item:selected:focus          { background: rgba(16,185,129,185); color:white; }
+            QTreeWidget::item:selected:!active        { background: rgba(16,185,129,70);  color:rgba(6,60,45,255); }
+            QTreeWidget::item:focus                   { outline: none; }
+        """,
+    "separator": "color: rgba(17,32,51,55);",
+    "sidebar_caption": "color: rgba(200,220,255,200);",
+    "nb_check_all": """
+            QPushButton {
+                background: #E0F2FE; color: #075985;
+                border: 1px solid #7DD3FC; border-radius: 6px;
+                font-size: 12px; padding: 0 10px;
+            }
+            QPushButton:hover   { background: #BAE6FD; color: #0C4A6E; }
+            QPushButton:pressed { background: #7DD3FC; }
+            QPushButton:disabled { background: #F1F5F9; color: #94A3B8; border-color: #E2E8F0; }
+        """,
+    "nb_label":       "#1D4ED8",
+    "nb_label_muted": "#64748B",
+    "tab_ink": ("#5A6A82", "#0C4A6E"),
+}
+
+
+
+# -- The content page -------------------------------------------------------
+# A theme's frame and its content page are coloured independently: Metal Blue
+# and Arctic both draw a dark-ish gradient around a white QTextEdit and a white
+# tree. The chat transcript writes its colours straight into HTML, so they have
+# to follow the page the text lands on rather than the frame around it --
+# measured per theme from the QLineEdit/QTextEdit rule in "qss".
+
+_PAGE_DARK = {
+    "nb_list": """
+            QTreeWidget { font-size: 15px; }
+            QTreeWidget::item { padding: 4px 2px; }
+            QTreeWidget::item:selected { background: #313244; }
+        """,
+    "nb_blue":  "#89b4fa",
+    "nb_green": "#a6e3a1",
+    "nb_red":   "#f38ba8",
+    "nb_muted": "#a6adc8",
+}
+
+_PAGE_LIGHT = {
+    "nb_list": """
+            QTreeWidget { font-size: 15px; }
+            QTreeWidget::item { padding: 4px 2px; }
+            QTreeWidget::item:selected { background: rgba(16,185,129,185); color: white; }
+        """,
+    #: Role inks for the chat transcript, picked for a white page: every one
+    #: clears 4.5:1 on #FFFFFF, where the dark set above sits near 2:1.
+    "nb_blue":  "#1D4ED8",
+    "nb_green": "#047857",
+    "nb_red":   "#BE123C",
+    "nb_muted": "#64748B",
+}
+
+
+# -- The tab bar ------------------------------------------------------------
+# A third surface, and not answered by either of the other two: Arctic frames a
+# white page in a near-white window while claiming to be a dark theme, so the
+# strip its tab labels are read against is light even though is_light() says
+# the frame is not. The inks below are measured from that window, rgb(228,238,
+# 252): the idle one reads at 9.8:1 on it, where the dark chrome's pale blue
+# reads at 1.05.
+
+_BAR_LIGHT = {
+    #: The deep navy keeps the tabs inside Arctic's own blue family rather than
+    #: dropping a neutral slate into it. Selected gains a solid white face, so
+    #: its ink is measured against white, not against the window. The base rule
+    #: carries a transparent border so that gaining one on hover or on select
+    #: does not change the tab's height and nudge the bar.
+    "tabs": """
+            QTabWidget::pane { border: none; }
+            QTabBar::tab {
+                background: rgba(255,255,255,0);
+                color: rgba(30,58,95,255);
+                padding: 6px 18px;
+                border-radius: 4px;
+                border-bottom: 2px solid transparent;
+                margin-right: 2px;
+                font-size: 12px;
+            }
+            QTabBar::tab:hover {
+                background: rgba(14,165,233,70);
+                border-bottom: 2px solid rgba(14,165,233,120);
+            }
+            QTabBar::tab:selected {
+                background: rgba(255,255,255,255);
+                color: rgba(12,74,110,255);
+                border-bottom: 2px solid rgba(14,165,233,230);
+            }
+        """,
+    "tab_ink": ("#1E3A5F", "#0C4A6E"),
+}
+
+
+def is_light(index: int = None) -> bool:
+    """True when the theme paints on a light window rather than a dark one."""
+    i = _current_index if index is None else index % len(THEMES)
+    return bool(THEMES[i].get("light"))
+
+
+def light_page(index: int = None) -> bool:
+    """True when text views and trees sit on a light surface in this theme.
+
+    Not the same question as is_light(): Metal Blue and Arctic frame a white
+    page in a dark gradient, so they answer True here and False there.
+    """
+    i = _current_index if index is None else index % len(THEMES)
+    return bool(THEMES[i].get("light_page"))
+
+
+def light_bar(index: int = None) -> bool:
+    """True when the window behind the tab bar is a light surface.
+
+    A third question again, and not answered by either of the others: Arctic
+    paints a near-white window without claiming to be a light theme. Themes
+    that are light all the way through need no flag -- is_light() already sends
+    them to the light chrome.
+    """
+    i = _current_index if index is None else index % len(THEMES)
+    return bool(THEMES[i].get("light_bar"))
+
+
+def chrome(index: int = None) -> dict:
+    """Stylesheets for the widgets that carry their own, outside the theme QSS.
+
+    Three surfaces, three questions: frame-bound keys follow is_light(),
+    page-bound ones light_page(), and the tab bar light_bar(). A theme's own
+    "chrome" dict, if it has one, wins over all three.
+    """
+    i = _current_index if index is None else index % len(THEMES)
+    frame = _CHROME_LIGHT if is_light(i) else _CHROME_DARK
+    page = _PAGE_LIGHT if light_page(i) else _PAGE_DARK
+    out = {**frame, **page}
+    if light_bar(i):
+        out = {**out, **_BAR_LIGHT}
+    #: A theme may override any chrome key for itself, and does so last.
+    return {**out, **THEMES[i].get("chrome", {})}
