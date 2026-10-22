@@ -27,18 +27,22 @@ from PySide6.QtWidgets import (
 )
 
 from ui.claude_assistant import copilot
-# Same orange the orb paints cited neurons with: the panel and the markers name
-# the same documents, and must not disagree about what that looks like.
-from ui.claude_assistant.neural_orb_widget import _SOURCE_COLOR_HEX
+# Same orange the orb paints cited neurons with, taken deep enough to read as
+# text: the panel and the markers name the same documents, and must not
+# disagree about what that looks like.
+from ui.claude_assistant.neural_orb_widget import _SOURCE_INK_HEX
 
-_BG = "#06090f"
-_CARD_BG = "#0d1b2a"
-_BORDER = "#1a2535"
-_TEXT = "#c3d3e3"
-_MUTED = "#64809c"
-_LINK = "#7ecfff"
-_OK = "#4ade80"
-_WARN = "#fbbf24"
+# The orb's light ground, with cards one step darker so each reads as a block.
+# Every text colour clears 4.5:1 on the card.
+_BG = "#f8fafc"
+_CARD_BG = "#f1f5f9"
+_BORDER = "#e2e8f0"
+_HANDLE = "#cbd5e1"
+_TEXT = "#334155"
+_MUTED = "#64748b"
+_LINK = "#2563eb"
+_OK = "#15803d"
+_WARN = "#b45309"
 
 # Cards past this point are still reachable by scrolling. The cap keeps a long
 # evidence list from running the whole height of the column: the orb above sits
@@ -105,10 +109,10 @@ class CitedSourcesPanel(QWidget):
         self._view.setStyleSheet(
             f"QTextBrowser {{ background: {_BG}; border: none;"
             f"padding: 0 8px 8px 8px; }}"
-            # The default scrollbar is light grey and reads as a seam between
-            # this panel and the orb above it.
+            # The default scrollbar carries its own grey track and reads as a
+            # seam between this panel and the orb above it.
             f"QScrollBar:vertical {{ background: {_BG}; width: 8px; margin: 0; }}"
-            f"QScrollBar::handle:vertical {{ background: {_BORDER};"
+            f"QScrollBar::handle:vertical {{ background: {_HANDLE};"
             f"min-height: 24px; border-radius: 4px; }}"
             f"QScrollBar::handle:vertical:hover {{ background: {_MUTED}; }}"
             f"QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical"
@@ -176,7 +180,7 @@ class CitedSourcesPanel(QWidget):
         if src.section:
             head += f'<span style="color:{_MUTED}"> › {_esc(src.section)}</span>'
         parts = [
-            f'<div style="color:{_SOURCE_COLOR_HEX};font-size:11px">{head}</div>'
+            f'<div style="color:{_SOURCE_INK_HEX};font-size:11px">{head}</div>'
         ]
 
         name = os.path.basename(src.path) if src.path else ""
@@ -216,7 +220,7 @@ class CitedSourcesPanel(QWidget):
             host = host[4:]
 
         parts = [
-            f'<div style="color:{_SOURCE_COLOR_HEX};font-size:11px">'
+            f'<div style="color:{_SOURCE_INK_HEX};font-size:11px">'
             f'<b>{_esc(src.code)}</b></div>',
             f'<div style="color:{_MUTED};font-size:10px">{_esc(host)}</div>',
         ]

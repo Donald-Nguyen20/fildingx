@@ -10,7 +10,6 @@ import subprocess
 import sys
 from contextlib import closing
 from datetime import date
-from pathlib import Path
 from typing import NamedTuple
 
 import paths
@@ -26,6 +25,7 @@ from PySide6.QtGui import (
 )
 
 from ui.claude_assistant.agent import make_options
+from ui.claude_assistant.cli_locator import INSTALL_HINT, find_claude_cli
 from ui.claude_assistant.worker import AgentWorker
 from ui.claude_assistant.animations import PulsingOrb
 from ui.claude_assistant.diagnosis_panel import DiagnosisPanel
@@ -171,20 +171,19 @@ _MODE_TILE_H = 52
 _MODE_GAP = 7
 _MODE_ICON_PX = 15
 
-# Colours are proposal E's tokens: panel #111823 on line #1e2b3a, labels in
-# ink-2 #93a7bd, and the accent gradient for the primary. E paints one tile in
-# its "hot" state -- border #2a4a63, label lifted to ink #e6eef8 -- which is the
-# treatment used on hover here, since a still mockup has no other way to show a
-# tile responding to the pointer.
+# Light chrome, slate on white: white tiles on the #f1f5f9 rail, labels in
+# slate-600, and the accent gradient for the primary. Hover borrows the
+# primary's teal, so the tile the pointer is on reads as one step towards being
+# the button that is always lit. Every label clears 4.5:1 on its own fill.
 _MODE_STYLE = """
     QToolButton {
-        background: #111823; color: #93a7bd;
-        border: 1px solid #1e2b3a; border-radius: 10px;
+        background: #ffffff; color: #475569;
+        border: 1px solid #e2e8f0; border-radius: 10px;
         font-size: 11px; padding: 0 3px;
     }
-    QToolButton:hover   { background: #16202e; border-color: #2a4a63;
-                          color: #e6eef8; }
-    QToolButton:pressed { background: #0d141d; }
+    QToolButton:hover   { background: #f0fdfa; border-color: #5eead4;
+                          color: #0f766e; }
+    QToolButton:pressed { background: #ccfbf1; }
 """
 
 _PRIMARY_MODE_STYLE = """
@@ -203,19 +202,20 @@ _PRIMARY_MODE_STYLE = """
 
 _DB_BTN_STYLE = """
     QPushButton {
-        background: #0d2236; color: #7dd3fc;
-        border: 1px solid #1e4d72; border-radius: 5px; font-size: 12px;
+        background: #ffffff; color: #2563eb;
+        border: 1px solid #cbd5e1; border-radius: 5px; font-size: 12px;
     }
-    QPushButton:hover { background: #1a3a5c; }
+    QPushButton:hover { background: #eff6ff; color: #1d4ed8;
+                        border-color: #93c5fd; }
 """
 
 _DB_BTN_CLEAR_STYLE = """
     QPushButton {
-        background: #0d1b2a; color: #64809c;
-        border: 1px solid #1a2535; border-radius: 5px; font-size: 12px;
+        background: #ffffff; color: #64748b;
+        border: 1px solid #e2e8f0; border-radius: 5px; font-size: 12px;
     }
-    QPushButton:hover { background: #2a1215; color: #f87171;
-                        border-color: #5c2a2f; }
+    QPushButton:hover { background: #fef2f2; color: #b91c1c;
+                        border-color: #fecaca; }
 """
 
 
@@ -437,19 +437,21 @@ def _read_db_snapshot(db_path: str, safety_cap: int = 50000) -> _DbSnapshot:
 _EMPTY_DB_SNAPSHOT = _DbSnapshot(0, [], "", "")
 
 # (text, background, border) for each state the DB label can be in.
-# Dark palette: the DB row sits under the orb, on the dark column, because the
-# orb IS this database drawn out -- the label naming it belongs beside it rather
-# than at the top of the white chat pane.
-_DB_LABEL_NONE = ("#64809c", "#0d1b2a", "#1a2535")  # nothing selected
-_DB_LABEL_OK = ("#c3d3e3", "#0d2236", "#1e4d72")    # readable, has documents
-_DB_LABEL_BAD = ("#fbbf24", "#231603", "#4a3a14")   # unreadable, or indexed nothing
+# The DB row sits in the left rail, beside the orb, because the orb IS this
+# database drawn out -- the label naming it belongs next to it rather than at
+# the top of the chat pane. Each text colour clears 4.5:1 on its own fill.
+_DB_LABEL_NONE = ("#64748b", "#ffffff", "#e2e8f0")  # nothing selected
+_DB_LABEL_OK = ("#1e3a8a", "#eff6ff", "#bfdbfe")    # readable, has documents
+_DB_LABEL_BAD = ("#92400e", "#fffbeb", "#fcd34d")   # unreadable, or indexed nothing
 
 
 def _column_header(text: str) -> QLabel:
     """Section caption in the left column ("SOURCE", "MODE")."""
     lbl = QLabel(text)
     lbl.setStyleSheet(
-        "color: #64809c; font-size: 10px; font-weight: 600;"
+        # slate-600, not the slate-500 used for muted text elsewhere: on the
+        # rail's #f1f5f9 that lighter grey only reaches 4.3:1.
+        "color: #475569; font-size: 10px; font-weight: 600;"
         "letter-spacing: 1px; background: transparent; padding-left: 2px;"
     )
     return lbl
@@ -485,29 +487,15 @@ def _db_label_style(fg: str, bg: str, border: str) -> str:
     )
 
 
-def _bundled_claude() -> str:
-    """Đường dẫn bundled claude.exe đi kèm claude_agent_sdk."""
-    try:
-        import claude_agent_sdk
-        p = Path(claude_agent_sdk.__file__).parent / "_bundled" / (
-            "claude.exe" if sys.platform == "win32" else "claude"
-        )
-        if p.exists():
-            return str(p)
-    except Exception:
-        pass
-    return "claude"
-
-
 # Keeps a console from flashing over a --windowed build. 0 on anything but
 # Windows, where subprocess rejects a non-zero value.
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 _AUTH_STYLES = {
-    "in":      "color: #16a34a; font-size: 11px; background: transparent;",
-    "out":     "color: #f59e0b; font-size: 11px; background: transparent;",
+    "in":      "color: #15803d; font-size: 11px; background: transparent;",
+    "out":     "color: #b45309; font-size: 11px; background: transparent;",
     "no_cli":  "color: #dc2626; font-size: 11px; background: transparent;",
-    "unknown": "color: #64809c; font-size: 11px; background: transparent;",
+    "unknown": "color: #64748b; font-size: 11px; background: transparent;",
 }
 
 
@@ -524,9 +512,13 @@ class AuthStatusWorker(QThread):
     done = Signal(dict)
 
     def run(self):
+        cli = find_claude_cli()
+        if not cli:
+            self.done.emit({"state": "no_cli"})
+            return
         try:
             p = subprocess.run(
-                [_bundled_claude(), "auth", "status", "--json"],
+                [cli, "auth", "status", "--json"],
                 capture_output=True, text=True, encoding="utf-8",
                 timeout=25, creationflags=_NO_WINDOW,
             )
@@ -763,17 +755,17 @@ class ClaudeAssistantWidget(QWidget):
 
     # ── Build UI ──────────────────────────────────────────────────────
     def _build_ui(self):
-        self.setStyleSheet("ClaudeAssistantWidget { background: #02040b; }")
+        self.setStyleSheet("ClaudeAssistantWidget { background: #f8fafc; }")
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # ── Header (full width, dark) ─────────────────────────────
+        # ── Header (full width) ───────────────────────────────────
         hdr_w = QWidget()
         hdr_w.setFixedHeight(44)
         hdr_w.setStyleSheet(
-            "background: #06090f; border-bottom: 1px solid #1a2535;"
+            "background: #ffffff; border-bottom: 1px solid #e2e8f0;"
         )
         hdr = QHBoxLayout(hdr_w)
         hdr.setContentsMargins(12, 0, 12, 0)
@@ -783,7 +775,8 @@ class ClaudeAssistantWidget(QWidget):
 
         lbl_title = QLabel("Assistant")
         lbl_title.setFont(QFont("Segoe UI", 13, QFont.Bold))
-        lbl_title.setStyleSheet("color: #88ccff; background: transparent;")
+        # Indigo, the colour the pulsing dot beside it is drawn in.
+        lbl_title.setStyleSheet("color: #4f46e5; background: transparent;")
 
         # Filled in by _on_auth_status; it has to start out saying nothing
         # either way, because the previous hardcoded tick claimed a session even
@@ -798,11 +791,11 @@ class ClaudeAssistantWidget(QWidget):
         )
         self._btn_login.setStyleSheet("""
             QPushButton {
-                background: #0d2236; color: #7dd3fc;
-                border: 1px solid #1e4d72; border-radius: 5px;
+                background: #eef2ff; color: #4338ca;
+                border: 1px solid #c7d2fe; border-radius: 5px;
                 font-size: 11px; padding: 0 8px;
             }
-            QPushButton:hover { background: #1a3a5c; }
+            QPushButton:hover { background: #e0e7ff; border-color: #a5b4fc; }
         """)
         self._btn_login.clicked.connect(self._on_login)
 
@@ -816,7 +809,7 @@ class ClaudeAssistantWidget(QWidget):
         # ── Splitter: Modes | Orb | Chat | Diagnosis ─────────────
         splitter = QSplitter(Qt.Horizontal)
         splitter.setHandleWidth(1)
-        splitter.setStyleSheet("QSplitter::handle { background: #1a2535; }")
+        splitter.setStyleSheet("QSplitter::handle { background: #e2e8f0; }")
 
         splitter.addWidget(self._build_modes_column())
         splitter.addWidget(self._build_orb_column())
@@ -948,7 +941,9 @@ class ClaudeAssistantWidget(QWidget):
         sits.
         """
         col = QWidget()
-        col.setStyleSheet("background: #06090f;")
+        # One step darker than the orb's ground, so the white tiles stand off it
+        # and the rail reads as its own column rather than the orb's margin.
+        col.setStyleSheet("background: #f1f5f9;")
         col.setMinimumWidth(_MODES_COL_MIN_W)
         lay = QVBoxLayout(col)
         lay.setContentsMargins(14, 12, 14, 12)
@@ -1017,7 +1012,9 @@ class ClaudeAssistantWidget(QWidget):
         self._orb_base_path = ""
 
         col = _OrbColumn(self._orb_view)
-        col.setStyleSheet("background: #02040b;")
+        # The light page colour. The orb paints its own navy panel (_BG_COLOR)
+        # on it; the legend, search box and source cards below stay on this.
+        col.setStyleSheet("background: #f8fafc;")
         # A minimum, not a fixed width: the splitter handle still works, so the
         # orb can be made bigger by hand as it always could. What is fixed is
         # that nothing else takes width from it on its own.
@@ -1068,7 +1065,7 @@ class ClaudeAssistantWidget(QWidget):
         # separates a DB that loaded from one that opened and held nothing.
         self._lbl_db_count = QLabel("")
         self._lbl_db_count.setStyleSheet(
-            "color: #64809c; font-size: 10px; background: transparent;"
+            "color: #475569; font-size: 10px; background: transparent;"
             "padding-left: 2px;"
         )
 
@@ -1118,7 +1115,7 @@ class ClaudeAssistantWidget(QWidget):
 
         self._lbl_dcs_count = QLabel("")
         self._lbl_dcs_count.setStyleSheet(
-            "color: #64809c; font-size: 10px; background: transparent;"
+            "color: #475569; font-size: 10px; background: transparent;"
             "padding-left: 2px;"
         )
 
@@ -1234,7 +1231,7 @@ class ClaudeAssistantWidget(QWidget):
                 "Ask the internet… answers come back with sources (Enter to send)"
             )
             self._append(
-                '<p style="color:#64809c;font-size:11px;margin:4px 0">'
+                '<p style="color:#64748b;font-size:11px;margin:4px 0">'
                 '🌐 Web research — answers from the internet, not from the '
                 'document DB. Every claim is cited, and each source is checked '
                 'against the pages actually opened.</p>'
@@ -1587,8 +1584,10 @@ class ClaudeAssistantWidget(QWidget):
         The flow needs a console because a --windowed build has none, and it
         finishes in the browser, so the outcome is polled rather than awaited.
         """
-        cli = _bundled_claude()
+        cli = find_claude_cli()
         try:
+            if not cli:
+                raise FileNotFoundError("claude")
             if sys.platform == "win32":
                 subprocess.Popen(
                     [cli, "auth", "login"],
@@ -1602,9 +1601,8 @@ class ClaudeAssistantWidget(QWidget):
                 self, "Claude CLI not found",
                 "Claude Code CLI is not installed on this machine, so there is "
                 "nothing to sign in to.\n\n"
-                "Install it once:\n"
-                "    npm install -g @anthropic-ai/claude-code\n\n"
-                "then click \U0001f511 Login again.",
+                f"{INSTALL_HINT}\n\n"
+                "then click \U0001f511 Login again. No restart is needed.",
             )
             return
 
@@ -1643,8 +1641,8 @@ class ClaudeAssistantWidget(QWidget):
         elif state == "no_cli":
             text = "⛔  Claude CLI not found"
             tip = ("Claude Code CLI is not installed on this machine.\n"
-                   "Install it once, then click \U0001f511 Login:\n"
-                   "    npm install -g @anthropic-ai/claude-code")
+                   f"{INSTALL_HINT}\n"
+                   "then click \U0001f511 Login.")
         else:
             text = "⋯  sign-in unknown"
             tip = info.get("detail") or "Could not read `claude auth status`."
@@ -2154,6 +2152,7 @@ class ClaudeAssistantWidget(QWidget):
         # message down with it.
         self._finalize_answer()
         safe = msg.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        safe = safe.replace("\n", "<br>")   # keep the CLI's output lines apart
         self._append(
             f'<p style="color:#dc2626;margin:4px 0"><b>Error:</b> {safe}</p>'
         )

@@ -41,7 +41,9 @@ _TOOL_BG = "#f4f1ea"
 _TOOL_TEXT = "#8a6d3b"
 # Same orange the orb paints cited neurons and the sources panel titles cards
 # with: a code in the text and a marker on the orb are one fact, shown twice.
-_DOC_LINK = "#ff7e2e"
+# This is the text depth of it, _SOURCE_INK_HEX in neural_orb_widget.py -- the
+# brighter orange of the markers only reaches 3.6:1 on this white page.
+_DOC_LINK = "#c2410c"
 # A link out to the web is a different kind of thing from a document in this
 # plant's database, so it does not borrow the orange: blue and underlined, the
 # way a browser draws one.

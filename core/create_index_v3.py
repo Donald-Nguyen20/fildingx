@@ -13,8 +13,13 @@ Cải tiến so với v2.1:
   6. Hiển thị thêm cột: Lot, Discipline, Doc Number, Revision trong kết quả
 """
 
-import os, re, sys, io, sqlite3, json, csv, warnings
+import os, re, sys, io, sqlite3, json, csv, warnings, unicodedata, collections
 from datetime import datetime
+
+try:
+    from core import doc_naming, kks
+except ImportError:                  # run as a script from inside core/
+    import doc_naming, kks
 
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QGridLayout,
@@ -284,9 +289,14 @@ CREATE TABLE IF NOT EXISTS chunks (
     heading     TEXT,
     content     TEXT,
     char_start  INTEGER,
-    char_end    INTEGER
+    char_end    INTEGER,
+    page_start  INTEGER,
+    page_end    INTEGER
 )
 """
+# Added after the first databases were built; init_db() adds them to an older
+# chunks table, since CREATE TABLE IF NOT EXISTS leaves an existing one alone.
+CHUNK_PAGE_COLUMNS = ('page_start', 'page_end')
 SCHEMA_CHUNKS_IDX = """
 CREATE INDEX IF NOT EXISTS idx_chunks_file ON chunks(file_id)
 """
@@ -338,6 +348,41 @@ SCHEMA_FILES_IDX = (
     "CREATE INDEX IF NOT EXISTS idx_files_lotdis ON files(lot, discipline)",
 )
 
+# Which file is the latest revision of its document. Kept out of `files` on
+# purpose: files_au re-indexes a row's whole content on any UPDATE, so writing a
+# flag into every row would rewrite the full-text index for the whole library.
+# Rebuilt from the file names at the end of every indexing run.
+SCHEMA_DOC_REVISIONS = (
+    """
+CREATE TABLE IF NOT EXISTS doc_revisions (
+    file_id     INTEGER PRIMARY KEY,
+    doc_id      TEXT,
+    revision    TEXT,
+    rev_rank    INTEGER,
+    is_latest   INTEGER
+)
+""",
+    "CREATE INDEX IF NOT EXISTS idx_docrev_doc ON doc_revisions(doc_id)",
+)
+
+# KKS equipment tags found in the chunk text, one row per tag per chunk.
+# tag is as written; tag_norm has the spaces and dashes taken out. The pattern
+# lives in core/kks.py, which DB Search uses to look a typed tag up.
+SCHEMA_KKS = (
+    """
+CREATE TABLE IF NOT EXISTS kks_tags (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    tag         TEXT,
+    tag_norm    TEXT,
+    file_id     INTEGER,
+    chunk_id    INTEGER,
+    page        INTEGER
+)
+""",
+    "CREATE INDEX IF NOT EXISTS idx_kks_norm ON kks_tags(tag_norm)",
+    "CREATE INDEX IF NOT EXISTS idx_kks_file ON kks_tags(file_id)",
+)
+
 # ─────────────────────────────────────────────────────────────────────────────
 #  METADATA PARSER  (từ tên file theo quy ước VP1)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -346,10 +391,26 @@ _DOC_RE = re.compile(
     r'VP1-[^-]+-L(\d)-([A-Za-z])-([A-Za-z0-9]+)-\d+',
     re.IGNORECASE
 )
-_REV_RE = re.compile(
-    r'[_\-](?:Rev[.\s]?|REV[.\s]?|rev[.\s]?)([A-Z0-9]+)',
+# Revision, in the order it is looked for: an explicit "Rev" marker anywhere in
+# the name, then the bare token straight after the document number
+# ("...-10019-B.pdf", "..._10019_C_..."), then the as-built "AB0" anywhere.
+#
+# The explicit pattern used to need a "_" or "-" in front of "Rev" and took
+# every letter and digit after it, so "Rev.AB0Schematic" was stored as the
+# revision and "Manual Rev 2" had none. It now ends where the token does --
+# (?![A-Z0-9]) rather than \b, because "_" is a word character and \b after
+# "Rev.AB0_..." or "_REV B_" never matches.
+_REV_EXPLICIT = re.compile(
+    r'(?<![A-Z])REV(?:ISION)?[.\s_\-]*([A-Z]{1,2}\d{0,2}|\d{1,2})(?![A-Z0-9])',
     re.IGNORECASE
 )
+_REV_BARE = re.compile(
+    r'^[-_ ]([A-Z]{1,2}\d{0,2}|\d{1,2})(?=[\s_.]|$)',
+    re.IGNORECASE
+)
+# Words that sit where a revision would and are not one: "-HP Cleanup",
+# "-LP Extraction", "-HV Test", "-IO Signal Check", "-1 OM Manual", "Rev.No.2".
+_NOT_REVISIONS = frozenset({'HP', 'LP', 'HV', 'MV', 'LV', 'IO', 'AC', 'DC', 'NO', 'OM'})
 _DOC_NO_RE = re.compile(
     r'(VP1-[^_\s]+?-\d+)',
     re.IGNORECASE
@@ -379,13 +440,110 @@ def parse_metadata(filename):
     if m2:
         meta['doc_number'] = m2.group(1)
 
-    m3 = _REV_RE.search(stem)
-    if m3:
-        meta['revision'] = m3.group(1)
-    elif 'AB0' in stem.upper():
-        meta['revision'] = 'AB0'
-
+    meta['revision'] = _parse_revision(filename, stem, m2)
     return meta
+
+
+def _clean_rev(rev):
+    """Upper case, with full-width digits ("３") folded to ASCII."""
+    return unicodedata.normalize('NFKC', rev or '').upper()
+
+
+def _parse_revision(filename, stem, doc_no_match=None):
+    for m in _REV_EXPLICIT.finditer(stem):
+        rev = _clean_rev(m.group(1))
+        if rev not in _NOT_REVISIONS:
+            return rev
+
+    doc = doc_naming.parse(filename)
+    if doc is not None:
+        rev = _clean_rev(doc.revision)
+    elif doc_no_match is not None:
+        # A VP1 number doc_naming does not recognise, e.g. "VP1-L1-Training-00001_RB_".
+        m = _REV_BARE.match(stem[doc_no_match.end():])
+        rev = _clean_rev(m.group(1)) if m else ''
+    else:
+        rev = ''
+    if rev and rev not in _NOT_REVISIONS:
+        return rev
+
+    if 'AB0' in stem.upper():
+        return 'AB0'
+    return ''
+
+
+# Revision order, lowest first: the lettered issues A..Z (with "B1" a re-issue
+# of B), then the numbered ones 0, 1, 2..., then as-built AB0, AB1... "R2" is
+# read as 2 and "RB" as B. Anything else -- "AE", "AA" -- gets no rank and is
+# never called the latest. The order is this indexer's assumption, not a rule
+# taken from a document-control procedure.
+_RANK_TIER   = 1_000_000
+_RANK_AB     = re.compile(r'AB(\d{1,2})')
+_RANK_NUMBER = re.compile(r'R?(\d{1,2})')
+_RANK_LETTER = re.compile(r'R?([A-Z])(\d{0,2})')
+
+
+def _rev_rank(rev):
+    """A sortable number for a revision from _parse_revision, or None."""
+    if not rev:
+        return None
+    m = _RANK_AB.fullmatch(rev)
+    if m:
+        return 2 * _RANK_TIER + int(m.group(1)) * 1000
+    m = _RANK_NUMBER.fullmatch(rev)
+    if m:
+        return _RANK_TIER + int(m.group(1)) * 1000
+    m = _RANK_LETTER.fullmatch(rev)
+    if m:
+        sub = m.group(2)
+        return (ord(m.group(1)) - 64) * 1000 + (int(sub) + 1 if sub else 0)
+    return None
+
+
+def rebuild_doc_revisions(conn):
+    """Recompute doc_revisions from the file names; return how many rows it holds.
+
+    Files that name the same document are compared by revision: the highest
+    rank is the latest (two files sharing it, a PDF and its DWG say, are both
+    latest) and the rest are not. A file whose revision has no rank is left
+    NULL rather than guessed, and so is a file with no document number. A
+    document held by one file only is latest whatever its revision says.
+
+    The revision is parsed again from the name rather than read from
+    files.revision, so a database indexed before the parser was fixed gets the
+    corrected values here without its files rows being rewritten (see
+    SCHEMA_DOC_REVISIONS for why they are not). Committing is left to the caller.
+    """
+    rows = []
+    for file_id, name, doc_number in conn.execute(
+            "SELECT id, name, doc_number FROM files WHERE name != 'BASE_PATH'"):
+        doc = doc_naming.parse(name or '')
+        doc_id = doc.doc_id if doc is not None else ((doc_number or '').upper() or None)
+        rev = parse_metadata(name or '')['revision']
+        rows.append((file_id, doc_id, rev, _rev_rank(rev)))
+
+    by_doc = collections.defaultdict(list)
+    for file_id, doc_id, _rev, rank in rows:
+        if doc_id:
+            by_doc[doc_id].append((file_id, rank))
+    latest = {}
+    for members in by_doc.values():
+        if len(members) == 1:
+            latest[members[0][0]] = 1
+            continue
+        top = max((rank for _, rank in members if rank is not None), default=None)
+        for file_id, rank in members:
+            latest[file_id] = None if rank is None else int(rank == top)
+
+    cur = conn.cursor()
+    cur.execute("DELETE FROM doc_revisions")
+    cur.executemany(
+        "INSERT INTO doc_revisions (file_id, doc_id, revision, rev_rank, is_latest) "
+        "VALUES (?,?,?,?,?)",
+        [(file_id, doc_id, rev, rank, latest.get(file_id))
+         for file_id, doc_id, rev, rank in rows]
+    )
+    return len(rows)
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  SCANNED PDF DETECTOR  &  OCR
@@ -445,12 +603,16 @@ def _page_image(page, dpi):
 # ~6.2 s per page (measured here, tesseract 5.5) a full re-OCR of the 116
 # affected files costs about nine hours, so the cap is also what keeps that job
 # inside one night.
-def _ocr_full(pdf_path, max_pages=150):
-    """OCR toàn bộ trang – dùng cho tài liệu in (commissioning, O&M, training)"""
+def _ocr_pages(pdf_path, max_pages=150):
+    """OCR every page of a printed document (commissioning, O&M, training).
+
+    Returns (pages, error): pages is a list of (page number, text), and error
+    is set -- with pages empty -- when nothing at all could be read.
+    """
     try:
         import fitz
         import pytesseract
-        texts, failed, first_err = [], 0, ''
+        pages, failed, first_err = [], 0, ''
         with fitz.open(pdf_path) as pdf:
             for i in range(min(len(pdf), max_pages)):
                 # Caught per page, not per document. The whole loop used to sit
@@ -461,24 +623,25 @@ def _ocr_full(pdf_path, max_pages=150):
                 # -- and index the document as a failure although 149 pages of
                 # it had been read perfectly well.
                 try:
-                    texts.append(pytesseract.image_to_string(
+                    text = pytesseract.image_to_string(
                         _preprocess(_page_image(pdf[i], 200), scale=2),
-                        lang='eng', config='--psm 3 --oem 3'))
+                        lang='eng', config='--psm 3 --oem 3')
                 except Exception as e:
                     failed += 1
                     first_err = first_err or f'{type(e).__name__}: {e}'
                     # Left in the text on purpose. A page dropped silently is
                     # indistinguishable from a page that was blank, which is the
                     # mistake this file has already been bitten by once.
-                    texts.append(f'[OCR failed on page {i + 1}: {e}]')
-        if texts and failed == len(texts):
+                    text = f'[OCR failed on page {i + 1}: {e}]'
+                pages.append((i + 1, text))
+        if pages and failed == len(pages):
             # Nothing was read. Report it as a document-level failure so
             # _write_skip_log lists the file and it can be retried, rather than
             # storing a page of error markers as if it were the document.
-            return f"[OCR Error: all {failed} page(s) failed; {first_err}]"
-        return '\n'.join(texts)
+            return [], f"[OCR Error: all {failed} page(s) failed; {first_err}]"
+        return pages, ''
     except Exception as e:
-        return f"[OCR Error: {e}]"
+        return [], f"[OCR Error: {e}]"
 
 def _ocr_titleblock(pdf_path):
     """OCR title block (góc dưới phải) – dùng cho bản vẽ kỹ thuật.
@@ -509,6 +672,19 @@ def extract_content(file_path, use_ocr=True):
     """
     Trả về (content_text, is_scanned, page_count)
     """
+    content, is_scanned, page_count, _pages = extract_pages(file_path, use_ocr)
+    return content, is_scanned, page_count
+
+
+def extract_pages(file_path, use_ocr=True):
+    """extract_content plus the text of each page: (content, is_scanned,
+    page_count, pages).
+
+    pages is a list of (page number, text) for PDFs, slide decks and images,
+    and None for formats that have no pages or when extraction failed. The
+    content is exactly the pages joined with newlines, as it always was, so
+    files.content does not change -- only the chunks learn where they came from.
+    """
     ext = os.path.splitext(file_path)[1].lower()
     file_path = _fs_path(file_path)   # survive paths over the Windows 260 cap
 
@@ -518,13 +694,14 @@ def extract_content(file_path, use_ocr=True):
             import fitz
             with fitz.open(file_path) as pdf:
                 page_count = len(pdf)
-                text = '\n'.join(page.get_text('text') for page in pdf)
+                pages = [(i + 1, page.get_text('text')) for i, page in enumerate(pdf)]
+            text = '\n'.join(t for _, t in pages)
 
             if len(text.strip()) >= 50:
-                return text, 0, page_count   # có text layer
+                return text, 0, page_count, pages   # có text layer
 
             if not use_ocr:
-                return text, 1, page_count   # scanned nhưng không OCR
+                return text, 1, page_count, pages   # scanned nhưng không OCR
 
             # Scanned → chọn chiến lược OCR.
             #
@@ -535,14 +712,19 @@ def extract_content(file_path, use_ocr=True):
             # looks indexed, reads as empty, and cannot be listed again to retry.
             try:
                 if _is_drawing_file(os.path.basename(file_path)):
-                    return _ocr_titleblock(file_path), 1, page_count
-                else:
-                    return _ocr_full(file_path), 1, page_count
+                    text = _ocr_titleblock(file_path)
+                    if text.startswith('[OCR Error:'):
+                        return text, 1, page_count, None
+                    return text, 1, page_count, [(1, text)]
+                pages, error = _ocr_pages(file_path)
+                if error:
+                    return error, 1, page_count, None
+                return '\n'.join(t for _, t in pages), 1, page_count, pages
             except Exception as e:
-                return f"[OCR Error: {e}]", 1, page_count
+                return f"[OCR Error: {e}]", 1, page_count, None
 
         except Exception as e:
-            return f"[Error: {e}]", 0, 0
+            return f"[Error: {e}]", 0, 0, None
 
     # ── WORD ─────────────────────────────────────────────────────────────────
     elif ext == '.docx':
@@ -556,9 +738,9 @@ def extract_content(file_path, use_ocr=True):
                     row_text = ' | '.join(c.text.strip() for c in row.cells if c.text.strip())
                     if row_text:
                         parts.append(row_text)
-            return '\n'.join(parts), 0, 0
+            return '\n'.join(parts), 0, 0, None
         except Exception as e:
-            return f"[Error: {e}]", 0, 0
+            return f"[Error: {e}]", 0, 0, None
 
     # ── EXCEL ────────────────────────────────────────────────────────────────
     elif ext == '.xlsx':
@@ -573,9 +755,9 @@ def extract_content(file_path, use_ocr=True):
                     cells = [str(c) for c in row if c is not None and str(c).strip() not in ('', 'None')]
                     if cells:
                         rows.append('\t'.join(cells))
-            return '\n'.join(rows), 0, 0
+            return '\n'.join(rows), 0, 0, None
         except Exception as e:
-            return f"[Error: {e}]", 0, 0
+            return f"[Error: {e}]", 0, 0, None
 
     # ── POWERPOINT ───────────────────────────────────────────────────────────
     elif ext == '.pptx':
@@ -583,14 +765,16 @@ def extract_content(file_path, use_ocr=True):
             from pptx import Presentation
             from pptx.util import Pt
             prs = Presentation(file_path)
-            texts = []
-            for slide in prs.slides:
-                for shape in slide.shapes:
-                    if hasattr(shape, 'text') and shape.text.strip():
-                        texts.append(shape.text)
-            return '\n'.join(texts), 0, len(prs.slides)
+            texts, pages = [], []
+            for no, slide in enumerate(prs.slides, 1):
+                on_slide = [shape.text for shape in slide.shapes
+                            if hasattr(shape, 'text') and shape.text.strip()]
+                if on_slide:         # an empty slide adds nothing, as before
+                    texts.extend(on_slide)
+                    pages.append((no, '\n'.join(on_slide)))
+            return '\n'.join(texts), 0, len(prs.slides), pages
         except Exception as e:
-            return f"[Error: {e}]", 0, 0
+            return f"[Error: {e}]", 0, 0, None
 
     # ── IMAGES ───────────────────────────────────────────────────────────────
     elif ext in ('.jpg', '.jpeg', '.png', '.tif', '.tiff'):
@@ -599,17 +783,17 @@ def extract_content(file_path, use_ocr=True):
             from PIL import Image
             img = Image.open(file_path)
             text = pytesseract.image_to_string(_preprocess(img), lang='eng', config='--psm 3')
-            return text, 1, 1
+            return text, 1, 1, [(1, text)]
         except Exception as e:
-            return f"[Error: {e}]", 0, 0
+            return f"[Error: {e}]", 0, 0, None
 
     # ── TEXT / CSV / JSON / HTML ──────────────────────────────────────────────
     elif ext == '.txt':
         try:
             with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
-                return f.read(), 0, 0
+                return f.read(), 0, 0, None
         except Exception as e:
-            return f"[Error: {e}]", 0, 0
+            return f"[Error: {e}]", 0, 0, None
 
     elif ext == '.csv':
         try:
@@ -617,27 +801,27 @@ def extract_content(file_path, use_ocr=True):
             with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
                 for row in csv.reader(f):
                     rows.append(', '.join(row))
-            return '\n'.join(rows), 0, 0
+            return '\n'.join(rows), 0, 0, None
         except Exception as e:
-            return f"[Error: {e}]", 0, 0
+            return f"[Error: {e}]", 0, 0, None
 
     elif ext == '.json':
         try:
             with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
                 data = json.load(f)
-            return json.dumps(data, indent=2, ensure_ascii=False), 0, 0
+            return json.dumps(data, indent=2, ensure_ascii=False), 0, 0, None
         except Exception as e:
-            return f"[Error: {e}]", 0, 0
+            return f"[Error: {e}]", 0, 0, None
 
     elif ext in ('.html', '.htm', '.md'):
         try:
             from bs4 import BeautifulSoup
             with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
-                return BeautifulSoup(f, 'html.parser').get_text(), 0, 0
+                return BeautifulSoup(f, 'html.parser').get_text(), 0, 0, None
         except Exception as e:
-            return f"[Error: {e}]", 0, 0
+            return f"[Error: {e}]", 0, 0, None
 
-    return None, 0, 0   # định dạng không hỗ trợ
+    return None, 0, 0, None   # định dạng không hỗ trợ
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -659,12 +843,16 @@ def init_db(db_file):
     cur.execute(SCHEMA_TRIGGER_DELETE)
     cur.execute(SCHEMA_TRIGGER_UPDATE)
     cur.execute(SCHEMA_CHUNKS)
+    have = {row[1] for row in cur.execute("PRAGMA table_info(chunks)")}
+    for col in CHUNK_PAGE_COLUMNS:
+        if col not in have:
+            cur.execute(f"ALTER TABLE chunks ADD COLUMN {col} INTEGER")
     cur.execute(SCHEMA_CHUNKS_IDX)
     cur.execute(SCHEMA_CHUNKS_FTS)
     cur.execute(SCHEMA_CHUNKS_TRIGGER_I)
     cur.execute(SCHEMA_CHUNKS_TRIGGER_D)
     cur.execute(SCHEMA_CHUNKS_TRIGGER_U)
-    for stmt in SCHEMA_FILES_IDX:
+    for stmt in SCHEMA_FILES_IDX + SCHEMA_DOC_REVISIONS + SCHEMA_KKS:
         cur.execute(stmt)
     conn.commit()
     return conn
@@ -775,6 +963,13 @@ _BLANKS  = re.compile(r'(?:\n[ \t\u00a0]*){2,}')
 
 HEAD_MAX = 120   # a heading longer than this is just a line of text
 
+# A drawing page with less text than this carries no title block worth a chunk.
+DRAWING_PAGE_MIN = 20
+
+
+def _is_head(unit):
+    return len(unit) < HEAD_MAX and _HEAD_RE.match(unit) is not None
+
 
 def _chunk_units(text):
     """Yield the smallest sensible pieces to assemble chunks from.
@@ -804,7 +999,7 @@ def _chunk_units(text):
                 yield sent
 
 
-def _split_chunks(text):
+def _split_chunks(text, head=''):
     """Split text into a list of (heading, content) no longer than CHUNK_MAX.
 
     A heading only counts as one when something other than another heading
@@ -812,12 +1007,14 @@ def _split_chunks(text):
     extracts to -- is content, not three hundred nested sections. Text under
     CHUNK_MIN is carried into the next chunk instead of being dropped, so no
     part of the document is lost on the way into the index.
+
+    head is the heading in force where text begins, for a page that continues
+    a section started on an earlier one.
     """
     if not text or len(text.strip()) < CHUNK_MIN:
         return []
 
     chunks = []
-    head = ''                        # the heading in force
     body, blen = [], 0               # the chunk under construction, and its exact length
     carry, carry_keep = '', False    # text that opens the next chunk
 
@@ -852,7 +1049,7 @@ def _split_chunks(text):
 
     pending = None                   # a heading waiting to see what follows it
     for unit in _chunk_units(text):
-        is_head = len(unit) < HEAD_MAX and _HEAD_RE.match(unit) is not None
+        is_head = _is_head(unit)
         if pending is not None:
             if is_head:
                 add(pending)         # nothing under it: it was content after all
@@ -881,36 +1078,159 @@ def _split_chunks(text):
 
 
 
-def insert_chunks(conn, file_id, content):
-    """Chia content thành chunks và lưu vào bảng chunks.
+def _head_of(units, inherited):
+    """(first, last) heading on a page, each falling back to inherited.
+
+    A heading counts by the same rule as in _split_chunks: something other
+    than another heading follows it on the page.
+    """
+    found = [u for i, u in enumerate(units)
+             if _is_head(u) and i + 1 < len(units) and not _is_head(units[i + 1])]
+    if not found:
+        return inherited, inherited
+    return found[0], found[-1]
+
+
+def _page_chunks(pages, is_drawing=False):
+    """Chunk a document page by page.
+
+    pages is [(page_no, text), ...]. Returns [(heading, content, page_start,
+    page_end, breaks), ...], where breaks lists (offset in content, page_no)
+    for each page the chunk takes in, so a position in it maps back to a page.
+
+    A page that fits in CHUNK_MAX is one chunk, and a longer one is split by
+    _split_chunks. A page shorter than CHUNK_MIN -- a cover, a page holding
+    only "Page 3 of 40" -- joins the page after it, so a chunk can run over a
+    page break ("pp. 45-46"); at the end of the document it joins the page
+    before. Nothing is dropped. A drawing sheet is never merged: each sheet is
+    its own chunk however short, and only a sheet with almost no text at all
+    (under DRAWING_PAGE_MIN) is left out.
+    """
+    out = []
+    head = ''                        # the heading in force where the next page begins
+    pend = None                      # (heading, content, breaks) of short pages still waiting
+    for page_no, text in pages:
+        units = list(_chunk_units(text or ''))
+        if not units:
+            continue
+        first, last = _head_of(units, head)
+        joined = ' '.join(units)
+        if len(joined) <= CHUNK_MAX:
+            pieces = [(first, joined)]
+        else:
+            pieces = _split_chunks(text, head=head)
+        head = last
+
+        if is_drawing:
+            if len(joined) >= DRAWING_PAGE_MIN:
+                out.extend((h, b, page_no, page_no, [(0, page_no)]) for h, b in pieces)
+            continue
+
+        if len(joined) < CHUNK_MIN:
+            if pend is None:
+                pend = (first, joined, [(0, page_no)])
+            else:
+                ph, pc, pb = pend
+                pend = (ph or first, pc + ' ' + joined, pb + [(len(pc) + 1, page_no)])
+            if len(pend[1]) >= CHUNK_MIN:
+                ph, pc, pb = pend
+                out.append((ph, pc, pb[0][1], pb[-1][1], pb))
+                pend = None
+            continue
+
+        records = [(h, b, page_no, page_no, [(0, page_no)]) for h, b in pieces]
+        if pend is not None:
+            # Under CHUNK_MIN, so this chunk ends at most that much over CHUNK_MAX.
+            ph, pc, pb = pend
+            h0, b0, _s, e0, _b = records[0]
+            records[0] = (ph or h0, pc + ' ' + b0, pb[0][1], e0,
+                          pb + [(len(pc) + 1, page_no)])
+            pend = None
+        out.extend(records)
+
+    if pend is not None:
+        ph, pc, pb = pend
+        if out:
+            h, b, s, _e, br = out[-1]
+            shift = len(b) + 1
+            out[-1] = (h, b + ' ' + pc, s, pb[-1][1],
+                       br + [(off + shift, no) for off, no in pb])
+        else:
+            out.append((ph, pc, pb[0][1], pb[-1][1], pb))
+    return out
+
+
+def _page_at(breaks, pos):
+    """The page a position in a chunk falls on, or None when pages are unknown."""
+    page = None
+    for off, no in breaks or ():
+        if off > pos:
+            break
+        page = no
+    return page
+
+
+def insert_chunks(conn, file_id, content, pages=None, is_drawing=False):
+    """Chia content thành chunks và lưu vào bảng chunks, with its KKS tags.
+
+    With pages from extract_pages the document is chunked page by page and
+    page_start / page_end say where each chunk sits (slide numbers for a
+    PowerPoint file); without them, as for Word or Excel, it is chunked whole
+    and both are NULL.
 
     char_start / char_end are offsets into the concatenated chunk stream, not
     into files.content: the chunks carry overlap, so the two do not line up.
     Nothing reads them today. Committing is left to the caller, which batches it.
     """
-    if not content or len(content.strip()) < CHUNK_MIN:
-        return 0
-
-    chunk_list = _split_chunks(content)
-    if not chunk_list:
-        return 0
-
     cur = conn.cursor()
-    # Xóa chunks cũ của file này (nếu re-index)
+    # Clear this file's earlier chunks first, every time. They used to be
+    # cleared only once there was something to replace them with, so a document
+    # re-indexed to almost no text kept answering with what it used to say.
+    cur.execute("DELETE FROM kks_tags WHERE file_id=?", (file_id,))
     cur.execute("DELETE FROM chunks WHERE file_id=?", (file_id,))
 
-    rows, char_pos = [], 0
-    for idx, (heading, body) in enumerate(chunk_list):
+    if not content:
+        return 0
+    if pages:
+        if not is_drawing and len(content.strip()) < CHUNK_MIN:
+            return 0
+        records = _page_chunks(pages, is_drawing)
+    else:
+        if len(content.strip()) < CHUNK_MIN:
+            return 0
+        records = [(h, b, None, None, None) for h, b in _split_chunks(content)]
+    if not records:
+        return 0
+
+    tags, char_pos, prev_head = [], 0, None
+    for idx, (heading, body, page_start, page_end, breaks) in enumerate(records):
         char_end = char_pos + len(body)
-        rows.append((file_id, idx, heading, body, char_pos, char_end))
+        cur.execute(
+            "INSERT INTO chunks (file_id, chunk_index, heading, content, "
+            "char_start, char_end, page_start, page_end) VALUES (?,?,?,?,?,?,?,?)",
+            (file_id, idx, heading, body, char_pos, char_end, page_start, page_end)
+        )
+        chunk_id = cur.lastrowid
         char_pos = char_end
 
+        found = {}                   # tag_norm -> (tag as written, page)
+        for m in kks.KKS_RE.finditer(body):
+            found.setdefault(kks.norm(m.group(0)),
+                             (m.group(0), _page_at(breaks, m.start())))
+        # A split chunk leaves its heading out of the body, and an inherited
+        # one sits on an earlier page; read it where it first applies.
+        if heading and heading != prev_head:
+            for m in kks.KKS_RE.finditer(heading):
+                found.setdefault(kks.norm(m.group(0)), (m.group(0), page_start))
+        prev_head = heading
+        tags.extend((tag, norm, file_id, chunk_id, page)
+                    for norm, (tag, page) in found.items())
+
     cur.executemany(
-        "INSERT INTO chunks (file_id, chunk_index, heading, content, char_start, char_end) "
-        "VALUES (?,?,?,?,?,?)",
-        rows
+        "INSERT INTO kks_tags (tag, tag_norm, file_id, chunk_id, page) VALUES (?,?,?,?,?)",
+        tags
     )
-    return len(chunk_list)
+    return len(records)
 
 
 
@@ -1040,7 +1360,8 @@ class IndexWorker(QThread):
                     file_size_kb = max(1, os.path.getsize(_fs_path(full_path)) // 1024)
                     meta         = parse_metadata(os.path.basename(full_path))
 
-                    content, is_scanned, page_count = extract_content(full_path, self.use_ocr)
+                    content, is_scanned, page_count, pages = extract_pages(
+                        full_path, self.use_ocr)
 
                     if content is None:
                         skipped += 1
@@ -1061,7 +1382,8 @@ class IndexWorker(QThread):
                         meta, is_scanned, page_count, file_size_kb
                     )
                     if file_id:
-                        insert_chunks(conn, file_id, content)
+                        insert_chunks(conn, file_id, content, pages,
+                                      _is_drawing_file(os.path.basename(full_path)))
                     added += 1
                     dirty += 1
                     if dirty >= COMMIT_EVERY:
@@ -1077,6 +1399,15 @@ class IndexWorker(QThread):
                     continue
 
             conn.commit()
+            # Over the whole database, not just this run's files: a new
+            # revision changes which of the older files is still the latest.
+            try:
+                rebuild_doc_revisions(conn)
+                conn.commit()
+            except Exception as e:
+                conn.rollback()
+                failures.append((self.db_file, f'latest-revision table not rebuilt: '
+                                               f'{type(e).__name__}: {e}'))
             self._write_skip_log(failures, unsupported, junk)
             # Merge the FTS b-trees once, at the end. An index built a document
             # at a time leaves hundreds of thousands of small segments behind.

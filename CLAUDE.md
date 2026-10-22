@@ -57,18 +57,20 @@ A packaged build ships no `python.exe`, so `python db_query.py …` cannot run t
 
 **Never hardcode a path.** `paths.py` defines every one, and `get_app_dir()` returns `os.path.dirname(sys.executable)` when frozen but the module directory otherwise. A hardcoded path works in development and breaks the packaged exe silently.
 
-### Two databases, two schemas — do not unify
+### One database schema, read by two tabs
 
 This is the most important structural rule in the repo.
 
 | Tab | Config file | Database | Access |
 |---|---|---|---|
-| **DB Search** | `db_list.json` | `AB Drawings.db` — `files` table, plain `LIKE` (not FTS), always `name != 'BASE_PATH'`, `_RESULT_LIMIT = 500` | read-only |
-| **Data Brain** | `claude_db.json` | `Databasev3.db` plus a `dcs_folder` of Toshiba DCS CAD databases | read-only |
+| **DB Search** | `db_list.json` | a Create DB database — `files` `LIKE` on name/content, plus `kks_tags` for a typed tag, `chunks.page_start/page_end` for the Pages column and `doc_revisions` for Rev / "Latest revision only"; always `name != 'BASE_PATH'`, `_RESULT_LIMIT = 500` | read-only |
+| **Data Brain** | `claude_db.json` | a Create DB database plus a `dcs_folder` of Toshiba DCS CAD databases | read-only |
 
-The two schemas are **intentionally different, one per tab**. Do not merge them, do not add cross-schema detection, and do not add a "limited mode" that degrades one into the other. `AB Drawings.db` is the live daily database and the DCS databases are the plant's design masters: always open with `sqlite3.connect(f"file:{path}?mode=ro", uri=True)` and never write.
+Both tabs read the schema `core/create_index_v3.py` writes (Tools → Create DB), so one file can serve both; the two config files stay separate and may point at the same database. This replaced, on 2026-10-22, the old split in which DB Search read the simple `create_index2.1.py` schema of `AB Drawings.db`.
 
-`ui/index_search_window.py` fetches `_RESULT_LIMIT + 1` rows so it can tell the user there are more results than it is showing.
+DB Search **refuses** a database that lacks `chunks`, `doc_revisions`, `kks_tags` or the chunk page columns — `AB Drawings.db`, and any Create DB build from before those were added — with a message to rebuild it (into a new file, or with *Incremental* unticked, since an incremental run leaves already-indexed files without pages or tags) and an offer to drop it from `db_list.json`. Do not add cross-schema detection or a "limited mode" that searches such a database in part. Always open with `sqlite3.connect(f"file:{path}?mode=ro", uri=True)` and never write: `AB Drawings.db` is still the live daily database, and the DCS databases are the plant's design masters.
+
+The KKS tag pattern lives in `core/kks.py` (unit prefix `00`/`10`/`20` only), shared by the indexer and DB Search so a typed tag is read exactly as it was stored. `ui/index_search_window.py` keeps its query layer (`search_database`) Qt-free, and fetches `_RESULT_LIMIT + 1` rows so it can tell the user there are more results than it is showing.
 
 ### `ui/dcs_logic/` is a vendored copy
 
@@ -85,6 +87,7 @@ The importer, the Qt UI, the symbol geometry and the simulators were deliberatel
 - **`core/llm_client.py`** — four providers (`ollama`, `openrouter`, `groq`, `gemini`) behind `create_llm_client(provider_key, model_override="")`. The token budgets near the top each carry a comment recording the *measured* reason they are what they are (reasoning models spend the same budget on hidden thinking; Groq's free tier reserves prompt + `max_tokens` up front and returns HTTP 413). Change them only against a new measurement.
 - **`core/ai_grouper.py`** — grouping is split on purpose: duplicate detection is deterministic and fully offline via `core/doc_naming.py` (`classify`, `duplicate_sets`), and only "what is this about" goes to a model. `_build_note()` reports a partial grouping rather than failing.
 - **`ui/claude_assistant/agent.py`** switches its tool set on mode: with a `db_path` or `dcs_folder` set it gives the agent `["Bash", "WebSearch", "WebFetch"]` so it drives `db_query.py` / `logic_query.py`; otherwise `["Read", "Glob", "Grep", ...]`. An explicit `allowed_tools=` overrides both, which is how **Web Ask** gets `["WebSearch", "WebFetch"]` and nothing else even while a DB is loaded — see `_web_options` in `ui/claude_assistant/widget.py`.
+- **`ui/claude_assistant/cli_locator.py`** is the one place the Claude Code CLI is found. A packaged build carries no `claude.exe`, so on any other machine it comes from the native installer (`%USERPROFILE%\.local\bin`, probed by path so no restart is needed) or from the `claude.exe` inside npm's package. npm's `claude.cmd` shim is never used: the SDK refuses to spawn it. The Login button, the sign-in badge and every `ClaudeAgentOptions` (`cli_path=`) take the same path, so a machine cannot sign in through one CLI and ask through another. Do not tell users to `npm install` on Windows.
 - **`ui/claude_assistant/web_research.py`** is the Web Ask mode: the research/citation contract on one side, and on the other the audit that checks it. `ui/claude_assistant/worker.py` emits `tool_call(name, input)` beside `tool_used(name)`, the widget records every call in `_tool_calls`, and `tool_urls` / `audit` compare the URLs in the answer's `SOURCES:` block against the pages `WebFetch` actually opened. A model will credit a figure to a URL it only saw in a search snippet, so each source card says whether its page was really read, and the prompt is told the audit exists. The module is Qt-free on purpose — it is text in, text out, so the parser can be exercised from a plain script.
 - `llm_config.json` holds the API keys and is gitignored. Never print a key value — report it as `<set, N chars>`.
 

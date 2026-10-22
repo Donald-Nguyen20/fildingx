@@ -27,20 +27,22 @@ from PySide6.QtWidgets import (
 
 # Imported rather than copied: the box tints itself with the colour the orb
 # paints hits in, and a legend row lights up in it. If those ever disagreed the
-# control would stop looking like the cause of what the orb does.
+# control would stop looking like the cause of what the orb does. The INK
+# variants are the same gold and orange taken deep enough to read as text.
 from ui.claude_assistant.neural_orb_widget import (
-    _HIGHLIGHT_HEX, _SOURCE_COLOR_HEX,
+    _HIGHLIGHT_INK_HEX, _SOURCE_INK_HEX,
 )
 
-_BG = "#06090f"
-_FIELD_BG = "#0d141d"
-_BORDER = "#1a2535"
-_LINE = "#1e2b3a"
-_INK = "#e6eef8"
-_MUTED = "#64809c"
-_HINT = "#5c7086"
+# The orb's own ground, so the band reads as the bottom of the orb's panel.
+_BG = "#f8fafc"
+_FIELD_BG = "#ffffff"
+_BORDER = "#e2e8f0"
+_LINE = "#cbd5e1"
+_INK = "#1e293b"
+_MUTED = "#64748b"
+_HINT = "#94a3b8"
 
-_GOLD_HEX = _HIGHLIGHT_HEX
+_GOLD_HEX = _HIGHLIGHT_INK_HEX
 
 # Long enough that a typed word is not queried once per letter -- the search
 # runs FTS against the real DB -- short enough that the orb still answers while
@@ -110,7 +112,7 @@ class OrbControls(QWidget):
         # per citation was the same fact told a third time.
         self._cited = QLabel("")
         self._cited.setStyleSheet(
-            f"color: {_SOURCE_COLOR_HEX}; font-size: 10px; font-weight: 600;"
+            f"color: {_SOURCE_INK_HEX}; font-size: 10px; font-weight: 600;"
             f"background: transparent;"
         )
         self._cited.setVisible(False)

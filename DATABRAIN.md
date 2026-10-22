@@ -13,12 +13,14 @@ Project này dùng Cowork/Claude để tra cứu tài liệu kỹ thuật và t�
 
 | File | Nội dung |
 |------|----------|
-| `Databasev3.db` | 8,054 tài liệu kỹ thuật, bản vẽ, O&M manual, commissioning procedure — 705,611 chunks |
+| `Databasev3.db` | ~8.000 tài liệu kỹ thuật, bản vẽ, O&M manual, commissioning procedure — khoảng 700.000 chunks |
 
 **BASE_PATH gốc:** `D:/3.VP/6.Library/AB Drawings`
 (Đường dẫn tuyệt đối trong DB — dùng để mở file gốc nếu cần)
 
-> Đường dẫn DB thật do tab Data Brain truyền vào từng lệnh `db_query.py`, đọc từ `claude_db.json` — dùng đúng đường dẫn đó, không tự ghép lại. `AB Drawings.db` là DB của tab **DB Search**, schema khác (bảng `files`, `LIKE`, không có FTS), không dùng ở đây.
+> Đường dẫn DB thật do tab Data Brain truyền vào từng lệnh `db_query.py`, đọc từ `claude_db.json` — dùng đúng đường dẫn đó, không tự ghép lại. `AB Drawings.db` là DB cũ (create_index2.1: bảng `files`, `LIKE`, không có FTS), schema khác, không dùng ở đây.
+
+DB được build bằng **Tools → Create DB** trong app. Bản build từ 2026-10-22 có thêm số trang của chunk, bảng `doc_revisions` và bảng `kks_tags`. Nếu một query báo `no such table: kks_tags`, `no such table: doc_revisions` hoặc `no such column: page_start` thì DB được build trước đó: trả lời bằng `files` / `chunks` như trước (không có số trang, không lọc được revision, không tra được bảng KKS), và nói rõ với người dùng rằng cần build lại DB (ra file mới, hoặc bỏ tick *Incremental*) để có các thông tin đó.
 
 ---
 
@@ -35,8 +37,8 @@ CREATE TABLE files (
     doc_number    TEXT,           -- Ví dụ: VP1-C-L3-G-HNC-50056
     lot           TEXT,           -- L1, L2, L3, L4
     discipline    TEXT,           -- A/C/E/F/G/I/M/P/Q/R (xem bảng bên dưới)
-    system_code   TEXT,           -- Ví dụ: HNC, FDF, IDF, BFP ...
-    revision      TEXT,           -- Rev.A, Rev.B, D, AB0 ...
+    system_code   TEXT,           -- Ví dụ: HNC, HLB, LAC ... (xem mục System codes)
+    revision      TEXT,           -- Đã chuẩn hoá, viết hoa: A, B, D, B1, 0, 1, AB0 ...
     is_scanned    INTEGER,        -- 1 = file scan/OCR, 0 = có text layer
     page_count    INTEGER,
     file_size_kb  INTEGER,
@@ -45,6 +47,8 @@ CREATE TABLE files (
 ```
 
 > **Lưu ý:** Có 1 bản ghi đặc biệt `name = 'BASE_PATH'` lưu thư mục gốc — luôn loại trừ khi đếm hoặc tìm kiếm file thực.
+
+Một `doc_number` có thể ứng với **nhiều file**: nhiều revision của cùng tài liệu, hoặc cùng revision ở hai định dạng (PDF + DWG). Xem bảng `doc_revisions` để biết file nào là bản mới nhất.
 
 ### Bảng `chunks` — nội dung đã chia nhỏ (dùng cho Cowork)
 ```sql
@@ -55,13 +59,70 @@ CREATE TABLE chunks (
     heading     TEXT,       -- Tên section/heading (nếu phát hiện được)
     content     TEXT,       -- Nội dung đoạn, tối đa ~1200 ký tự
     char_start  INTEGER,
-    char_end    INTEGER
+    char_end    INTEGER,
+    page_start  INTEGER,    -- Trang đầu của chunk (slide với PowerPoint)
+    page_end    INTEGER     -- Trang cuối; khác page_start khi chunk vắt qua trang
 )
 ```
+
+- PDF, PowerPoint và ảnh được chia **theo từng trang**, nên mỗi chunk biết nó nằm ở trang nào. Trang quá ngắn (bìa, trang chỉ có "Page 3 of 40") được gộp vào trang sau, nên một chunk có thể là `pp. 45–46`.
+- Bản vẽ: mỗi sheet là một chunk riêng.
+- Word (`.docx`) và Excel (`.xlsx`) không có trang: `page_start` / `page_end` là NULL.
+- Bản scan được OCR tối đa 150 trang đầu; bản vẽ scan chỉ OCR khung tên (ghi là trang 1).
+- `char_start` / `char_end` là vị trí trong chuỗi các chunk nối lại, **không phải** vị trí trong `files.content` — đừng dùng chúng cho `substr`.
+
+### Bảng `doc_revisions` — file nào là bản mới nhất
+```sql
+CREATE TABLE doc_revisions (
+    file_id     INTEGER PRIMARY KEY,  -- = files.id
+    doc_id      TEXT,      -- Mã tài liệu không kèm revision, VIẾT HOA: VP1-C-L3-G-HNC-50056
+    revision    TEXT,      -- Revision đọc từ tên file
+    rev_rank    INTEGER,   -- Số để so sánh; lớn hơn = mới hơn
+    is_latest   INTEGER    -- 1 = bản mới nhất, 0 = đã bị thay thế, NULL = không xác định
+)
+-- index: idx_docrev_doc ON doc_revisions(doc_id)
+```
+
+- Thứ tự revision app đang dùng: chữ cái `A` < `B` < `B1` < … < `Z`, rồi số `0` < `1` < `2` …, rồi as-built `AB0` < `AB1` … Đây là **giả định của bộ index**, chưa đối chiếu với quy trình kiểm soát tài liệu; nếu thứ tự quan trọng cho câu trả lời thì nói rõ điều đó.
+- `is_latest = NULL` khi file không có mã tài liệu, hoặc revision không xếp hạng được (vd `AE`). NULL là "không biết", **không** phải "đã cũ" — đừng loại các file này.
+- Tài liệu chỉ có một file luôn là `is_latest = 1`. Hai file cùng revision cao nhất (PDF + DWG) đều là 1.
+
+### Bảng `kks_tags` — mã thiết bị KKS tìm thấy trong nội dung
+```sql
+CREATE TABLE kks_tags (
+    id          INTEGER PRIMARY KEY,
+    tag         TEXT,      -- Như viết trong tài liệu: "10HAC10 AA001", "20LAB30-CP001"
+    tag_norm    TEXT,      -- Bỏ dấu cách và gạch ngang, viết hoa: "10HAC10AA001"
+    file_id     INTEGER,   -- FK → files.id
+    chunk_id    INTEGER,   -- FK → chunks.id
+    page        INTEGER    -- Trang chứa tag (NULL với Word/Excel)
+)
+-- index: idx_kks_norm ON kks_tags(tag_norm), idx_kks_file ON kks_tags(file_id)
+```
+Mỗi tag xuất hiện **một dòng cho mỗi chunk** có nó (nhắc nhiều lần trong cùng chunk vẫn một dòng).
 
 ### Virtual tables (FTS5)
 - `files_fts` — FTS index trên `files(name, doc_number, system_code, content)`
 - `chunks_fts` — FTS index trên `chunks(heading, content)`
+
+---
+
+## Mã KKS
+
+**Format:** `[đơn vị][hệ thống][số]` + tuỳ chọn `[thiết bị]` + tuỳ chọn `[bộ phận]`
+
+| Phần | Dạng | Ví dụ |
+|------|------|-------|
+| Đơn vị | `00` dùng chung, `10` tổ máy 1, `20` tổ máy 2 | `10` |
+| Hệ thống | 3 chữ + 2 số | `HAC10` |
+| Thiết bị | 2 chữ + 3 số | `AA001` |
+| Bộ phận | 2 chữ + 2 số | `XB01` |
+
+- Chỉ tiền tố `00`, `10`, `20` được nhận là tag. KKS không dùng chữ `I` và `O`, và chỉ chữ in hoa được tính.
+- Giữa các phần có thể có dấu cách hoặc gạch ngang. Luôn query trên `tag_norm`: viết hoa, bỏ hết dấu cách và gạch ngang. Ví dụ `10hac10 aa001` → `10HAC10AA001`.
+- Tag viết **không có** tiền tố đơn vị (vd `HBK11CP002`) không có trong `kks_tags`.
+- `_0LAC30AP010` hay `*0LAB11` là cách vendor viết "cùng tag cho cả hai tổ máy" — **không** phải tag `00`, và không có trong `kks_tags`. Tìm các dạng này bằng `chunks_fts`.
+- Phần hệ thống của tag thường trùng với `system_code` của tài liệu: `LAC` là bơm cấp, `HNC` là quạt khói, `HLB` là quạt gió. Nên với tag `10LAC…` có thể tìm thêm tài liệu `system_code = 'LAC'`.
 
 ---
 
@@ -79,7 +140,7 @@ LIMIT 20;
 
 ### Tìm nội dung liên quan — DÙNG CÁI NÀY KHI LÀM BÁO CÁO
 ```sql
-SELECT f.name, f.doc_number, f.path, c.heading, c.content
+SELECT f.name, f.doc_number, f.revision, c.page_start, c.page_end, c.heading, c.content
 FROM chunks_fts
 JOIN chunks c ON c.id = chunks_fts.rowid
 JOIN files f ON f.id = c.file_id
@@ -88,22 +149,97 @@ ORDER BY rank
 LIMIT 10;
 ```
 
+### Chỉ lấy bản revision mới nhất
+Thêm điều kiện này vào bất kỳ query nào có `files f`. Nó loại các file đã bị thay thế, nhưng giữ lại file `is_latest` NULL:
+```sql
+  AND f.id NOT IN (SELECT file_id FROM doc_revisions WHERE is_latest = 0)
+```
+Thông số cài đặt, setpoint và quy trình phải lấy từ bản mới nhất. Nếu buộc phải trích bản cũ thì ghi rõ revision và nói là đã bị thay thế.
+
+### Các revision của 1 tài liệu
+```sql
+SELECT f.name, dr.revision, dr.rev_rank, dr.is_latest
+FROM doc_revisions dr
+JOIN files f ON f.id = dr.file_id
+WHERE dr.doc_id = 'VP1-C-L3-G-HNC-50056'      -- viết hoa
+ORDER BY dr.rev_rank DESC;
+```
+
 ### Tìm trong file cụ thể
 ```sql
-SELECT c.heading, c.content
+SELECT f.revision, c.page_start, c.page_end, c.heading, c.content
 FROM chunks c
 JOIN files f ON f.id = c.file_id
 WHERE f.doc_number = 'VP1-C-L3-G-HNC-50056'
+  AND f.id NOT IN (SELECT file_id FROM doc_revisions WHERE is_latest = 0)
   AND c.id IN (SELECT rowid FROM chunks_fts WHERE chunks_fts MATCH 'alarm setpoint*')
 ORDER BY c.chunk_index
 LIMIT 50;          -- một tài liệu lớn có hàng nghìn chunk
 ```
 
+### Đọc các trang cụ thể của 1 tài liệu
+```sql
+SELECT c.page_start, c.page_end, c.heading, c.content
+FROM chunks c
+JOIN files f ON f.id = c.file_id
+WHERE f.doc_number = 'VP1-C-L3-G-HNC-50056'
+  AND f.id NOT IN (SELECT file_id FROM doc_revisions WHERE is_latest = 0)
+  AND c.page_end >= 45 AND c.page_start <= 46      -- trang 45–46
+ORDER BY c.chunk_index;
+```
+
+### Tra mã KKS
+Tài liệu nào nhắc tới một tag, ở trang nào:
+```sql
+SELECT f.doc_number, f.name, f.revision, k.tag, k.page, dr.is_latest
+FROM kks_tags k
+JOIN files f ON f.id = k.file_id
+LEFT JOIN doc_revisions dr ON dr.file_id = f.id
+WHERE k.tag_norm = '10HAC10AA001'
+ORDER BY f.doc_number, k.page
+LIMIT 50;
+```
+
+Cả một hệ thống — dùng `GLOB` (phân biệt hoa thường, dùng được index) với dấu `*` ở cuối:
+```sql
+SELECT f.doc_number, f.name, COUNT(*) n, GROUP_CONCAT(DISTINCT k.page) pages
+FROM kks_tags k
+JOIN files f ON f.id = k.file_id
+WHERE k.tag_norm GLOB '10HAC10*'
+GROUP BY f.id
+ORDER BY n DESC
+LIMIT 20;
+```
+
+Danh sách thiết bị dưới một hệ thống:
+```sql
+SELECT tag_norm, COUNT(DISTINCT file_id) n_docs
+FROM kks_tags
+WHERE tag_norm GLOB '10HAC10*'
+GROUP BY tag_norm
+ORDER BY tag_norm
+LIMIT 100;
+```
+
+Đọc đoạn văn quanh tag:
+```sql
+SELECT f.doc_number, c.page_start, c.page_end, c.heading, c.content
+FROM kks_tags k
+JOIN chunks c ON c.id = k.chunk_id
+JOIN files f ON f.id = k.file_id
+WHERE k.tag_norm = '10HAC10AA001'
+  AND f.id NOT IN (SELECT file_id FROM doc_revisions WHERE is_latest = 0)
+LIMIT 10;
+```
+
+Luôn tra tag bằng `kks_tags` trước. `chunks_fts` tách `10HAC10 AA001` thành hai từ, nên `MATCH` một tag chỉ tìm được đúng một cách viết.
+
 ### Đọc nội dung đầy đủ của 1 file
 `db_query.py` chặn mỗi ô ở **4.000 ký tự**, nên `SELECT content FROM files`
 không bao giờ trả về cả tài liệu: 952 file trong DB dài hơn 100.000 ký tự và
-file dài nhất là 20.858.924 ký tự. Khi ô bị cắt, kết quả có `"truncated": true`
-— đừng coi phần nhận được là toàn bộ tài liệu.
+file dài nhất là 20.858.924 ký tự. Mỗi câu trả lời cũng chỉ có tối đa 200 dòng
+và khoảng 120.000 ký tự. Khi bị cắt, kết quả có `"truncated": true` — đừng coi
+phần nhận được là toàn bộ.
 
 Đo độ dài trước:
 ```sql
@@ -121,7 +257,8 @@ WHERE doc_number = 'VP1-C-L3-G-HNC-50056';
 ```
 
 Với tài liệu dài, **đọc theo `chunks` gần như luôn tốt hơn**: chunk đã được cắt
-theo heading nên lấy đúng phần cần, thay vì đọc tuần tự hết tài liệu.
+theo trang và heading nên lấy đúng phần cần, có số trang để trích dẫn, thay vì
+đọc tuần tự hết tài liệu.
 
 ### FTS5 — Cú pháp tìm kiếm
 | Cú pháp | Ý nghĩa |
@@ -167,7 +304,8 @@ theo heading nên lấy đúng phần cần, thay vì đọc tuần tự hết t
 DB có **322 system_code** khác nhau, phủ 6.976/8.054 tài liệu (1.078 file không
 có code trong tên). Bảng dưới là các code nhiều tài liệu nhất; nghĩa của từng
 code đã được xác nhận bằng cách **đọc tên tài liệu thật trong DB**, không suy ra
-từ chữ viết tắt. Số `n` là số file mang code đó.
+từ chữ viết tắt. Số `n` là số file mang code đó, đếm trên bản build trước
+2026-10-22 — DB build lại có thể chênh vài file.
 
 **Cạm bẫy quan trọng:** code **không phải** là viết tắt tiếng Anh của tên thiết
 bị. Boiler Feed Pump là `LAC` chứ không phải `BFP`; FD Fan là `HLB` chứ không
@@ -284,22 +422,24 @@ nhất để đọc tên thật trước khi kết luận.
 ## Quy trình Làm Báo Cáo Vận Hành
 
 ### Bước 1 — Tìm context liên quan
+Tìm các đoạn liên quan đến sự cố. `db_query.py` chỉ nhận câu lệnh bắt đầu bằng `SELECT`, nên đừng đặt dòng chú thích `--` ở đầu query:
 ```sql
--- Tìm các đoạn liên quan đến sự cố
-SELECT f.name, f.doc_number, c.heading, c.content
+SELECT f.name, f.doc_number, f.revision, c.page_start, c.page_end, c.heading, c.content
 FROM chunks_fts
 JOIN chunks c ON c.id = chunks_fts.rowid
 JOIN files f ON f.id = c.file_id
 WHERE chunks_fts MATCH '[từ khóa sự cố]*'
 ORDER BY rank LIMIT 15;
 ```
+Nếu sự cố gắn với một thiết bị có mã KKS, tra `kks_tags` trước (mục *Tra mã KKS*): nó chỉ thẳng tới tài liệu và trang nhắc tới thiết bị đó.
 
 ### Bước 2 — Xác nhận thông số kỹ thuật
+Tìm alarm setpoint, design value — chỉ bản mới nhất:
 ```sql
--- Tìm alarm setpoint, design value
-SELECT c.heading, c.content
+SELECT f.doc_number, f.revision, c.page_start, c.page_end, c.heading, c.content
 FROM chunks c JOIN files f ON f.id = c.file_id
 WHERE f.doc_number LIKE 'VP1-%-I-%'   -- Discipline I&C
+  AND f.id NOT IN (SELECT file_id FROM doc_revisions WHERE is_latest = 0)
   AND c.id IN (SELECT rowid FROM chunks_fts WHERE chunks_fts MATCH '[tag name]*')
 LIMIT 30;
 ```
@@ -321,6 +461,8 @@ Báo cáo vận hành VP1 gồm các phần:
 ## Lưu ý Khi Dùng DB
 
 - Luôn dùng `chunks_fts` thay vì `files_fts` khi cần nội dung để viết báo cáo — chính xác hơn, tiết kiệm token hơn
+- Tra thiết bị theo mã KKS bằng `kks_tags`, không bằng `MATCH`
+- Lấy thông số từ bản revision mới nhất; khi trích bản đã bị thay thế thì nói rõ
 - File `is_scanned = 1` là bản scan OCR — nội dung có thể có lỗi nhận dạng ký tự
-- Khi trích dẫn trong báo cáo, ghi rõ: `Doc: [doc_number], Section: [heading]`
+- Khi trích dẫn trong báo cáo, ghi rõ: `Doc: [doc_number] Rev [revision], p. [page], Section: [heading]`. Lấy trang từ `page_start`–`page_end` của chunk, hoặc `kks_tags.page`; bỏ phần trang khi nó là NULL (Word/Excel), đừng tự đoán
 - DB không chứa hình ảnh — nếu cần bản vẽ P&ID thì phải mở file gốc

@@ -24,7 +24,15 @@ from PySide6.QtWidgets import (
 _CANVAS_W, _CANVAS_H = 620.0, 560.0
 _CX, _CY = 310.0, 280.0
 _NEURON_COUNT = 320
-_BG_COLOR = QColor("#02040b")
+# Navy ground. The orb is light emitted into the dark, as it was on the original
+# near-black #02040b, and is drawn with the same thin strokes; navy keeps that
+# look while sitting on the light page as a deliberate display panel rather
+# than a black hole cut into it. Lighter navies (#1a3366 was tried) took the
+# contrast out of the outer strokes; darker ones (#0b1533) read as black.
+# The legend, search box and source cards under the orb stay on the light
+# page, which is why the folder palette and the *_INK colours below are
+# measured against #f8fafc and not against this.
+_BG_COLOR = QColor("#102347")
 
 # Furthest a neuron is ever placed from the centre. Also the scale the colour
 # ramp is measured against, so the outermost neurons are the ones wearing colB.
@@ -46,124 +54,106 @@ _FOLDER_LEGEND_MAX = 8
 # clusters folders by ANGLE, not by hue, so the colours separate ROWS from each
 # other and nothing more.
 #
-# Chosen by measurement against the legend's own #06090f background, not picked
-# by eye. Every entry clears a 6.7:1 contrast ratio (10px text needs 4.5:1) and
-# the closest pair sits at CIEDE2000 20.4. The previous palette failed both:
-# mediumvioletred #c71585 managed only 3.68:1 — unreadable at this size, which
-# is what made the row hard to scan — and gold/orange collided at dE 17.4.
+# Chosen by measurement against the legend's own #f8fafc background, not picked
+# by eye. Every entry clears 4.5:1 (what 10px text needs) and the closest pair,
+# "Other" included, sits at CIEDE2000 15.8.
+#
+# That is less than the 20.4 the dark palette reached, and it is the ceiling,
+# not a compromise: a light ground only leaves the dark end of the range for
+# text, and hues crowd together down there. A search over every Tailwind
+# 600-800 shade, one per hue family, found nothing better. Yellow, amber and
+# orange were kept out of it on purpose -- that band belongs to the gold and
+# orange markers below, and a folder row in either would look marked.
 # Warm and cool alternate down the list so neighbouring rows never share a
 # family even before the numbers are considered.
 _FOLDER_PALETTE = [
-    QColor(255, 99, 71),     # tomato
-    QColor(64, 224, 208),    # turquoise
-    QColor(240, 230, 120),   # lemon
-    QColor(210, 140, 255),   # orchid
-    QColor(50, 205, 50),     # limegreen
-    QColor(255, 170, 200),   # pink
-    QColor(120, 200, 255),   # sky
-    QColor(255, 165, 0),     # orange
+    QColor(153, 27, 27),     # red-800
+    QColor(15, 118, 110),    # teal-700
+    QColor(190, 24, 93),     # pink-700
+    QColor(29, 78, 216),     # blue-700
+    QColor(192, 38, 211),    # fuchsia-600
+    QColor(63, 98, 18),      # lime-800
+    QColor(107, 33, 168),    # purple-800
+    QColor(21, 94, 117),     # cyan-800
 ]
 
 # The "Other" bucket is a leftover, not a folder, so it stays neutral: no hue to
-# suggest it belongs in the sequence above, but light enough (8.4:1) to read.
-_FOLDER_OTHER_COLOR = QColor(158, 170, 188)
+# suggest it belongs in the sequence above, but dark enough (4.55:1) to read.
+_FOLDER_OTHER_COLOR = QColor(100, 116, 139)
 
-# Search hits. This gold was once replaced by a pale pink on the grounds that it
-# fell to a CIEDE2000 of 6.4 against state 4 — but the colour it collided with
-# was a colB, and at the time colB was never painted (see _STATES). The
-# collision it was rejected for could not happen on screen. It could once the
-# ramp started being drawn, which is why those two colB values were changed
-# rather than this one.
+# Search hits, in the butter gold the orb has always used on a dark ground.
 #
-# Re-measured against the colours that do reach the screen — every step of every
-# ramp and the firing colour of each — gold held a worst case of 36.7
-# where the pink held 35.9, so it is the better separated of the two,
-# not the worse. Its one real cost is the citation orange below: 29.5 against
-# the pink's 40.5. Still a clear difference, and the two are drawn as different
-# shapes (a soft pulsing halo whose brightness carries hit density, against a
-# hard filled dot and crisp ring), which is what keeps them apart when the orb
-# is in a warm state.
-#
-# Both markers keep those colours now only because of the halo below. Measured
-# against a palette that includes the red->yellow of state 5, the gold clears
-# the field by 3.8 and the orange by 2.6 — both far inside the 20 that would
-# make them unmistakable, and a sweep of the whole wheel found nothing better
-# than a pair of pale near-whites at 25.8 that are hard to tell from each other.
-# The halo is what makes the hue distance stop mattering.
+# The warm band from hue 15 to 65 -- every yellow, amber and orange there is --
+# is where both markers live, and state 4's orange rim and state 5's amber sit
+# in it too, so a warm state and a hue-separated marker cannot both exist. The
+# halo below is what keeps them apart there, not the hue distance. The two
+# markers are also drawn as different shapes (a soft pulsing halo whose
+# brightness carries hit density, against a hard filled dot and crisp ring).
 _HIGHLIGHT_COLOR = (255, 214, 92)
 _HIGHLIGHT_HEX = "#%02x%02x%02x" % _HIGHLIGHT_COLOR
 
 # Orange for the documents an answer actually cited. Held far from the search
 # tint above on purpose: the two mean different things (a topic's region vs the
-# exact files the answer rests on) and must never be mistaken for each other —
+# exact files the answer rests on) and must never be mistaken for each other --
 # which is exactly what happened while the search tint was gold and the orb was
 # in a warm state.
 _SOURCE_COLOR = (255, 126, 46)
 _SOURCE_COLOR_HEX = "#%02x%02x%02x" % _SOURCE_COLOR
+
+# The two marker colours again, deeper, for when they are set as TEXT on the
+# light page: the hit and citation counts under the orb, the tooltip, the file
+# picker and the source cards. The orb's own gold and orange are tuned to glow
+# on navy and are far too pale as text on white; these clear 4.7:1 and 4.9:1
+# there while reading as the same gold and the same orange.
+_HIGHLIGHT_INK = (161, 98, 7)
+_HIGHLIGHT_INK_HEX = "#%02x%02x%02x" % _HIGHLIGHT_INK
+_SOURCE_INK = (194, 65, 12)
+_SOURCE_INK_HEX = "#%02x%02x%02x" % _SOURCE_INK
 
 # The ground colour again, near-opaque, drawn as a band underneath each marker
 # before the marker itself goes down.
 #
 # This is what a map does with a place name that has to sit on any colour the
 # terrain happens to be: separate the mark from its background with a gap rather
-# than trust the two colours to differ. It is here because the palette ran out
-# of room. The states span most of the wheel, and the warm band from hue 15 to
-# 65 — every yellow, amber and orange there is — is where these two markers
-# live, so a warm state and a hue-separated marker cannot both exist. Measured:
-# no colour in that band clears 20 from both markers, the closest being 20.2/4.2.
+# than trust the two colours to differ. The states span most of the wheel and
+# the warm ones share the markers' band, so no marker hue can clear them all.
 #
 # With the halo the question stops being "can the eye separate these two hues"
 # and becomes "can the eye find this edge", which it can against anything. It
-# also sharpened the markers on the cool states, where there was no problem to
-# solve — the dark band reads as a deliberate outline rather than a fix.
-_MARK_HALO = (2, 4, 11, 210)
+# also sharpens the markers on the cool states, where there is no problem to
+# solve -- the dark band reads as a deliberate outline rather than a fix.
+_MARK_HALO = (_BG_COLOR.red(), _BG_COLOR.green(), _BG_COLOR.blue(), 210)
 
-# Neuron colours, over the black ground above. Each state spans two hues: colA
+# Neuron colours, over the navy ground above. Each state spans two hues: colA
 # at the core, colB at the rim, every neuron holding a fixed place on that ramp
-# (see _Neuron.mix). colB used to be carried through _FrameState and
-# interpolated on every state change without any paint routine reading it, so
-# the orb was one flat hue per state; it is painted now, which is where the
-# extra colour comes from.
+# (see _Neuron.mix).
 #
-# The colA values are deliberately left alone. They were once brightened to
-# answer a complaint that the orb read dark, and the result was worse: measured
-# in HSV, (130, 0, 255) already sits at S=100 V=100 -- the corner of the sRGB
-# cube, with no direction left that is not paler or darker -- so the extra
-# luminance came entirely out of saturation, dropping state 2 from S=100 to
-# S=53 and state 1 from S=92 to S=63. On black, a desaturated hue reads as
-# washed out rather than as bright, which is the opposite of what was wanted.
-#
-# The dimness was never in these numbers. It is in the alpha the ink is painted
-# at (see _paint_synapses, _paint_dendrites, _paint_cell_bodies) and in the
-# radial fade that thins everything away from the centre -- which is where it
-# gets fixed, because raising opacity makes the same hue read brighter *and*
-# deeper, while the palette can only trade one for the other.
-#
-# When the ramp was first painted, states 3 and 4 had to give up their amber and
-# yellow rims: nothing had ever checked colB against the reserved gold and orange
-# below, because nothing checked colours that never reached the screen, and those
-# two sat at CIEDE2000 6.4 and 3.0 from the search gold. They stay changed. What
-# has changed is why — with _MARK_HALO under the markers the distance is no
-# longer what protects them, so the warm band is available again, and state 5
-# spends it on one deliberate red->yellow rather than scattering warm rims
-# through states that read better cool.
+# These are the colours the orb had on near-black, kept at the saturated corner
+# of the sRGB cube: on a dark ground a desaturated hue reads as washed out
+# rather than as bright, so lifting a whole palette to pastels (Tailwind
+# 300/400 was tried) made every state look faded. Navy is not black, though,
+# and the deep blue and violet that are close to its own hue sank into it --
+# measured, (30, 90, 255) fell to 2.9:1 and (130, 0, 255) to 2.5:1 against the
+# ground, and (20, 60, 235) to 2.1:1. Only those were lifted, each to the
+# nearest Tailwind 500 of the same hue, which brings every colour here to at
+# least 3.5:1. How strong a stroke looks is still governed by the alpha it is
+# painted at (see _paint_synapses, _paint_dendrites, _paint_cell_bodies).
 _STATES = [
-    {"colA": (0, 200, 215), "colB": (30, 90, 255), "speed": .50, "fire": .18,
+    {"colA": (0, 200, 215), "colB": (59, 130, 246), "speed": .50, "fire": .18,
      "conn": 55, "axon_spd": .65, "wave_amp": .60, "drift_mul": 1.2},
-    {"colA": (20, 120, 255), "colB": (0, 230, 240), "speed": 1.1, "fire": .42,
+    {"colA": (59, 130, 246), "colB": (0, 230, 240), "speed": 1.1, "fire": .42,
      "conn": 85, "axon_spd": 1.3, "wave_amp": .78, "drift_mul": 1.8},
-    {"colA": (130, 0, 255), "colB": (230, 0, 190), "speed": 2.4, "fire": .72,
+    {"colA": (168, 85, 247), "colB": (230, 0, 190), "speed": 2.4, "fire": .72,
      "conn": 118, "axon_spd": 2.2, "wave_amp": 1.08, "drift_mul": 2.8},
-    {"colA": (0, 210, 160), "colB": (20, 60, 235), "speed": 1.7, "fire": .58,
+    {"colA": (0, 210, 160), "colB": (99, 102, 241), "speed": 1.7, "fire": .58,
      "conn": 98, "axon_spd": 1.7, "wave_amp": .95, "drift_mul": 2.2},
-    # Red throughout, hot orange at the rim. This is the error state, and the
-    # magenta rim it carried for one revision was only ever a way round the
-    # marker collision; with _MARK_HALO doing that job it can be the red it
-    # should have been.
+    # Red throughout, hot orange at the rim. This is the error state; with
+    # _MARK_HALO under the markers the orange rim cannot be mistaken for a
+    # citation.
     {"colA": (255, 30, 30), "colB": (255, 110, 0), "speed": 4.0, "fire": .98,
      "conn": 150, "axon_spd": 3.8, "wave_amp": 1.50, "drift_mul": 4.0},
-    # Amber core out to yellow. The one warm state reachable in normal use —
-    # state 4 above is warm too but only an error gets there — so it is wired to
+    # Amber core out to yellow. The one warm state reachable in normal use --
+    # state 4 above is warm too but only an error gets there -- so it is wired to
     # Trend Data, which had been drawing state 2 as a copy of Diagnose. Its
     # connection count and drift are near state 3's rather than state 4's: this
     # is a working mode, not an alarm, and the two must not be confused at a
@@ -760,11 +750,11 @@ class NeuralOrbWidget(QWidget):
         hits = [n for n, p in group if p in self._highlight_paths
                 and p not in self._source_paths]
         if cited or hits:
-            rows = self._marked_rows(cited, _SOURCE_COLOR_HEX, "more cited")
-            rows += self._marked_rows(hits, _HIGHLIGHT_HEX, "more matching")
+            rows = self._marked_rows(cited, _SOURCE_INK_HEX, "more cited")
+            rows += self._marked_rows(hits, _HIGHLIGHT_INK_HEX, "more matching")
             others = len(group) - len(cited) - len(hits)
             if others:
-                rows += (f'<div style="color:#9fb3c8">'
+                rows += (f'<div style="color:#64748b">'
                          f"+{others} other file(s) here</div>")
             return rows
         if len(group) == 1:
@@ -795,15 +785,16 @@ class NeuralOrbWidget(QWidget):
 
     def _show_file_picker(self, group: list[tuple[str, str]], global_pos) -> None:
         menu = QMenu(self)
-        # The panel sets "QWidget { background: #02040b }", which cascades into
-        # this popup while the text stays the default black -- unreadable. Style
-        # the menu explicitly, in the same colours as the legend below the orb.
+        # A stylesheet set on a parent cascades into this popup, and the app's
+        # theme QSS is dark under several themes, so the menu is styled
+        # explicitly rather than left to whatever it inherits -- in the same
+        # light colours as the legend below the orb.
         menu.setStyleSheet(
-            "QMenu { background: #06090f; color: #9fb3c8;"
-            " border: 1px solid #1a2535; padding: 4px; }"
+            "QMenu { background: #ffffff; color: #334155;"
+            " border: 1px solid #e2e8f0; padding: 4px; }"
             "QMenu::item { padding: 5px 16px; background: transparent; }"
-            "QMenu::item:selected { background: #16283c; color: #d7e6f5; }"
-            "QMenu::separator { height: 1px; background: #1a2535;"
+            "QMenu::item:selected { background: #eef2ff; color: #1e293b; }"
+            "QMenu::separator { height: 1px; background: #e2e8f0;"
             " margin: 4px 10px; }"
         )
         # Marked files go to the top: clicking a lit neuron is how the user gets
@@ -818,7 +809,7 @@ class NeuralOrbWidget(QWidget):
         marked = {f[1] for f in cited} | {f[1] for f in hits}
         rest = [f for f in group if f[1] not in marked]
 
-        for bucket, color in ((cited, _SOURCE_COLOR), (hits, _HIGHLIGHT_COLOR)):
+        for bucket, color in ((cited, _SOURCE_INK), (hits, _HIGHLIGHT_INK)):
             for name, rel_path in bucket:
                 row = _MarkedFileRow(name, color, menu)
                 action = QWidgetAction(menu)
@@ -948,7 +939,12 @@ class NeuralOrbWidget(QWidget):
 
     @staticmethod
     def _glow_dot(p: QPainter, cx: float, cy: float, radius: float, color: tuple, alpha: float, blur: float) -> None:
-        """Approximates canvas shadowBlur with a soft radial-gradient halo + solid core."""
+        """Approximates canvas shadowBlur with a soft radial-gradient halo + solid core.
+
+        Leaves the painter with no brush. The synapse and dendrite paths drawn
+        after a glow are open curves meant to be stroked, and a brush left
+        behind here filled each one as a closed shape -- the solid wedges that
+        used to appear around a burst of firing."""
         r, g, b = (round(c) for c in color)
         alpha = max(0.0, min(1.0, alpha))
         outer = radius + blur
@@ -965,6 +961,7 @@ class NeuralOrbWidget(QWidget):
         p.setPen(Qt.NoPen)
         p.setBrush(QColor(r, g, b, round(255 * alpha)))
         p.drawEllipse(QPointF(cx, cy), max(.1, radius), max(.1, radius))
+        p.setBrush(Qt.NoBrush)
 
     def _paint_center_tint(self, p: QPainter, fr: _FrameState) -> None:
         from PySide6.QtGui import QRadialGradient
@@ -1082,11 +1079,11 @@ class NeuralOrbWidget(QWidget):
     def _paint_highlights(self, p: QPainter) -> None:
         """Pulsing gold ring around neurons holding current search hits.
 
-        Warm on purpose, and it no longer has to apologise for it: the ring is
+        Warm on purpose, and it does not have to apologise for it: the ring is
         laid on a band of _MARK_HALO, so it reads against the cool states and
-        against the red->yellow of state 5 alike. The halo goes down at the same
-        radius and slightly thicker, which puts a dark edge on both sides of the
-        gold rather than only outside it."""
+        against the amber->yellow of state 5 alike. The halo goes down at the
+        same radius and slightly thicker, which puts a dark edge on both sides
+        of the gold rather than only outside it."""
         if not self._highlight:
             return
         pulse = .5 + .5 * math.sin(self._t * 4.0)

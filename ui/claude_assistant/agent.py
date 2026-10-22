@@ -4,6 +4,8 @@ from __future__ import annotations
 from pathlib import Path
 from claude_agent_sdk import ClaudeAgentOptions
 
+from ui.claude_assistant.cli_locator import find_claude_cli
+
 
 def make_options(
     system_prompt: str = "",
@@ -25,4 +27,7 @@ def make_options(
         permission_mode="bypassPermissions",
         cwd=cwd or APP_DIR,
         max_turns=30,
+        # The same CLI the Login button signs in with; None lets the SDK
+        # search for itself and raise its own "not found" explanation.
+        cli_path=find_claude_cli() or None,
     )

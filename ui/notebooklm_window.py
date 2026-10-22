@@ -153,14 +153,18 @@ def _run_async(coro):
 def _patch_notebooklm_infographic():
     """Patch notebooklm library to fix infographic URL parsing.
 
-    The library's _find_infographic_url uses a hard-coded path that may not match
-    the current API response structure, causing wait_for_completion to time out
-    even when the server marks the artifact as COMPLETED.
+    The library reads an infographic's image URL from one hard-coded position
+    in the artifact row, which may not match the current API response
+    structure: wait_for_completion then times out, and download_infographic
+    fails, even when the server marks the artifact as COMPLETED.
 
-    Fixes:
+    Fixes, applied separately so a library change that removes one hook does
+    not take the other down with it:
     1. _is_media_ready → trusts COMPLETED status for infographic (no URL check).
-    2. _find_infographic_url → adds a recursive fallback URL search.
-    3. download_infographic patched to use the improved URL finder.
+    2. ArtifactRow.infographic_url → adds a recursive fallback URL search.
+       Since notebooklm-py 0.8 the readiness check and download_infographic
+       both read the URL through this one property, so the library's own
+       download picks the fallback up and needs no replacing.
     """
     try:
         from notebooklm._artifacts import ArtifactsAPI, ArtifactTypeCode
@@ -175,8 +179,16 @@ def _patch_notebooklm_infographic():
 
         ArtifactsAPI._is_media_ready = _patched_is_media_ready
 
+    except Exception:
+        pass  # silent – never break the app
+
+    try:
+        from notebooklm._row_adapters.artifacts import ArtifactRow
+
         # ── Patch 2: robust recursive URL search ──────────────────────────
-        _orig_find_url = ArtifactsAPI._find_infographic_url
+        _orig_url = ArtifactRow.infographic_url
+        if not isinstance(_orig_url, property):
+            return
 
         def _deep_find_url(obj, depth=0):
             """Recursively search for an image-like http URL."""
@@ -195,42 +207,19 @@ def _patch_notebooklm_infographic():
                         return r
             return None
 
-        def _patched_find_infographic_url(self, art):
-            url = _orig_find_url(self, art)
-            if url:
-                return url
-            return _deep_find_url(art)
+        def _infographic_url_with_fallback(self):
+            try:
+                url = _orig_url.fget(self)
+            except Exception:
+                # The row's shape drifted, which is what the search is for;
+                # if it finds nothing either, the library's own error stands.
+                url = _deep_find_url(self._raw)
+                if url:
+                    return url
+                raise
+            return url or _deep_find_url(self._raw)
 
-        ArtifactsAPI._find_infographic_url = _patched_find_infographic_url
-
-        # ── Patch 3: download_infographic uses patched _find_infographic_url ─
-        import asyncio as _asyncio
-        from notebooklm._artifacts import ArtifactStatus, ArtifactTypeCode as _ATC
-
-        async def _patched_download_infographic(
-                self, notebook_id, output_path, artifact_id=None):
-            artifacts_data = await self._list_raw(notebook_id)
-            info_candidates = [
-                a for a in artifacts_data
-                if isinstance(a, list) and len(a) > 4
-                and a[2] == _ATC.INFOGRAPHIC
-                and a[4] == ArtifactStatus.COMPLETED
-            ]
-            if artifact_id:
-                info_art = next((i for i in info_candidates if i[0] == artifact_id), None)
-            else:
-                info_art = info_candidates[0] if info_candidates else None
-            if not info_art:
-                from notebooklm._artifacts import ArtifactNotReadyError
-                raise ArtifactNotReadyError("infographic", artifact_id=artifact_id)
-            url = self._find_infographic_url(info_art)
-            if not url:
-                from notebooklm._artifacts import ArtifactParseError
-                raise ArtifactParseError("infographic",
-                                         details="Could not find image URL")
-            return await self._download_url(url, output_path)
-
-        ArtifactsAPI.download_infographic = _patched_download_infographic
+        ArtifactRow.infographic_url = property(_infographic_url_with_fallback)
 
     except Exception:
         pass  # silent – never break the app
@@ -1878,6 +1867,7 @@ class MultiChatReduceWorker(QThread):
             from claude_agent_sdk import query, ClaudeAgentOptions
             from claude_agent_sdk.types import AssistantMessage
             from paths import APP_DIR
+            from ui.claude_assistant.cli_locator import find_claude_cli
 
             system = (
                 "Bạn là trợ lý tổng hợp. Gộp câu trả lời từ nhiều notebook thành MỘT câu "
@@ -1896,6 +1886,7 @@ class MultiChatReduceWorker(QThread):
                 permission_mode="bypassPermissions",
                 cwd=APP_DIR,
                 max_turns=1,
+                cli_path=find_claude_cli() or None,
             )
             prompt = _build_reduce_prompt(self.question, self.items)
 
@@ -2180,7 +2171,6 @@ class SetLanguageWorker(QThread):
     def run(self):
         try:
             from notebooklm import NotebookLMClient
-            from notebooklm.cli.language import set_language
             async def _set():
                 async with await NotebookLMClient.from_storage() as client:
                     return await client.settings.set_output_language(self.code) or self.code

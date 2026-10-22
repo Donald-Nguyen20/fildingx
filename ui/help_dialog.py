@@ -54,6 +54,7 @@ class HelpDialog(QDialog):
             "Advanced Query (% / * / @ / synonyms)": self.page_advanced_query(),
             "Result Table (cột & thao tác)": self.page_results_table(),
             "Claude Assistant (AI Co-Pilot)": self.page_claude_assistant(),
+            "Data Brain — Install & Sign-in": self.page_data_brain_setup(),
             "Containers (nhóm công việc)": self.page_containers(),
             "Preview & Notes (PDF + ghi chú AI)": self.page_notes(),
             "Search Duplicates (file trùng)": self.page_duplicates(),
@@ -89,6 +90,7 @@ class HelpDialog(QDialog):
             .ok { padding: 8px 10px; border-left: 4px solid #6a8; background: rgba(80,200,120,0.08); margin: 8px 0; }
             code { background: rgba(0,0,0,0.06); padding: 1px 4px; border-radius: 4px; }
             .kbd { border: 1px solid rgba(0,0,0,0.25); padding: 1px 6px; border-radius: 4px; background: rgba(0,0,0,0.04); }
+            pre { background: rgba(0,0,0,0.06); margin: 4px 0 8px 0; }
             table { border-collapse: collapse; width: 100%; margin: 8px 0; }
             th, td { border: 1px solid rgba(0,0,0,0.18); padding: 6px 8px; vertical-align: top; }
             th { background: rgba(0,0,0,0.05); }
@@ -337,13 +339,15 @@ class HelpDialog(QDialog):
         <body>
         <h2>Claude Assistant (AI Co-Pilot)</h2>
         <p>Tab <b>🤖 Claude</b> là trợ lý AI chạy bằng Claude Code SDK, có thể đọc database tài liệu kỹ thuật
-        (schema <code>chunks_fts</code> theo <code>DATABRAIN.md</code> — khác với DB đơn giản của tab DB Search),
+        (schema <code>chunks_fts</code> theo <code>DATABRAIN.md</code> — a database built by Tools → Create DB, which DB Search can read too),
         chẩn đoán sự cố và tự soạn báo cáo vận hành.</p>
 
         <h3>Đăng nhập (chỉ cần 1 lần)</h3>
         <ul>
           <li>Bấm <b>🔑 Login</b> → mở cửa sổ console chạy <code>claude auth login</code>.</li>
           <li>Đăng nhập xong, tab Claude dùng được ngay, không cần lặp lại mỗi lần mở app.</li>
+          <li>First time on a new machine: install the Claude Code CLI first — see
+              <b>Data Brain — Install &amp; Sign-in</b>.</li>
         </ul>
 
         <h3>Chọn Database tài liệu</h3>
@@ -422,6 +426,81 @@ class HelpDialog(QDialog):
           <li><b>📤 Send</b> (hoặc Enter): gửi câu hỏi/yêu cầu.</li>
           <li><b>🗑</b> (nút cạnh Send): xóa toàn bộ nội dung chat hiện tại.</li>
           <li>Câu trả lời hiển thị dạng streaming (chữ chạy dần), có thể kèm trích dẫn <code>Doc:</code>/<code>Section:</code> khi lấy từ DB.</li>
+        </ul>
+        </body>
+        """
+
+    def page_data_brain_setup(self) -> str:
+        return f"""
+        {self._base_style()}
+        <body>
+        <h2>Data Brain — Install &amp; Sign-in</h2>
+        <p>Data Brain answers through <b>Claude Code</b>. The app does not ship the Claude Code CLI,
+        so every machine installs it once and signs in once. Nothing else is needed — no Python,
+        no Node.js.</p>
+
+        <h3>What the machine needs</h3>
+        <ul>
+          <li>A Claude account on a paid plan: <b>Pro</b> or <b>Max</b> (Team / Enterprise also work).
+              A Free account cannot use Claude Code.</li>
+          <li>Internet access to <code>claude.ai</code> and <code>api.anthropic.com</code>. A company
+              proxy or firewall that blocks them stops both the sign-in and the questions.</li>
+        </ul>
+
+        <h3>Step 1 — Install the Claude Code CLI (once per machine)</h3>
+        <p>Open <b>PowerShell</b> (no admin rights needed) and run:</p>
+        <pre>irm https://claude.ai/install.ps1 | iex</pre>
+        <p>If only Command Prompt (CMD) is available, run these three lines one after another:</p>
+        <pre>curl -fsSL https://claude.ai/install.cmd -o install.cmd
+install.cmd
+del install.cmd</pre>
+        <p>To check, open a <b>new</b> PowerShell window and run <code>claude --version</code>.
+        The CLI is installed to <code>%USERPROFILE%\\.local\\bin\\claude.exe</code>. The app looks there
+        directly, so it does not need to be restarted after the install.</p>
+        <div class="warn">
+          Use the installer above, <b>not</b> <code>npm install</code>.
+        </div>
+
+        <h3>Step 2 — Sign in (once per Windows user)</h3>
+        <ol>
+          <li>Open the <b>Data Brain</b> tab and click <b>🔑 Login</b>.</li>
+          <li>A console window opens and runs <code>claude auth login</code>, then the browser opens the
+              Claude sign-in page. Sign in and approve the access request.</li>
+          <li>If the browser does not open, copy the link the console prints into a browser. If the page
+              shows a code, paste it back into the console.</li>
+          <li>Back in the app, the badge at the top right turns to <b>✅ email · plan</b> within about two
+              minutes (the app checks every 4 seconds). Data Brain is ready.</li>
+        </ol>
+        <div class="ok">
+          The sign-in is kept by Claude Code, not by the app: it survives restarts and does not have
+          to be repeated.
+        </div>
+
+        <h3>The sign-in badge (top right of the Data Brain tab)</h3>
+        <table>
+          <tr><th>Badge</th><th>Meaning</th><th>What to do</th></tr>
+          <tr><td><b>✅ email · plan</b></td><td>Signed in</td><td>Nothing — ask away</td></tr>
+          <tr><td><b>⚠ not signed in</b></td><td>CLI installed, nobody signed in</td>
+              <td>Click <b>🔑 Login</b></td></tr>
+          <tr><td><b>⛔ Claude CLI not found</b></td><td>CLI not installed on this machine</td>
+              <td>Step 1, then <b>🔑 Login</b> — no restart needed</td></tr>
+          <tr><td><b>⋯ sign-in unknown</b></td><td>The app could not read <code>claude auth status</code></td>
+              <td>Hover the badge for the reason</td></tr>
+        </table>
+
+        <h3>If it does not work</h3>
+        <ul>
+          <li><b>Still ⚠ after signing in:</b> the app stops checking two minutes after
+              <b>🔑 Login</b>. Close and reopen the app — it reads the state again on start.</li>
+          <li><b>⛔ right after installing:</b> run <code>claude --version</code> in a new PowerShell
+              window. If that fails too, run the installer again.</li>
+          <li><b>Signed in, but every question fails:</b> check the plan (Free cannot use Claude Code)
+              and that the network reaches <code>claude.ai</code>.</li>
+          <li><b>Billing through an Anthropic Console account (API credit) instead of a plan:</b>
+              <b>🔑 Login</b> signs in with a Claude plan. Run
+              <code>claude auth login --console</code> in PowerShell instead.</li>
+          <li><b>Switch to another account:</b> run <code>claude auth logout</code> in PowerShell,
+              then click <b>🔑 Login</b> again.</li>
         </ul>
         </body>
         """
@@ -638,34 +717,54 @@ class HelpDialog(QDialog):
         <body>
         <h2>🗄 DB Search (Index Search — SQLite)</h2>
 
-        <p>Tab <b>🗄 DB Search</b> dùng database SQLite (build sẵn bằng script index, VD <code>create_index2.1.py</code>)
-        để tìm rất nhanh theo tên/nội dung file đã lập chỉ mục — không cần mở từng file gốc.</p>
+        <p>The <b>🗄 DB Search</b> tab searches a database built by <b>Tools → Create DB</b>: file names and
+        the text extracted from PDF, Word, Excel, PowerPoint and drawings, without opening the files
+        themselves. The same database file can also be selected in <b>Data Brain</b>.</p>
 
-        <h3>Cách dùng</h3>
+        <h3>How to use</h3>
         <ol>
-          <li><b>📂 Import DB</b>: chọn 1 hoặc nhiều file <code>.db</code> cùng lúc (multi-select).</li>
-          <li>Dropdown chọn DB: mặc định <b>All DBs</b> (tìm trên tất cả DB đã import cùng lúc), hoặc chọn đúng 1 DB cụ thể theo tên.</li>
-          <li>Gõ từ khóa vào ô tìm kiếm → Enter hoặc bấm <b>🔍 Search</b>.</li>
-          <li>Kết quả hiện dạng bảng <b>File Name | Path</b> — double-click để mở file.</li>
-          <li><b>📋 Copy</b>: copy tên file đang chọn trong kết quả.</li>
+          <li><b>📂 Import DB</b>: pick one or more <code>.db</code> files (multi-select).</li>
+          <li>The DB dropdown: <b>All DBs</b> searches every imported database at once, or pick one by name.</li>
+          <li>Type a keyword or a KKS tag → Enter or <b>🔍 Search</b>.</li>
+          <li>Tick <b>Latest revision only</b> to hide files that a later revision of the same document supersedes.</li>
+          <li>Double-click a row to open the file; <b>📋 Copy</b> copies the selected file name.</li>
         </ol>
-        <div class="hint">
-          Danh sách DB đã import được nhớ lại giữa các lần mở app (lưu ở <code>db_list.json</code>) —
-          không cần import lại mỗi lần mở.
-        </div>
 
-        <h3>DB có thể chứa gì?</h3>
+        <h3>The result columns</h3>
         <ul>
-          <li><b>Name index</b>: tên file, đường dẫn, loại file.</li>
-          <li><b>Content index</b> (nếu DB có cột content): nội dung text đã trích từ PDF/Word/Text, tìm bằng <code>LIKE</code>.</li>
+          <li><b>File Name</b> — files whose name contains the keyword come first.</li>
+          <li><b>Rev</b> — the revision read from the document number, marked <i>(superseded)</i> when a
+              later revision of the same document is in the database too.</li>
+          <li><b>Pages</b> — the pages (PowerPoint: slides) the keyword was found on. Empty for Word and
+              Excel files, which have no pages, and for files that matched by name only.</li>
+          <li><b>Path</b> — relative to the folder the database was built from.</li>
         </ul>
+        <p>At most 500 files are shown per database; the count line says so when more matched.</p>
+
+        <h3>KKS tags</h3>
+        <p>A keyword that is a whole KKS tag with its unit prefix — <code>00</code>, <code>10</code> or
+        <code>20</code>, e.g. <code>10HAC10</code> or <code>10HAC10 AA001</code> — also finds every document
+        the tag appears in, however it is written there (<code>10HAC10AA001</code>,
+        <code>10HAC10-AA001</code>), and the longer tags it begins: <code>10HAC10</code> finds
+        <code>10HAC10AA001</code>.</p>
+
+        <h3>Building a database for DB Search</h3>
+        <ol>
+          <li>Open <b>Tools → Create DB</b> and choose the document folder and the database file.</li>
+          <li>Build into a <b>new file</b>, or untick <b>Incremental</b> when rebuilding an existing one:
+              an incremental run skips the files it has already indexed, so they would get no page numbers
+              or KKS tags.</li>
+          <li>Import the file here with <b>📂 Import DB</b>.</li>
+        </ol>
 
         <div class="warn">
-          <b>Phân biệt với tab 🤖 Claude:</b> DB dùng ở tab DB Search có schema đơn giản
-          (<code>files: id/name/path/type/content</code>). DB dùng ở tab Claude có schema riêng, phức tạp hơn
-          (<code>doc_number</code>, <code>lot</code>, <code>discipline</code>, bảng <code>chunks</code> + FTS5) —
-          <b>không dùng lẫn hai loại DB này cho nhau.</b> Nếu cần hỏi-đáp/chẩn đoán sâu theo tài liệu kỹ thuật, dùng tab
-          <b>🤖 Claude</b> thay vì DB Search.
+          <b>Older databases are skipped.</b> A database from <code>create_index2.1.py</code> (such as
+          <code>AB Drawings.db</code>), or from Create DB before page numbers, revisions and KKS tags were
+          indexed, is not searched. DB Search says so once per session and offers to remove it from the list;
+          the file itself is never changed. Databases are always opened read-only.
+        </div>
+        <div class="hint">
+          The list of imported databases is remembered between sessions (in <code>db_list.json</code>).
         </div>
         </body>
         """
@@ -923,12 +1022,14 @@ class HelpDialog(QDialog):
         <ul>
           <li>Chưa đăng nhập Claude Code CLI → bấm <b>🔑 Login</b>, đăng nhập trong cửa sổ console hiện ra.</li>
           <li>Nếu vẫn lỗi, kiểm tra máy đã cài <code>claude</code> CLI (Claude Code) chưa.</li>
+          <li>Step-by-step install and sign-in: see <b>Data Brain — Install &amp; Sign-in</b>.</li>
         </ul>
 
         <h3>4) Tab Claude — Diagnose / Quick Card / Work Pack / Trend Data không chạy được</h3>
         <ul>
           <li>Chưa chọn DB → bấm <b>📂 Select DB</b>, chọn đúng file <code>.db/.sqlite</code> chứa tài liệu kỹ thuật
-              (bảng <code>files</code>/<code>chunks</code> + FTS5 — <b>không phải</b> DB đơn giản của tab DB Search).</li>
+              (bảng <code>files</code>/<code>chunks</code> + FTS5, built by Tools → Create DB — <b>not</b> an
+              old <code>create_index2.1.py</code> database such as <code>AB Drawings.db</code>).</li>
           <li>Nếu chọn nhầm DB (thiếu bảng <code>chunks</code>/FTS5), app sẽ không tìm được ngữ cảnh phù hợp.</li>
         </ul>
 
