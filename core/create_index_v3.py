@@ -3,7 +3,8 @@ create_index_v3.py
 ==================
 Cải tiến so với v2.1:
   1. Schema mới: thêm doc_number, lot, discipline, system_code, revision,
-                 is_scanned, page_count, file_size_kb, indexed_date
+                 is_scanned, ocr, page_count, file_size_kb, indexed_date
+                 (ocr = 1 only when the text came from OCR; see extract_pages)
   2. OCR tự động cho PDF dạng ảnh:
        - Tài liệu (commissioning, O&M, training): OCR toàn bộ trang
        - Bản vẽ kỹ thuật (P&ID, plan, drawing): OCR title block (nhanh hơn)
@@ -11,24 +12,26 @@ Cải tiến so với v2.1:
   4. Parse metadata từ tên file theo quy ước VP1-[unit]-L[lot]-[disc]-[sys]-[no]
   5. Incremental index – bỏ qua file đã index, chỉ thêm file mới
   6. Hiển thị thêm cột: Lot, Discipline, Doc Number, Revision trong kết quả
+  7. Results also show Source (OCR / Text / Scanned) and Pages -- the pages
+     whose chunks match the search term
 """
 
 import os, re, sys, io, sqlite3, json, csv, warnings, unicodedata, collections
 from datetime import datetime
 
 try:
-    from core import doc_naming, kks
+    from core import doc_naming, doc_source, kks
 except ImportError:                  # run as a script from inside core/
-    import doc_naming, kks
+    import doc_naming, doc_source, kks
 
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QGridLayout,
     QWidget, QLabel, QLineEdit, QPushButton, QFileDialog, QTableWidget,
     QTableWidgetItem, QMessageBox, QProgressBar, QCheckBox, QComboBox,
-    QGroupBox, QHeaderView, QStatusBar, QSplitter
+    QGroupBox, QHeaderView, QStatusBar, QSplitter, QDialog, QListWidget
 )
 from PySide6.QtCore import Qt, QThread, Signal
-from PySide6.QtGui import QColor, QFont
+from PySide6.QtGui import QColor, QFont, QPixmap
 
 warnings.filterwarnings("ignore")
 
@@ -255,6 +258,7 @@ CREATE TABLE IF NOT EXISTS files (
     system_code   TEXT,
     revision      TEXT,
     is_scanned    INTEGER DEFAULT 0,
+    ocr           INTEGER DEFAULT 0,
     page_count    INTEGER DEFAULT 0,
     file_size_kb  INTEGER DEFAULT 0,
     indexed_date  TEXT
@@ -337,6 +341,28 @@ CREATE TRIGGER IF NOT EXISTS chunks_au AFTER UPDATE ON chunks BEGIN
     VALUES ('delete', old.id, old.heading, old.content);
     INSERT INTO chunks_fts(rowid, heading, content)
     VALUES (new.id, new.heading, new.content);
+END
+"""
+
+# Optional semantic layer: one embedding per chunk and a note of the model that
+# wrote them. Empty until a Create DB run ticks Semantic; a keyword-only database
+# simply carries empty tables. The delete trigger keeps vectors in step with the
+# chunks, since re-indexing a file drops its chunks and inserts new ids.
+SCHEMA_CHUNK_VECTORS = """
+CREATE TABLE IF NOT EXISTS chunk_vectors (
+    chunk_id INTEGER PRIMARY KEY,
+    vector   BLOB
+)
+"""
+SCHEMA_SEMANTIC_META = """
+CREATE TABLE IF NOT EXISTS semantic_meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT
+)
+"""
+SCHEMA_VECTORS_TRIGGER_D = """
+CREATE TRIGGER IF NOT EXISTS chunk_vectors_ad AFTER DELETE ON chunks BEGIN
+    DELETE FROM chunk_vectors WHERE chunk_id = old.id;
 END
 """
 
@@ -603,18 +629,42 @@ def _page_image(page, dpi):
 # ~6.2 s per page (measured here, tesseract 5.5) a full re-OCR of the 116
 # affected files costs about nine hours, so the cap is also what keeps that job
 # inside one night.
-def _ocr_pages(pdf_path, max_pages=150):
-    """OCR every page of a printed document (commissioning, O&M, training).
+#
+# That arithmetic is Tesseract's. PaddleOCR on the GPU measured 0.79 s per page
+# (a 46-page procedure in 35 s), so there the cap only guards against a
+# runaway scan: 1,000 pages is about 13 minutes for one document, and in the
+# commissioning folder it truncated three files at 150 (239 to 280 pages).
+OCR_MAX_PAGES_CPU = 150
+OCR_MAX_PAGES_GPU = 1000
 
+
+def _ocr_pages(pdf_path, max_pages=None, only=None):
+    """OCR the pages of a printed document (commissioning, O&M, training).
+
+    only, a set of page numbers, limits it to those pages -- the scanned pages
+    of a PDF that is partly text layer; max_pages then caps how many of them
+    are read, by default OCR_MAX_PAGES_GPU or _CPU for the engine in use.
     Returns (pages, error): pages is a list of (page number, text), and error
     is set -- with pages empty -- when nothing at all could be read.
     """
     try:
         import fitz
-        import pytesseract
+        try:
+            from core import ocr_engine
+        except ImportError:
+            import ocr_engine
+        paddle = ocr_engine.use_paddle()
+        if not paddle:
+            import pytesseract
+        if max_pages is None:
+            max_pages = OCR_MAX_PAGES_GPU if paddle else OCR_MAX_PAGES_CPU
         pages, failed, first_err = [], 0, ''
         with fitz.open(pdf_path) as pdf:
-            for i in range(min(len(pdf), max_pages)):
+            for i in range(len(pdf)):
+                if only is not None and i + 1 not in only:
+                    continue
+                if len(pages) >= max_pages:
+                    break
                 # Caught per page, not per document. The whole loop used to sit
                 # inside the handler below, so a single unreadable page threw
                 # away every page already read and the function returned
@@ -623,9 +673,12 @@ def _ocr_pages(pdf_path, max_pages=150):
                 # -- and index the document as a failure although 149 pages of
                 # it had been read perfectly well.
                 try:
-                    text = pytesseract.image_to_string(
-                        _preprocess(_page_image(pdf[i], 200), scale=2),
-                        lang='eng', config='--psm 3 --oem 3')
+                    if paddle:
+                        text = ocr_engine.ocr_image_paddle(_page_image(pdf[i], 200))
+                    else:
+                        text = pytesseract.image_to_string(
+                            _preprocess(_page_image(pdf[i], 200), scale=2),
+                            lang='eng', config='--psm 3 --oem 3')
                 except Exception as e:
                     failed += 1
                     first_err = first_err or f'{type(e).__name__}: {e}'
@@ -651,7 +704,13 @@ def _ocr_titleblock(pdf_path):
     _CFG = '--psm 11 --oem 3'
     try:
         import fitz
-        import pytesseract
+        try:
+            from core import ocr_engine
+        except ImportError:
+            import ocr_engine
+        paddle = ocr_engine.use_paddle()
+        if not paddle:
+            import pytesseract
         with fitz.open(pdf_path) as pdf:
             if not len(pdf):
                 return ''
@@ -659,11 +718,35 @@ def _ocr_titleblock(pdf_path):
         w, h = img.size
         # Crop: 55% bên phải, 38% phía dưới → vùng title block
         crop = img.crop((int(w * 0.45), int(h * 0.62), w, h))
-        text = pytesseract.image_to_string(_preprocess(crop, scale=2),
-                                           lang='eng', config=_CFG)
+        if paddle:
+            text = ocr_engine.ocr_image_paddle(crop)
+        else:
+            text = pytesseract.image_to_string(_preprocess(crop, scale=2),
+                                               lang='eng', config=_CFG)
         return f"[TITLE BLOCK]\n{text}"
     except Exception as e:
         return f"[OCR Error: {e}]"
+
+# A PDF page whose text layer holds less than this is a scanned page and gets
+# OCR'd. Measured over the 25,518 pages of the commissioning folder: scanned
+# pages carry 0-9 characters (52% of all pages), or 10-49 when a stamp or a
+# reviewer's note sits on top ("Add this page", "For Review"); pages of real
+# text start around 50 (a revision-record table page holds 50-99).
+PAGE_TEXT_MIN = 50
+# Scan samples this many pages of a longer PDF, evenly spread, to decide its
+# "Cần OCR" count; reading every page of the folder's 316 PDFs took 87 s.
+SCAN_SAMPLE_PAGES = 15
+
+
+def scanned_pages(pages):
+    """Numbers of the pages in [(page_no, text), ...] whose text layer is too
+    thin to be the page's text."""
+    return [no for no, t in pages if len((t or '').strip()) < PAGE_TEXT_MIN]
+
+
+def mostly_scanned(n_scanned, n_pages):
+    """is_scanned: at least half of the pages are scans."""
+    return n_pages > 0 and n_scanned * 2 >= n_pages
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  CONTENT EXTRACTORS
@@ -672,13 +755,21 @@ def extract_content(file_path, use_ocr=True):
     """
     Trả về (content_text, is_scanned, page_count)
     """
-    content, is_scanned, page_count, _pages = extract_pages(file_path, use_ocr)
+    content, is_scanned, _ocr, page_count, _pages = extract_pages(file_path, use_ocr)
     return content, is_scanned, page_count
 
 
 def extract_pages(file_path, use_ocr=True):
-    """extract_content plus the text of each page: (content, is_scanned,
+    """extract_content plus the text of each page: (content, is_scanned, ocr,
     page_count, pages).
+
+    is_scanned is 1 when at least half of a PDF's pages are scans (see
+    PAGE_TEXT_MIN), and for an image. ocr counts the pages whose text the OCR
+    engine produced: the scanned pages of a PDF (all of them, or only those of
+    a mostly-text PDF), 1 for a drawing's title block or an image, and 0 for a
+    text-layer PDF, scans left un-OCR'd, every born-digital format and any
+    extraction error. So is_scanned says "looks scanned", ocr "how much we read
+    by OCR".
 
     pages is a list of (page number, text) for PDFs, slide decks and images,
     and None for formats that have no pages or when extraction failed. The
@@ -697,34 +788,58 @@ def extract_pages(file_path, use_ocr=True):
                 pages = [(i + 1, page.get_text('text')) for i, page in enumerate(pdf)]
             text = '\n'.join(t for _, t in pages)
 
-            if len(text.strip()) >= 50:
-                return text, 0, page_count, pages   # có text layer
-
+            # Decided page by page. The whole file used to count as text layer
+            # once it held 50 characters anywhere, so a 156-page scan whose one
+            # typed page was the cover went un-OCR'd and was indexed as 680
+            # characters -- seven such files, 1,375 pages, in a single folder.
+            thin = scanned_pages(pages)
+            scanned = 1 if mostly_scanned(len(thin), page_count) else 0
+            if not thin:
+                return text, 0, 0, page_count, pages        # text layer throughout
             if not use_ocr:
-                return text, 1, page_count, pages   # scanned nhưng không OCR
+                return text, scanned, 0, page_count, pages  # scans left un-OCR'd
 
-            # Scanned → chọn chiến lược OCR.
-            #
             # Caught here rather than left to the handler below, which answers
-            # is_scanned=0. A PDF that reached this line has no text layer no
+            # is_scanned=0. A mostly scanned PDF has no usable text layer no
             # matter what OCR then does with it, and recording it as though it
             # had one is the one error there is no recovering from: the file
             # looks indexed, reads as empty, and cannot be listed again to retry.
+            # A mostly-text PDF whose scanned pages fail keeps its text layer.
             try:
                 if _is_drawing_file(os.path.basename(file_path)):
-                    text = _ocr_titleblock(file_path)
-                    if text.startswith('[OCR Error:'):
-                        return text, 1, page_count, None
-                    return text, 1, page_count, [(1, text)]
-                pages, error = _ocr_pages(file_path)
+                    # A drawing only ever has its title block read.
+                    if not scanned:
+                        return text, 0, 0, page_count, pages
+                    tb = _ocr_titleblock(file_path)
+                    if tb.startswith('[OCR Error:'):
+                        return tb, 1, 0, page_count, None
+                    return tb, 1, 1, page_count, [(1, tb)]
+                read, error = _ocr_pages(file_path, only=set(thin))
                 if error:
-                    return error, 1, page_count, None
-                return '\n'.join(t for _, t in pages), 1, page_count, pages
+                    if scanned:
+                        return error, 1, 0, page_count, None
+                    return text, 0, 0, page_count, pages
+                by_page = dict(read)
+                merged = []
+                for no, layer in pages:
+                    if no not in by_page:
+                        merged.append((no, layer))
+                    elif layer.strip():
+                        # Keep the little the layer had (a stamp, a note) verbatim;
+                        # OCR may read it less exactly.
+                        merged.append((no, f"{layer.strip()}\n{by_page[no]}"))
+                    else:
+                        merged.append((no, by_page[no]))
+                n_ocr = sum(1 for t in by_page.values() if not t.startswith('[OCR failed'))
+                return ('\n'.join(t for _, t in merged), scanned, n_ocr,
+                        page_count, merged)
             except Exception as e:
-                return f"[OCR Error: {e}]", 1, page_count, None
+                if scanned:
+                    return f"[OCR Error: {e}]", 1, 0, page_count, None
+                return text, 0, 0, page_count, pages
 
         except Exception as e:
-            return f"[Error: {e}]", 0, 0, None
+            return f"[Error: {e}]", 0, 0, 0, None
 
     # ── WORD ─────────────────────────────────────────────────────────────────
     elif ext == '.docx':
@@ -738,9 +853,9 @@ def extract_pages(file_path, use_ocr=True):
                     row_text = ' | '.join(c.text.strip() for c in row.cells if c.text.strip())
                     if row_text:
                         parts.append(row_text)
-            return '\n'.join(parts), 0, 0, None
+            return '\n'.join(parts), 0, 0, 0, None
         except Exception as e:
-            return f"[Error: {e}]", 0, 0, None
+            return f"[Error: {e}]", 0, 0, 0, None
 
     # ── EXCEL ────────────────────────────────────────────────────────────────
     elif ext == '.xlsx':
@@ -755,9 +870,9 @@ def extract_pages(file_path, use_ocr=True):
                     cells = [str(c) for c in row if c is not None and str(c).strip() not in ('', 'None')]
                     if cells:
                         rows.append('\t'.join(cells))
-            return '\n'.join(rows), 0, 0, None
+            return '\n'.join(rows), 0, 0, 0, None
         except Exception as e:
-            return f"[Error: {e}]", 0, 0, None
+            return f"[Error: {e}]", 0, 0, 0, None
 
     # ── POWERPOINT ───────────────────────────────────────────────────────────
     elif ext == '.pptx':
@@ -772,9 +887,9 @@ def extract_pages(file_path, use_ocr=True):
                 if on_slide:         # an empty slide adds nothing, as before
                     texts.extend(on_slide)
                     pages.append((no, '\n'.join(on_slide)))
-            return '\n'.join(texts), 0, len(prs.slides), pages
+            return '\n'.join(texts), 0, 0, len(prs.slides), pages
         except Exception as e:
-            return f"[Error: {e}]", 0, 0, None
+            return f"[Error: {e}]", 0, 0, 0, None
 
     # ── IMAGES ───────────────────────────────────────────────────────────────
     elif ext in ('.jpg', '.jpeg', '.png', '.tif', '.tiff'):
@@ -783,17 +898,17 @@ def extract_pages(file_path, use_ocr=True):
             from PIL import Image
             img = Image.open(file_path)
             text = pytesseract.image_to_string(_preprocess(img), lang='eng', config='--psm 3')
-            return text, 1, 1, [(1, text)]
+            return text, 1, 1, 1, [(1, text)]   # image -> always OCR
         except Exception as e:
-            return f"[Error: {e}]", 0, 0, None
+            return f"[Error: {e}]", 0, 0, 0, None
 
     # ── TEXT / CSV / JSON / HTML ──────────────────────────────────────────────
     elif ext == '.txt':
         try:
             with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
-                return f.read(), 0, 0, None
+                return f.read(), 0, 0, 0, None
         except Exception as e:
-            return f"[Error: {e}]", 0, 0, None
+            return f"[Error: {e}]", 0, 0, 0, None
 
     elif ext == '.csv':
         try:
@@ -801,27 +916,27 @@ def extract_pages(file_path, use_ocr=True):
             with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
                 for row in csv.reader(f):
                     rows.append(', '.join(row))
-            return '\n'.join(rows), 0, 0, None
+            return '\n'.join(rows), 0, 0, 0, None
         except Exception as e:
-            return f"[Error: {e}]", 0, 0, None
+            return f"[Error: {e}]", 0, 0, 0, None
 
     elif ext == '.json':
         try:
             with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
                 data = json.load(f)
-            return json.dumps(data, indent=2, ensure_ascii=False), 0, 0, None
+            return json.dumps(data, indent=2, ensure_ascii=False), 0, 0, 0, None
         except Exception as e:
-            return f"[Error: {e}]", 0, 0, None
+            return f"[Error: {e}]", 0, 0, 0, None
 
     elif ext in ('.html', '.htm', '.md'):
         try:
             from bs4 import BeautifulSoup
             with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
-                return BeautifulSoup(f, 'html.parser').get_text(), 0, 0, None
+                return BeautifulSoup(f, 'html.parser').get_text(), 0, 0, 0, None
         except Exception as e:
-            return f"[Error: {e}]", 0, 0, None
+            return f"[Error: {e}]", 0, 0, 0, None
 
-    return None, 0, 0, None   # định dạng không hỗ trợ
+    return None, 0, 0, 0, None   # định dạng không hỗ trợ
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -838,6 +953,10 @@ def init_db(db_file):
     cur.execute("PRAGMA temp_store=MEMORY")
     cur.execute("PRAGMA cache_size=-65536")      # 64 MB of page cache
     cur.execute(SCHEMA_FILES)
+    # files.ocr was added later; an older database gets it here (0 = unknown /
+    # not OCR'd -- a rebuild fills it in properly).
+    if 'ocr' not in {row[1] for row in cur.execute("PRAGMA table_info(files)")}:
+        cur.execute("ALTER TABLE files ADD COLUMN ocr INTEGER DEFAULT 0")
     cur.execute(SCHEMA_FTS)
     cur.execute(SCHEMA_TRIGGER_INSERT)
     cur.execute(SCHEMA_TRIGGER_DELETE)
@@ -852,6 +971,9 @@ def init_db(db_file):
     cur.execute(SCHEMA_CHUNKS_TRIGGER_I)
     cur.execute(SCHEMA_CHUNKS_TRIGGER_D)
     cur.execute(SCHEMA_CHUNKS_TRIGGER_U)
+    cur.execute(SCHEMA_CHUNK_VECTORS)
+    cur.execute(SCHEMA_SEMANTIC_META)
+    cur.execute(SCHEMA_VECTORS_TRIGGER_D)
     for stmt in SCHEMA_FILES_IDX + SCHEMA_DOC_REVISIONS + SCHEMA_KKS:
         cur.execute(stmt)
     conn.commit()
@@ -896,7 +1018,7 @@ def _is_unchanged(full_path, state):
     mtime = datetime.fromtimestamp(st.st_mtime).replace(second=0, microsecond=0)
     return mtime <= was
 
-def insert_file(conn, name, rel_path, ext, content, meta, is_scanned, page_count, file_size_kb):
+def insert_file(conn, name, rel_path, ext, content, meta, is_scanned, ocr, page_count, file_size_kb):
     """Insert the file, or refresh the row that already holds this path.
 
     Returns its row id. The previous INSERT OR IGNORE silently kept the old row
@@ -907,8 +1029,8 @@ def insert_file(conn, name, rel_path, ext, content, meta, is_scanned, page_count
     cur.execute("""
         INSERT INTO files
             (name, path, type, content, doc_number, lot, discipline,
-             system_code, revision, is_scanned, page_count, file_size_kb, indexed_date)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+             system_code, revision, is_scanned, ocr, page_count, file_size_kb, indexed_date)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         ON CONFLICT(path) DO UPDATE SET
             name         = excluded.name,
             type         = excluded.type,
@@ -919,6 +1041,7 @@ def insert_file(conn, name, rel_path, ext, content, meta, is_scanned, page_count
             system_code  = excluded.system_code,
             revision     = excluded.revision,
             is_scanned   = excluded.is_scanned,
+            ocr          = excluded.ocr,
             page_count   = excluded.page_count,
             file_size_kb = excluded.file_size_kb,
             indexed_date = excluded.indexed_date
@@ -926,7 +1049,7 @@ def insert_file(conn, name, rel_path, ext, content, meta, is_scanned, page_count
         name, rel_path, ext, content,
         meta['doc_number'], meta['lot'], meta['discipline'],
         meta['system_code'], meta['revision'],
-        is_scanned, page_count, file_size_kb,
+        is_scanned, ocr, page_count, file_size_kb,
         datetime.now().strftime('%Y-%m-%d %H:%M')
     ))
     cur.execute("SELECT id FROM files WHERE path=?", (rel_path,))
@@ -1017,19 +1140,28 @@ def _split_chunks(text, head=''):
     chunks = []
     body, blen = [], 0               # the chunk under construction, and its exact length
     carry, carry_keep = '', False    # text that opens the next chunk
+    head_open = False                # head was met in this text and no chunk carries it yet
 
     def close():
         """Finish the chunk under construction and decide what opens the next."""
-        nonlocal body, blen, carry, carry_keep
+        nonlocal body, blen, carry, carry_keep, head_open
         joined = ' '.join(body).strip()
         body, blen = [], 0
         if not joined:
             return
         if len(joined) >= CHUNK_MIN:
             chunks.append((head, joined))
+            head_open = False
             carry = joined[-CHUNK_OVERLAP:] if len(joined) > CHUNK_OVERLAP else ''
             carry_keep = False       # overlap: a duplicate, safe to drop
         else:
+            # Too short for a chunk: the text moves into the next one, under that
+            # chunk's heading, so a heading of its own goes with it as text. It
+            # used to be dropped -- the heading line was then in no chunk at all,
+            # and a drawing label such as "DRAIN TANK" could not be found.
+            if head_open:
+                joined = f"{head} {joined}"
+                head_open = False
             carry = (carry + ' ' + joined).strip() if carry_keep else joined
             carry_keep = True        # real text: must not be dropped
             if len(carry) > CHUNK_MAX:
@@ -1056,7 +1188,7 @@ def _split_chunks(text, head=''):
             else:
                 if body:
                     close()
-                head = pending
+                head, head_open = pending, True
             pending = None
         if is_head:
             pending = unit
@@ -1235,10 +1367,55 @@ def insert_chunks(conn, file_id, content, pages=None, is_drawing=False):
 
 
 
+def _match_pages(cur, fts_query, file_ids):
+    """file_id -> set of the pages whose chunks match fts_query.
+
+    A chunk is one page, except short pages merged with a neighbour, so a hit
+    in such a chunk reports its small page range. An older database without
+    chunks or chunk page columns simply yields no pages.
+
+    Every chunk of a section carries the section heading, but the heading is
+    printed only where the section starts, so its words count for the first
+    chunk it heads; further chunks need the match in their own text. Without
+    that a word in a heading reported every page of the section. The DB Search
+    tab applies the same rule.
+    """
+    found = {}
+    if not fts_query or not file_ids:
+        return found
+    ids = list(file_ids)
+    for i in range(0, len(ids), 500):          # stay under SQLite's variable limit
+        part = ids[i:i + 500]
+        try:
+            rows = cur.execute(
+                "SELECT file_id, page_start, page_end FROM ("
+                "  SELECT id, file_id, page_start, page_end, heading,"
+                "         LAG(heading) OVER (PARTITION BY file_id ORDER BY chunk_index) AS prev"
+                f"  FROM chunks WHERE file_id IN ({','.join('?' * len(part))})"
+                ") WHERE id IN (SELECT rowid FROM chunks_fts WHERE chunks_fts MATCH ?)"
+                "  AND (heading IS NOT prev"
+                "       OR id IN (SELECT rowid FROM chunks_fts WHERE chunks_fts MATCH ?))",
+                [*part, fts_query, f"content : ({fts_query})"]).fetchall()
+        except sqlite3.OperationalError:
+            return {}
+        for fid, ps, pe in rows:
+            if ps is None:
+                continue
+            pe = pe if (pe is not None and pe >= ps) else ps
+            found.setdefault(fid, set()).update(range(ps, pe + 1))
+    return found
+
+
 def search_db(conn, query, lot_filter='', disc_filter='', scanned_filter=''):
+    """Rows of (name, path, type, lot, discipline, system_code, doc_number,
+    revision, is_scanned, ocr, page_count, pages) -- ocr is how many pages
+    were read by OCR, pages where the query appears, e.g. '3–5, 9', empty when
+    it matched only the name or no query was given."""
     cur = conn.cursor()
     params = []
-    where_clauses = []
+    where_clauses = ["name != 'BASE_PATH'"]   # the folder-root row, not a document
+    fts_query = ''
+    has_ocr = 'ocr' in {r[1] for r in cur.execute("PRAGMA table_info(files)")}
 
     if query.strip():
         # Bọc từng token trong ngoặc kép để FTS5 không nhầm số/ký tự đặc biệt
@@ -1253,21 +1430,36 @@ def search_db(conn, query, lot_filter='', disc_filter='', scanned_filter=''):
     if disc_filter:
         where_clauses.append("discipline = ?")
         params.append(disc_filter)
-    if scanned_filter == 'scanned':
-        where_clauses.append("is_scanned = 1")
-    elif scanned_filter == 'text':
-        where_clauses.append("is_scanned = 0")
+    # Matching doc_source.source_label(): 'text' = text layer only, 'ocr' = any page read
+    # by OCR (OCR and Text+OCR), 'scanned' = mostly scans, none OCR'd. A
+    # database from before files.ocr has no OCR rows to show.
+    if scanned_filter == 'text':
+        where_clauses.append("is_scanned = 0 AND ocr = 0" if has_ocr else "is_scanned = 0")
+    elif scanned_filter == 'ocr':
+        where_clauses.append("ocr > 0" if has_ocr else "0")
+    elif scanned_filter == 'scanned':
+        where_clauses.append("is_scanned = 1 AND ocr = 0" if has_ocr else "is_scanned = 1")
 
-    sql = """
-        SELECT name, path, type, lot, discipline, system_code, doc_number, revision, is_scanned
+    sql = f"""
+        SELECT id, name, path, type, lot, discipline, system_code, doc_number,
+               revision, is_scanned, {'ocr' if has_ocr else 'NULL'}, page_count
         FROM files
     """
     if where_clauses:
         sql += " WHERE " + " AND ".join(where_clauses)
     sql += " ORDER BY lot, discipline, name LIMIT 500"
 
-    cur.execute(sql, params)
-    return cur.fetchall()
+    rows = cur.execute(sql, params).fetchall()
+    pages = _match_pages(cur, fts_query, [r[0] for r in rows])
+    return [(*r[1:], doc_source.page_text(pages.get(r[0]))) for r in rows]
+
+
+# Result table layout; open_file reads the path back from COL_PATH.
+# Doc Number is left out: it is already in the file name, and files.doc_number
+# stays in the database for search, revisions and the Data Brain.
+RESULT_COLUMNS = ["Name", "Lot", "Disc", "System", "Rev",
+                  "Source", "Pages", "Type", "Path"]
+COL_PATH = RESULT_COLUMNS.index("Path")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1277,9 +1469,10 @@ class IndexWorker(QThread):
     progress   = Signal(int, int, str)   # current, total, filename
     finished   = Signal(int, int)        # added, skipped
     error      = Signal(str)
+    preview    = Signal(str, bytes, list, int)  # name, page png, first chunks, total chunks
 
     def __init__(self, folder_path, db_file, use_ocr, incremental,
-                 ext_filter=None, path_filter=None):
+                 ext_filter=None, path_filter=None, semantic=False):
         super().__init__()
         self.folder_path = folder_path
         self.db_file     = db_file
@@ -1287,11 +1480,40 @@ class IndexWorker(QThread):
         self.incremental = incremental
         self.ext_filter  = ext_filter    # set of extensions, e.g. {'.pdf'}
         self.path_filter = path_filter   # set of absolute paths (cho Cần OCR)
+        self.semantic    = semantic      # also embed every chunk (optional)
         self._stop       = False
+        self._detail     = False     # render a page preview per file while on
         self.skip_log    = ''        # path of the report, once there is one
 
     def stop(self):
         self._stop = True
+
+    def set_detail(self, on):
+        """Turn the live page preview on or off, safely mid-run. Off costs nothing."""
+        self._detail = bool(on)
+
+    def _emit_preview(self, full_path, ext, content, pages, is_scanned):
+        """Render the file's first (or title-block) page and its chunks for the
+        Detail panel. Only called while Detail is on, and throttled by the caller."""
+        import io as _io
+        name = os.path.basename(full_path)
+        is_drawing = _is_drawing_file(name)
+        if pages:
+            recs = _page_chunks(pages, is_drawing)
+            chunks = [(h, b) for h, b, _ps, _pe, _br in recs]
+        else:
+            chunks = _split_chunks(content)
+        png = b''
+        if ext == '.pdf':
+            try:
+                import fitz
+                with fitz.open(full_path) as pdf:
+                    if len(pdf):
+                        pix = pdf[0].get_pixmap(dpi=110)
+                        png = pix.tobytes("png")
+            except Exception:
+                png = b''
+        self.preview.emit(name, png, chunks[:40], len(chunks))
 
     def run(self):
         try:
@@ -1326,11 +1548,25 @@ class IndexWorker(QThread):
                     else:
                         unsupported[_e] = unsupported.get(_e, 0) + 1
 
+            # Per-category build (ext_filter / path_filter): keep only the files in
+            # scope, so the progress bar counts the real workload -- e.g. the 132
+            # scanned PDFs behind the "Cần OCR" card, not every file walked. A full
+            # build (no filter) leaves all_files untouched.
+            if self.ext_filter or self.path_filter:
+                all_files = [
+                    p for p in all_files
+                    if (not self.ext_filter
+                        or os.path.splitext(p)[1].lower() in self.ext_filter)
+                    and (not self.path_filter or p in self.path_filter)
+                ]
+
             total    = len(all_files)
             added    = 0
             skipped  = 0
             failures = []      # (path, reason) -- written out at the end
             dirty    = 0       # documents written since the last commit
+            import time
+            last_preview = 0.0  # throttle the Detail preview so it never slows indexing
 
             for idx, full_path in enumerate(all_files):
                 if self._stop:
@@ -1346,21 +1582,14 @@ class IndexWorker(QThread):
                     skipped += 1
                     continue
 
-                # Category filter
                 _ext = os.path.splitext(full_path)[1].lower()
-                if self.ext_filter and _ext not in self.ext_filter:
-                    skipped += 1
-                    continue
-                if self.path_filter and full_path not in self.path_filter:
-                    skipped += 1
-                    continue
 
                 try:
                     ext          = _ext
                     file_size_kb = max(1, os.path.getsize(_fs_path(full_path)) // 1024)
                     meta         = parse_metadata(os.path.basename(full_path))
 
-                    content, is_scanned, page_count, pages = extract_pages(
+                    content, is_scanned, ocr, page_count, pages = extract_pages(
                         full_path, self.use_ocr)
 
                     if content is None:
@@ -1379,12 +1608,18 @@ class IndexWorker(QThread):
                         conn,
                         os.path.basename(full_path),
                         rel_path, ext, content,
-                        meta, is_scanned, page_count, file_size_kb
+                        meta, is_scanned, ocr, page_count, file_size_kb
                     )
                     if file_id:
                         insert_chunks(conn, file_id, content, pages,
                                       _is_drawing_file(os.path.basename(full_path)))
                     added += 1
+                    if self._detail and (time.monotonic() - last_preview) > 0.4:
+                        last_preview = time.monotonic()
+                        try:
+                            self._emit_preview(full_path, ext, content, pages, is_scanned)
+                        except Exception:
+                            pass
                     dirty += 1
                     if dirty >= COMMIT_EVERY:
                         conn.commit()
@@ -1408,7 +1643,6 @@ class IndexWorker(QThread):
                 conn.rollback()
                 failures.append((self.db_file, f'latest-revision table not rebuilt: '
                                                f'{type(e).__name__}: {e}'))
-            self._write_skip_log(failures, unsupported, junk)
             # Merge the FTS b-trees once, at the end. An index built a document
             # at a time leaves hundreds of thousands of small segments behind.
             try:
@@ -1418,6 +1652,31 @@ class IndexWorker(QThread):
                 conn.commit()
             except Exception:
                 pass
+
+            # Semantic layer, last: embed every chunk that has no vector yet, so an
+            # incremental run only tops up. A load/model failure is reported but does
+            # not undo the keyword index already written.
+            if self.semantic and not self._stop:
+                try:
+                    import core.semantic as semantic
+                    if not semantic.available():
+                        failures.append((self.db_file,
+                                         'semantic skipped: fastembed not installed'))
+                    else:
+                        self.progress.emit(0, 0, 'Embedding chunks (semantic)...')
+                        semantic.build_embeddings(
+                            conn,
+                            progress=lambda d, t: self.progress.emit(
+                                d, t, f'Embedding chunks {d}/{t}'),
+                            should_stop=lambda: self._stop,
+                        )
+                        conn.commit()
+                except Exception as e:
+                    failures.append((self.db_file,
+                                     f'semantic embedding failed: '
+                                     f'{type(e).__name__}: {e}'))
+
+            self._write_skip_log(failures, unsupported, junk)
             conn.close()
             self.finished.emit(added, skipped)
 
@@ -1457,8 +1716,8 @@ class IndexWorker(QThread):
 #  SCAN WORKER  (chỉ đếm file – không extract nội dung)
 # ─────────────────────────────────────────────────────────────────────────────
 class ScanWorker(QThread):
-    progress = Signal(int, int)        # current, total
-    finished = Signal(dict, int, list)  # counts, ocr_needed, scanned_paths
+    progress = Signal(int, int)             # current, total
+    finished = Signal(dict, int, list, list)  # counts, ocr_needed, scanned_paths, all_files
 
     def __init__(self, folder_path):
         super().__init__()
@@ -1482,18 +1741,26 @@ class ScanWorker(QThread):
 
             if ext == '.pdf':
                 try:
+                    # The same rule extract_pages uses for is_scanned (it used to
+                    # be "page 1 under 100 characters", so the count and what
+                    # indexing then did disagreed), on an even sample of pages.
                     with _fitz.open(fpath) as pdf:
-                        if pdf.page_count > 0:
-                            text = pdf[0].get_text('text')
-                            if len(text.strip()) < 100:
-                                ocr_needed += 1
-                                scanned_paths.append(fpath)
+                        n = pdf.page_count
+                        if n <= SCAN_SAMPLE_PAGES:
+                            idxs = range(n)
+                        else:
+                            idxs = sorted({round(k * (n - 1) / (SCAN_SAMPLE_PAGES - 1))
+                                           for k in range(SCAN_SAMPLE_PAGES)})
+                        sample = [(i + 1, pdf[i].get_text('text')) for i in idxs]
+                    if mostly_scanned(len(scanned_pages(sample)), len(sample)):
+                        ocr_needed += 1
+                        scanned_paths.append(fpath)
                 except Exception:
                     pass
 
             self.progress.emit(idx + 1, total)
 
-        self.finished.emit(counts, ocr_needed, scanned_paths)
+        self.finished.emit(counts, ocr_needed, scanned_paths, all_files)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1508,6 +1775,8 @@ class MainWindow(QMainWindow):
         self.worker         = None
         self.scan_worker    = None
         self._scanned_paths = []
+        self._all_scanned   = []   # every file the last scan walked, for File list
+        self._detail_dlg    = None  # the live preview dialog, created on first use
         self._build_ui()
 
     # ── UI ──────────────────────────────────────────────────────────────────
@@ -1594,6 +1863,11 @@ class MainWindow(QMainWindow):
         self.chk_ocr.setChecked(True)
         self.chk_incr = QCheckBox("Incremental")
         self.chk_incr.setChecked(True)
+        self.chk_semantic = QCheckBox("Semantic")
+        self.chk_semantic.setChecked(False)
+        self.chk_semantic.setToolTip(
+            "Also embed every chunk for meaning-based search (multilingual-e5-large).\n"
+            "Uses the GPU when available, else the CPU (slower to build; search stays fast).")
         self.btn_index = QPushButton("▶  Start Index")
         self.btn_index.setObjectName("btnStart")
         self.btn_index.clicked.connect(self.start_index)
@@ -1607,10 +1881,24 @@ class MainWindow(QMainWindow):
         idx_lay.addWidget(btn_scan,               0, 5)
         idx_lay.addWidget(self.chk_ocr,           1, 1)
         idx_lay.addWidget(self.chk_incr,          1, 2)
+        idx_lay.addWidget(self.chk_semantic,      1, 3)
         idx_lay.addWidget(self.btn_index,         1, 4)
         idx_lay.addWidget(self.btn_stop,          1, 5)
         idx_lay.setColumnStretch(1, 1)
         idx_lay.setColumnStretch(3, 1)
+
+        # Device / recommendation for the Semantic tick, filled just after the
+        # window shows so the one-off onnxruntime import does not delay opening it.
+        self.lbl_semantic_info = QLabel("")
+        self.lbl_semantic_info.setWordWrap(True)
+        self.lbl_semantic_info.setStyleSheet("font-size: 11px; color: #64748b;")
+        idx_lay.addWidget(self.lbl_semantic_info, 2, 1, 1, 5)
+        self.lbl_ocr_info = QLabel("")
+        self.lbl_ocr_info.setWordWrap(True)
+        self.lbl_ocr_info.setStyleSheet("font-size: 11px; color: #64748b;")
+        idx_lay.addWidget(self.lbl_ocr_info, 3, 1, 1, 5)
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(200, self._update_semantic_info)
 
         top_row.addWidget(db_box,  1)
         top_row.addWidget(idx_box, 2)
@@ -1637,22 +1925,27 @@ class MainWindow(QMainWindow):
             lbl.setAlignment(Qt.AlignCenter)
             lbl.setStyleSheet(_INIT_STYLE)
             lbl.setFixedHeight(52)
+            btn_list = QPushButton("File list")
+            btn_list.setStyleSheet(_BTN_STYLE)
+            btn_list.setFixedHeight(22)
+            btn_list.setEnabled(False)
             btn = QPushButton("Tạo DB")
             btn.setStyleSheet(_BTN_STYLE)
             btn.setFixedHeight(22)
             btn.setEnabled(False)
             vlay.addWidget(lbl)
+            vlay.addWidget(btn_list)
             vlay.addWidget(btn)
-            return w, lbl, btn
+            return w, lbl, btn_list, btn
 
-        w_total, self.lbl_stat_total, self.btn_db_total = _stat_slot("Total")
-        w_pdf,   self.lbl_stat_pdf,   self.btn_db_pdf   = _stat_slot("PDF")
-        w_word,  self.lbl_stat_word,  self.btn_db_word  = _stat_slot("Word")
-        w_excel, self.lbl_stat_excel, self.btn_db_excel = _stat_slot("Excel")
-        w_ppt,   self.lbl_stat_ppt,   self.btn_db_ppt   = _stat_slot("PPT")
-        w_img,   self.lbl_stat_img,   self.btn_db_img   = _stat_slot("Image")
-        w_text,  self.lbl_stat_text,  self.btn_db_text  = _stat_slot("Text / Other")
-        w_ocr,   self.lbl_stat_ocr,   self.btn_db_ocr   = _stat_slot("Cần OCR")
+        w_total, self.lbl_stat_total, self.btn_list_total, self.btn_db_total = _stat_slot("Total")
+        w_pdf,   self.lbl_stat_pdf,   self.btn_list_pdf,   self.btn_db_pdf   = _stat_slot("PDF")
+        w_word,  self.lbl_stat_word,  self.btn_list_word,  self.btn_db_word  = _stat_slot("Word")
+        w_excel, self.lbl_stat_excel, self.btn_list_excel, self.btn_db_excel = _stat_slot("Excel")
+        w_ppt,   self.lbl_stat_ppt,   self.btn_list_ppt,   self.btn_db_ppt   = _stat_slot("PPT")
+        w_img,   self.lbl_stat_img,   self.btn_list_img,   self.btn_db_img   = _stat_slot("Image")
+        w_text,  self.lbl_stat_text,  self.btn_list_text,  self.btn_db_text  = _stat_slot("Text / Other")
+        w_ocr,   self.lbl_stat_ocr,   self.btn_list_ocr,   self.btn_db_ocr   = _stat_slot("Cần OCR")
 
         for w in (w_total, w_pdf, w_word, w_excel, w_ppt, w_img, w_text, w_ocr):
             sum_lay.addWidget(w)
@@ -1668,9 +1961,17 @@ class MainWindow(QMainWindow):
         self.lbl_progress.setFixedWidth(90)
         self.lbl_current  = QLabel("")
         self.lbl_current.setStyleSheet("color: #64748B; font-style: italic;")
+        self.btn_detail = QPushButton("Show Detail")
+        self.btn_detail.setCheckable(True)
+        self.btn_detail.setFixedHeight(24)
+        self.btn_detail.setToolTip(
+            "Live preview of each file's page and the chunks going into the DB.\n"
+            "Turning it off costs nothing.")
+        self.btn_detail.toggled.connect(self._toggle_detail)
         prog_lay.addWidget(self.progress_bar, 3)
         prog_lay.addWidget(self.lbl_progress)
         prog_lay.addWidget(self.lbl_current,  4)
+        prog_lay.addWidget(self.btn_detail)
 
         # ── Row 3: Search ────────────────────────────────────────────────────
         srch_box = QGroupBox("Search")
@@ -1690,7 +1991,7 @@ class MainWindow(QMainWindow):
             "I – Instrumentation", "M – Mechanical",
             "P – Piping", "Q – Quality", "R – Process"])
         self.cmb_scan = QComboBox()
-        self.cmb_scan.addItems(["All Files", "Text PDF only", "Scanned/OCR only"])
+        self.cmb_scan.addItems(["All Files", "Text only", "OCR only", "Scanned (no OCR)"])
         btn_search = QPushButton("🔍  Search")
         btn_search.clicked.connect(self.search_files)
         self.lbl_results = QLabel("Results: –")
@@ -1703,11 +2004,14 @@ class MainWindow(QMainWindow):
 
         # ── Row 4: Result table (stretch) ────────────────────────────────────
         self.table = QTableWidget()
-        self.table.setColumnCount(8)
-        self.table.setHorizontalHeaderLabels(
-            ["Name", "Lot", "Disc", "System", "Doc Number", "Rev", "Type", "Path"])
+        self.table.setColumnCount(len(RESULT_COLUMNS))
+        self.table.setHorizontalHeaderLabels(RESULT_COLUMNS)
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
-        self.table.horizontalHeader().setSectionResizeMode(7, QHeaderView.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(COL_PATH, QHeaderView.Stretch)
+        self.table.horizontalHeaderItem(RESULT_COLUMNS.index("Source")).setToolTip(
+            doc_source.SOURCE_HELP)
+        self.table.horizontalHeaderItem(RESULT_COLUMNS.index("Pages")).setToolTip(
+            "Pages where the search term appears")
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.setAlternatingRowColors(True)
@@ -1825,8 +2129,9 @@ class MainWindow(QMainWindow):
         self.progress_bar.setValue(pct)
         self.lbl_progress.setText(f"{current}/{total}")
 
-    def _on_scan_done(self, counts, ocr_needed, scanned_paths):
+    def _on_scan_done(self, counts, ocr_needed, scanned_paths, all_files=None):
         self._scanned_paths = scanned_paths
+        self._all_scanned   = all_files or []
 
         total = sum(counts.values())
         pdf   = counts.get('.pdf', 0)
@@ -1880,6 +2185,26 @@ class MainWindow(QMainWindow):
         else:
             self.btn_db_ocr.setEnabled(False)
 
+        # File list buttons: same categories, but list the files rather than index.
+        def _wire_list(btn, label, ext_filter=None, path_filter=None):
+            try: btn.clicked.disconnect()
+            except RuntimeError: pass
+            btn.setEnabled(True)
+            btn.clicked.connect(
+                lambda: self._show_file_list(label, ext_filter, path_filter))
+
+        _wire_list(self.btn_list_total, "All Files")
+        _wire_list(self.btn_list_pdf,   "PDF",         ext_filter={'.pdf'})
+        _wire_list(self.btn_list_word,  "Word",        ext_filter=_WORD_EXT)
+        _wire_list(self.btn_list_excel, "Excel",       ext_filter=_EXCEL_EXT)
+        _wire_list(self.btn_list_ppt,   "PPT",         ext_filter=_PPT_EXT)
+        _wire_list(self.btn_list_img,   "Image",       ext_filter=_IMG_EXT)
+        _wire_list(self.btn_list_text,  "Text/Other",  ext_filter=_TEXT_EXT)
+        if scanned_paths:
+            _wire_list(self.btn_list_ocr, "Cần OCR", path_filter=set(scanned_paths))
+        else:
+            self.btn_list_ocr.setEnabled(False)
+
         self.progress_bar.setValue(100)
         self.lbl_progress.setText(f"{total:,} files")
         self.statusBar().showMessage(
@@ -1887,6 +2212,59 @@ class MainWindow(QMainWindow):
             f"PDF: {pdf:,}  Word: {word:,}  Excel: {excel:,}  "
             f"PPT: {ppt:,}  Image: {img:,}  Other: {txt+other:,}  |  "
             f"Cần OCR: {ocr_needed:,}")
+
+    def _show_file_list(self, label, ext_filter=None, path_filter=None):
+        """List the scanned files of a category in a filterable dialog.
+
+        Double-clicking a row opens the file. Paths are shown relative to the
+        scanned folder, the way the index stores them.
+        """
+        folder = self.folder_input.text()
+        files = self._all_scanned or []
+        if path_filter is not None:
+            files = [f for f in files if f in path_filter]
+        elif ext_filter is not None:
+            files = [f for f in files if os.path.splitext(f)[1].lower() in ext_filter]
+
+        def _rel(p):
+            if folder and os.path.isdir(folder):
+                try:
+                    return os.path.relpath(p, folder)
+                except ValueError:
+                    return p
+            return p
+        rels = sorted(_rel(f) for f in files)
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"File list — {label}  ({len(rels):,} files)")
+        dlg.resize(760, 520)
+        v = QVBoxLayout(dlg)
+        filt = QLineEdit()
+        filt.setPlaceholderText("Filter by name…")
+        lst = QListWidget()
+        lst.addItems(rels)
+
+        def _apply():
+            t = filt.text().strip().lower()
+            lst.clear()
+            lst.addItems([r for r in rels if t in r.lower()] if t else rels)
+        filt.textChanged.connect(_apply)
+
+        def _open(item):
+            if not folder:
+                return
+            try:
+                os.startfile(os.path.join(folder, item.text()))
+            except Exception:
+                pass
+        lst.itemDoubleClicked.connect(_open)
+
+        btn_close = QPushButton("Close")
+        btn_close.clicked.connect(dlg.accept)
+        v.addWidget(filt)
+        v.addWidget(lst, 1)
+        v.addWidget(btn_close)
+        dlg.exec()
 
     def _create_category_db(self, label, ext_filter=None, path_filter=None):
         folder = self.folder_input.text()
@@ -1908,12 +2286,97 @@ class MainWindow(QMainWindow):
             use_ocr=self.chk_ocr.isChecked(),
             incremental=False,
             ext_filter=ext_filter,
-            path_filter=path_filter
+            path_filter=path_filter,
+            semantic=self.chk_semantic.isChecked()
         )
         self.worker.progress.connect(self._on_progress)
         self.worker.finished.connect(self._on_finished)
         self.worker.error.connect(self._on_error)
+        self.worker.preview.connect(self._on_preview)
+        self.worker.set_detail(self.btn_detail.isChecked())
         self.worker.start()
+
+    # ── Live Detail preview ──────────────────────────────────────────────────
+    def _toggle_detail(self, on):
+        if on:
+            self._open_detail_dialog()
+        elif self._detail_dlg is not None:
+            self._detail_dlg.hide()
+        if self.worker is not None:
+            self.worker.set_detail(on)
+
+    def _open_detail_dialog(self):
+        if self._detail_dlg is None:
+            dlg = QDialog(self)
+            dlg.setWindowTitle("Indexing Detail — page preview")
+            dlg.resize(900, 620)
+            lay = QVBoxLayout(dlg)
+            self._detail_header = QLabel("Waiting for the next file…")
+            self._detail_header.setStyleSheet("font-weight:600; color:#334155;")
+            split = QSplitter(Qt.Horizontal)
+            self._detail_img = QLabel("No page yet")
+            self._detail_img.setAlignment(Qt.AlignCenter)
+            self._detail_img.setStyleSheet(
+                "background:#F8FAFC; border:1px solid #E2E8F0; color:#94A3B8;")
+            self._detail_img.setMinimumWidth(340)
+            self._detail_chunks = QListWidget()
+            self._detail_chunks.setWordWrap(True)
+            split.addWidget(self._detail_img)
+            split.addWidget(self._detail_chunks)
+            split.setSizes([470, 430])
+            lay.addWidget(self._detail_header)
+            lay.addWidget(split, 1)
+            dlg.finished.connect(lambda _: self.btn_detail.setChecked(False))
+            self._detail_dlg = dlg
+        self._detail_dlg.show()
+        self._detail_dlg.raise_()
+
+    def _on_preview(self, name, png, chunks, total):
+        if self._detail_dlg is None or not self._detail_dlg.isVisible():
+            return
+        self._detail_header.setText(f"{name}   —   {total} chunk(s) into the DB")
+        if png:
+            pm = QPixmap()
+            pm.loadFromData(png)
+            if not pm.isNull():
+                self._detail_img.setPixmap(pm.scaled(
+                    max(self._detail_img.width(), 100),
+                    max(self._detail_img.height(), 100),
+                    Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            else:
+                self._detail_img.setText("(could not render page)")
+        else:
+            self._detail_img.setText("(no page image — not a PDF)")
+        self._detail_chunks.clear()
+        for i, (h, b) in enumerate(chunks, 1):
+            head = f"{h} — " if h else ""
+            snippet = (b or "")[:220].replace("\n", " ")
+            self._detail_chunks.addItem(f"[{i}] {head}{snippet}")
+        if total > len(chunks):
+            self._detail_chunks.addItem(f"… (+{total - len(chunks)} more chunks)")
+
+    def _update_semantic_info(self):
+        """Fill the notice beside the Semantic tick: device and whether to use it."""
+        try:
+            import core.semantic as semantic
+            status, msg = semantic.advice()
+        except Exception as e:
+            status, msg = "unavailable", f"Semantic unavailable: {e}"
+        colour = {"GPU": "#15803d", "CPU": "#b45309"}.get(status, "#dc2626")
+        icon = {"GPU": "⚡", "CPU": "🐢"}.get(status, "⚠")
+        self.lbl_semantic_info.setStyleSheet(f"font-size: 11px; color: {colour};")
+        self.lbl_semantic_info.setText(f"{icon}  Semantic will use {status}  —  {msg}")
+
+        # OCR engine notice: PaddleOCR on GPU, Tesseract on CPU.
+        try:
+            import core.ocr_engine as ocr_engine
+            engine, omsg = ocr_engine.advice()
+        except Exception as e:
+            engine, omsg = "Tesseract", f"OCR check failed: {e}"
+        ocolour = "#15803d" if engine == "PaddleOCR" else "#b45309"
+        oicon = "⚡" if engine == "PaddleOCR" else "🐢"
+        self.lbl_ocr_info.setStyleSheet(f"font-size: 11px; color: {ocolour};")
+        self.lbl_ocr_info.setText(f"{oicon}  OCR will use {engine}  —  {omsg}")
 
     def start_index(self):
         if not self.db_file:
@@ -1930,11 +2393,14 @@ class MainWindow(QMainWindow):
         self.worker = IndexWorker(
             folder, self.db_file,
             use_ocr     = self.chk_ocr.isChecked(),
-            incremental = self.chk_incr.isChecked()
+            incremental = self.chk_incr.isChecked(),
+            semantic    = self.chk_semantic.isChecked()
         )
         self.worker.progress.connect(self._on_progress)
         self.worker.finished.connect(self._on_finished)
         self.worker.error.connect(self._on_error)
+        self.worker.preview.connect(self._on_preview)
+        self.worker.set_detail(self.btn_detail.isChecked())
         self.worker.start()
 
     def stop_index(self):
@@ -1994,10 +2460,7 @@ class MainWindow(QMainWindow):
         disc_text = self.cmb_disc.currentText()
         disc_filt = '' if disc_text.startswith("All") else disc_text.split(' ')[0]
 
-        scan_text = self.cmb_scan.currentText()
-        if 'Text' in scan_text:   scan_filt = 'text'
-        elif 'Scanned' in scan_text: scan_filt = 'scanned'
-        else:                        scan_filt = ''
+        scan_filt = ('', 'text', 'ocr', 'scanned')[self.cmb_scan.currentIndex()]
 
         try:
             conn = sqlite3.connect(self.db_file)
@@ -2016,22 +2479,33 @@ class MainWindow(QMainWindow):
             'F': '#E0F2F1', 'G': '#F5F5F5',
         }
 
+        col_source = RESULT_COLUMNS.index("Source")
+        col_pages = RESULT_COLUMNS.index("Pages")
+
         for r_idx, row in enumerate(rows):
-            name, path, ftype, lot, disc, sys_code, doc_no, rev, is_scan = row
+            (name, path, ftype, lot, disc, sys_code, _doc_no, rev,
+             is_scan, ocr, page_count, pages) = row
+            source = doc_source.source_label(is_scan, ocr)
+            tip = doc_source.source_tip(is_scan, ocr, page_count)
+            colour = QColor(doc_source.source_colour(source))   # rows are always light here
             bg = QColor(DISC_COLOR.get(disc, '#FFFFFF'))
-            vals = [name, lot or '', disc or '', sys_code or '', doc_no or '', rev or '', ftype, path]
+            vals = [name, lot or '', disc or '', sys_code or '', rev or '',
+                    source, pages, ftype, path]
             for c_idx, val in enumerate(vals):
                 item = QTableWidgetItem(val or '')
                 item.setBackground(bg)
-                if is_scan and c_idx == 0:
-                    item.setForeground(QColor('#B07020'))
-                    item.setToolTip("⚠ Scanned/OCR – content may be imperfect")
+                if c_idx == col_source or (c_idx == 0 and
+                                           source in ('OCR', 'Scanned', 'Scanned/OCR')):
+                    item.setForeground(colour)
+                    item.setToolTip(tip)
+                if c_idx == col_pages and pages:
+                    item.setToolTip(f"Search term found on page(s): {pages}")
                 self.table.setItem(r_idx, c_idx, item)
 
     # ── OPEN FILE ────────────────────────────────────────────────────────────
     def open_file(self, item):
         row      = item.row()
-        rel_path = self.table.item(row, 7).text()
+        rel_path = self.table.item(row, COL_PATH).text()
         try:
             conn = sqlite3.connect(self.db_file)
             cur  = conn.cursor()

@@ -11,6 +11,8 @@ pyinstaller --noconfirm --clean --onedir --windowed --name "Finding9.6.2" "Findi
   --add-data "$env:LOCALAPPDATA\ms-playwright\winldd-1007;ms-playwright\winldd-1007" `
   --collect-all notebooklm --collect-all playwright `
   --collect-all pdfplumber `
+  --collect-all fastembed --collect-all onnxruntime --collect-all rapidocr_onnxruntime `
+  --add-data "models/ocr;models/ocr" `
   --exclude-module matplotlib --exclude-module pandas --exclude-module tkinter `
   --exclude-module IPython --exclude-module jupyter --exclude-module notebook `
   --exclude-module pytest --exclude-module flask `
@@ -52,6 +54,21 @@ tesseract.exe, which cannot be bundled and has to be installed on the
 machine and be on PATH. Without it the indexer still works, but every
 scanned document comes out as "[OCR Error: ...]".
 
+Semantic search and PaddleOCR (GPU): the three --collect-all above bundle
+fastembed-gpu, onnxruntime-gpu and rapidocr-onnxruntime (its ONNX models).
+With only those, both features run on the CPU in the frozen build. For GPU
+acceleration the nvidia-*-cu12 CUDA runtime DLLs (cublas, cudnn, cuda_runtime,
+cufft, curand, cuda_nvrtc, nvjitlink -- ~2 GB) must also be collected, e.g.
+--collect-binaries nvidia; core/cuda_setup.py already adds a frozen build's
+nvidia/*/bin dirs (under _MEIPASS) to PATH at startup, so once those DLLs are
+present the GPU is used with no further wiring. Shipping them is optional:
+leave them out for a smaller CPU-only build.
+
+models/ocr/en_PP-OCRv4_rec_mobile.onnx is PaddleOCR's English recogniser, used
+in place of RapidOCR's Chinese one (which runs English words together). It is
+gitignored, so a fresh clone must fetch it first -- see paths.ocr_rec_model.
+Without it OCR still works, on the Chinese recogniser, and Create DB says so.
+
 
 """
 
@@ -86,6 +103,15 @@ if __name__ == "__main__" and len(sys.argv) > 1 and sys.argv[1] in _HELPER_FLAGS
     sys.argv = [_helper_name, *sys.argv[2:]]   # both helpers read sys.argv directly
     _helper.main()
     sys.exit(0)
+
+# ── CUDA DLL path for onnxruntime-gpu (semantic search + PaddleOCR) ───
+# onnxruntime's CUDA provider loads cublas/cudnn/cudart at session time through
+# the native loader, which only finds them on PATH -- os.add_dll_directory is not
+# enough for those transitive deps. Done here, before anything imports onnxruntime,
+# so the first session (OCR or embedding) can reach the GPU. No-op on a machine
+# without the CUDA wheels; the CLI helpers above exit first and never pay for it.
+from core import cuda_setup
+cuda_setup.setup()
 
 from PySide6.QtWidgets import QApplication
 from ui.main_window import FileSearchApp

@@ -123,6 +123,8 @@ faiss/
 *.faiss
 *.index
 *.bin
+*.onnx
+models/
 *.pkl
 *.joblib
 *.parquet

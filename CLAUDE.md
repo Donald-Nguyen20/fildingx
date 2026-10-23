@@ -19,6 +19,8 @@ python Finding8.py                    # run the app; no CLI arguments
 
 PyInstaller 6 puts everything listed in `datas` under `_internal/`, but `paths.APP_DIR` is the folder holding the `.exe` — so a file the app opens through `APP_DIR` cannot be shipped through the spec at all. **`DATABRAIN.md` has to be copied beside the `.exe` by hand after the build**; the `--add-data` copy inside the bundle is only the fallback `_load_domain_md()` reaches for when the outer one is missing, so the notes stay editable without a rebuild. The two CLI helpers need no copying — see below. No dist built before this was carried any of them, which is why Data Brain's DB mode had never worked from a packaged build.
 
+OCR recognises text with PaddleOCR's English model, `models/ocr/en_PP-OCRv4_rec_mobile.onnx` (7.6 MB, gitignored — `paths.ocr_rec_model()` says where it comes from). A fresh clone has to fetch it; without it OCR falls back to RapidOCR's bundled Chinese recogniser, which runs English words together, and Create DB's OCR notice says the model is missing. The build ships it with `--add-data "models/ocr;models/ocr"`.
+
 **There is no test suite, no linter and no packaging config.** No `pytest`, `pyproject.toml`, `setup.cfg` or `tox.ini` exists anywhere in the tree. Do not invent a test command. The two checks actually used here are:
 
 ```bash
@@ -70,7 +72,9 @@ Both tabs read the schema `core/create_index_v3.py` writes (Tools → Create DB)
 
 DB Search **refuses** a database that lacks `chunks`, `doc_revisions`, `kks_tags` or the chunk page columns — `AB Drawings.db`, and any Create DB build from before those were added — with a message to rebuild it (into a new file, or with *Incremental* unticked, since an incremental run leaves already-indexed files without pages or tags) and an offer to drop it from `db_list.json`. Do not add cross-schema detection or a "limited mode" that searches such a database in part. Always open with `sqlite3.connect(f"file:{path}?mode=ro", uri=True)` and never write: `AB Drawings.db` is still the live daily database, and the DCS databases are the plant's design masters.
 
-The KKS tag pattern lives in `core/kks.py` (unit prefix `00`/`10`/`20` only), shared by the indexer and DB Search so a typed tag is read exactly as it was stored. `ui/index_search_window.py` keeps its query layer (`search_database`) Qt-free, and fetches `_RESULT_LIMIT + 1` rows so it can tell the user there are more results than it is showing.
+The KKS tag pattern lives in `core/kks.py` (unit prefix `00`/`10`/`20` only), shared by the indexer and DB Search so a typed tag is read exactly as it was stored.
+
+DB Search shows Name, System, Rev, Source and Pages (the path is the Name tooltip); its columns can be resized and dragged, and a header click sorts (names naturally, Pages by how many pages hold the keyword); each new search starts back in relevance order. Both result tables take the **Source** label (OCR / Text+OCR / Text / Scanned), its colour and tooltip, and the **Pages** text from `core/doc_source.py`, which is Qt-free. `files.ocr` counts the pages read by OCR; a database built before it has no such column, so `doc_source.ocr_column()` selects NULL and its scans show as "Scanned/OCR". That is a display fallback for one optional column, not a limited mode — the required-schema refusal above still applies. `ui/index_search_window.py` keeps its query layer (`search_database`) Qt-free, and fetches `_RESULT_LIMIT + 1` rows so it can tell the user there are more results than it is showing.
 
 ### `ui/dcs_logic/` is a vendored copy
 

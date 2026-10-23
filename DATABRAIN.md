@@ -39,7 +39,9 @@ CREATE TABLE files (
     discipline    TEXT,           -- A/C/E/F/G/I/M/P/Q/R (xem bảng bên dưới)
     system_code   TEXT,           -- Ví dụ: HNC, HLB, LAC ... (xem mục System codes)
     revision      TEXT,           -- Đã chuẩn hoá, viết hoa: A, B, D, B1, 0, 1, AB0 ...
-    is_scanned    INTEGER,        -- 1 = file scan/OCR, 0 = có text layer
+    is_scanned    INTEGER,        -- 1 = at least half the pages are scans, 0 = mainly text layer
+    ocr           INTEGER,        -- how many pages were read by OCR; 0 = none (text layer, or scans NOT OCR'd)
+                                  --     (missing in databases built before 2026-10-23)
     page_count    INTEGER,
     file_size_kb  INTEGER,
     indexed_date  TEXT
@@ -463,6 +465,6 @@ Báo cáo vận hành VP1 gồm các phần:
 - Luôn dùng `chunks_fts` thay vì `files_fts` khi cần nội dung để viết báo cáo — chính xác hơn, tiết kiệm token hơn
 - Tra thiết bị theo mã KKS bằng `kks_tags`, không bằng `MATCH`
 - Lấy thông số từ bản revision mới nhất; khi trích bản đã bị thay thế thì nói rõ
-- File `is_scanned = 1` là bản scan OCR — nội dung có thể có lỗi nhận dạng ký tự
+- File `ocr > 0` có trang đọc bằng OCR (`ocr` = số trang) — nội dung các trang đó có thể có lỗi nhận dạng ký tự. `is_scanned = 1 AND ocr = 0` là bản scan **chưa** OCR: chỉ tên file tìm được, nội dung trống — đừng kết luận "tài liệu không nhắc tới X". Database cũ chưa có cột `ocr`: khi đó dùng `is_scanned`
 - Khi trích dẫn trong báo cáo, ghi rõ: `Doc: [doc_number] Rev [revision], p. [page], Section: [heading]`. Lấy trang từ `page_start`–`page_end` của chunk, hoặc `kks_tags.page`; bỏ phần trang khi nó là NULL (Word/Excel), đừng tự đoán
 - DB không chứa hình ảnh — nếu cần bản vẽ P&ID thì phải mở file gốc

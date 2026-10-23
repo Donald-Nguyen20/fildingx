@@ -10,19 +10,22 @@ in part: the tab says it needs rebuilding and offers to drop it from the list.
 import collections
 import os
 import json
+import re
 import sqlite3
 from typing import NamedTuple
 
 from PySide6.QtWidgets import (
     QDialog, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QComboBox,
     QLineEdit, QTreeWidget, QTreeWidgetItem, QFileDialog,
-    QMessageBox, QApplication, QLabel, QCheckBox,
+    QMessageBox, QApplication, QLabel, QCheckBox, QStyledItemDelegate,
 )
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, QEvent, QRect
+from PySide6.QtGui import QColor
 
 import paths
-from core import kks
+from core import doc_source, kks
 from core.ai_grouper import GroupWorker
+from ui import themes
 from ui.hud_widgets import qss_hud_metal_header_feel, qss_white_results
 
 _DB_LIST_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "db_list.json")
@@ -41,11 +44,69 @@ _RESULT_LIMIT = 500
 _REQUIRED_TABLES = ("files", "chunks", "doc_revisions", "kks_tags")
 _REQUIRED_CHUNK_COLUMNS = ("page_start", "page_end")
 
-# Runs of pages spelt out in the Pages column before the rest are only counted.
-_PAGE_RUNS_SHOWN = 8
-
 # Qt.UserRole on a result item holds its database; this holds its path there.
 _PATH_ROLE = Qt.UserRole + 1
+
+# The Create DB search's columns, less Lot, Disc, Type and Path (the path is on
+# the Name tooltip, and double-click still opens the file). Every column can be
+# resized and dragged to another place, and a click on its header sorts by it.
+_COLUMNS = ["Name", "System", "Rev", "Source", "Pages"]
+_COL_REV = _COLUMNS.index("Rev")
+_COL_SOURCE = _COLUMNS.index("Source")
+_COL_PAGES = _COLUMNS.index("Pages")
+_COL_WIDTHS = {0: 460, 1: 80, 2: 110, 3: 90}   # starting widths; Pages takes the rest
+
+# Pages sorts by how many pages carry the keyword -- the document that mentions
+# it most -- rather than by the text "1–7, 9" (which would compare "1" with "3").
+_PAGE_COUNT_ROLE = Qt.UserRole + 2
+_DIGITS = re.compile(r"(\d+)")
+
+
+def _natural(text: str) -> list:
+    """Sort key that reads numbers as numbers: "VP1-…-9" before "VP1-…-10"."""
+    return [(0, int(p), "") if p.isdigit() else (1, 0, p.casefold())
+            for p in _DIGITS.split(text) if p]
+
+
+class _RemovableDbs(QStyledItemDelegate):
+    """Draws a ✕ at the right of each database in the selector's list ("All
+    DBs" has none). The click itself is caught by IndexSearchWidget.eventFilter."""
+
+    BOX = 28                                  # width of the ✕ target, in pixels
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.hover_row = -1                   # row whose ✕ is under the mouse
+
+    def close_rect(self, rect: QRect) -> QRect:
+        return QRect(rect.right() - self.BOX, rect.top(), self.BOX, rect.height())
+
+    def paint(self, painter, option, index):
+        super().paint(painter, option, index)
+        if index.data(Qt.UserRole) is None:
+            return
+        painter.save()
+        # Mid grey reads on both the light and the dark themes' popups.
+        painter.setPen(QColor("#EF4444" if index.row() == self.hover_row else "#9CA3AF"))
+        font = painter.font()
+        font.setBold(True)
+        painter.setFont(font)
+        painter.drawText(self.close_rect(option.rect), Qt.AlignCenter, "✕")
+        painter.restore()
+
+
+class _Row(QTreeWidgetItem):
+    """A file row: sorts naturally by text, and by page count in Pages."""
+
+    def __lt__(self, other):
+        tree = self.treeWidget()
+        col = tree.sortColumn() if tree else 0
+        if col == _COL_PAGES:
+            return (self.data(col, _PAGE_COUNT_ROLE) or 0) < (other.data(col, _PAGE_COUNT_ROLE) or 0)
+        return _natural(self.text(col)) < _natural(other.text(col))
+
+# files columns every hit carries besides its id; ocr is spliced in per database.
+_FILE_FIELDS = "f.name, f.path, f.type, f.system_code, f.is_scanned"
 
 
 class _Hit(NamedTuple):
@@ -53,14 +114,34 @@ class _Hit(NamedTuple):
     name: str
     path: str          # relative to the database's BASE_PATH
     ftype: str
+    system_code: str
+    is_scanned: int
+    ocr: object        # pages read by OCR; None from a database that did not record it
+    page_count: int
     db: str
     revision: str
     superseded: bool   # a later revision of the same document is indexed too
     pages: str         # where the keyword is, e.g. "3, 7–8"; "" when unknown
 
 
+def _file_select(conn: sqlite3.Connection) -> str:
+    """The files columns a _Hit is built from, after f.id."""
+    return f"{_FILE_FIELDS}, {doc_source.ocr_column(conn, 'f.')}, f.page_count"
+
+
+def _hit(row, db_path: str, revision: tuple, pages: str) -> _Hit:
+    """row is (id, *the _file_select columns); revision is (revision, superseded)."""
+    _fid, name, path, ftype, sysc, scanned, ocr, page_count = row
+    return _Hit(name, path, ftype or "", sysc or "",
+                scanned or 0, ocr, page_count or 0, db_path, *revision, pages)
+
+
 class _OutdatedDB(Exception):
     """The database lacks part of the Create DB schema; args[0] lists what."""
+
+
+class _NoEmbeddings(Exception):
+    """Semantic search was asked of a database built without the Semantic tick."""
 
 
 def _load_db_list() -> list:
@@ -96,33 +177,29 @@ def _missing_parts(conn: sqlite3.Connection) -> list:
     return missing
 
 
-def _page_text(pages: set) -> str:
-    """{1, 2, 3, 7, 12} -> "1–3, 7, 12", spelling out only the first few runs."""
-    runs = []
-    for p in sorted(pages):
-        if runs and p == runs[-1][1] + 1:
-            runs[-1][1] = p
-        else:
-            runs.append([p, p])
-    text = ", ".join(str(a) if a == b else f"{a}–{b}" for a, b in runs[:_PAGE_RUNS_SHOWN])
-    if len(runs) > _PAGE_RUNS_SHOWN:
-        text += f", … ({len(pages)} pages)"
-    return text
-
-
 def _hit_pages(conn: sqlite3.Connection, ids: list, like: str, tag) -> dict:
     """file id -> the pages its matches are on, as text.
 
     A chunk that joined a short page to the next spans both, and the keyword
     may be on either, so both are listed. A file chunked whole (Word, Excel)
     has no pages and gets none, as does one that matched only by name.
+
+    A section heading is stored apart from the chunk text, so it is matched as
+    well -- it used to be skipped, and a keyword in a heading found the file
+    but no page. Every chunk of a section carries its heading, though, while
+    the heading is printed only where the section starts; it counts for the
+    first chunk it heads (the rule insert_chunks uses for KKS tags).
     """
     marks = ",".join("?" * len(ids))
     pages = collections.defaultdict(set)
     for fid, start, end in conn.execute(
-            f"SELECT file_id, page_start, page_end FROM chunks "
-            f"WHERE file_id IN ({marks}) AND page_start IS NOT NULL AND content LIKE ?",
-            (*ids, like)):
+            f"SELECT file_id, page_start, page_end FROM ("
+            f"  SELECT file_id, page_start, page_end, content, heading,"
+            f"         LAG(heading) OVER (PARTITION BY file_id ORDER BY chunk_index) AS prev"
+            f"  FROM chunks WHERE file_id IN ({marks})"
+            f") WHERE page_start IS NOT NULL"
+            f"  AND (content LIKE ? OR (heading LIKE ? AND heading IS NOT prev))",
+            (*ids, like, like)):
         pages[fid].update(range(start, (end or start) + 1))
     if tag:
         for fid, page in conn.execute(
@@ -130,7 +207,7 @@ def _hit_pages(conn: sqlite3.Connection, ids: list, like: str, tag) -> dict:
                 f"WHERE file_id IN ({marks}) AND page IS NOT NULL AND tag_norm GLOB ?",
                 (*ids, tag + "*")):
             pages[fid].add(page)
-    return {fid: _page_text(p) for fid, p in pages.items()}
+    return {fid: doc_source.page_text(p) for fid, p in pages.items()}
 
 
 def _revisions(conn: sqlite3.Connection, ids: list) -> dict:
@@ -176,7 +253,7 @@ def search_database(db_path: str, keyword: str, latest_only: bool = False) -> tu
         # apart from "more than we are showing".
         rows = conn.execute(
             f"""
-            SELECT f.id, f.name, f.path, f.type FROM files f
+            SELECT f.id, {_file_select(conn)} FROM files f
             WHERE ({match})
               AND f.name != 'BASE_PATH'
               {latest}
@@ -192,11 +269,86 @@ def search_database(db_path: str, keyword: str, latest_only: bool = False) -> tu
         ids = [r[0] for r in rows]
         revisions = _revisions(conn, ids)
         pages = _hit_pages(conn, ids, like, tag)
-        hits = [
-            _Hit(name, path, ftype or "", db_path,
-                 *revisions.get(fid, ("", False)), pages.get(fid, ""))
-            for fid, name, path, ftype in rows
-        ]
+        hits = [_hit(r, db_path, revisions.get(r[0], ("", False)), pages.get(r[0], ""))
+                for r in rows]
+        return hits, capped
+    finally:
+        conn.close()
+
+
+def search_database_semantic(db_path: str, keyword: str,
+                             latest_only: bool = False) -> tuple:
+    """Meaning-based matches for keyword, closest first, in the same (hits, capped)
+    shape as search_database so the tab renders them identically.
+
+    The query is embedded and compared against the chunk vectors stored when the
+    database was built with Semantic ticked; a file's score is its best chunk, and
+    its Pages column lists the pages those chunks sit on. Raises _OutdatedDB for a
+    non-Create-DB database and _NoEmbeddings for one built without the vectors.
+    """
+    import core.semantic as semantic
+
+    conn = _connect_ro(db_path)
+    try:
+        missing = _missing_parts(conn)
+    finally:
+        conn.close()
+    if missing:
+        raise _OutdatedDB(missing)
+    if not semantic.has_embeddings(db_path):
+        raise _NoEmbeddings(db_path)
+
+    pairs = semantic.search(db_path, keyword, top_k=_RESULT_LIMIT * 4)
+    if not pairs:
+        return [], False
+
+    conn = _connect_ro(db_path)
+    try:
+        cids = [c for c, _ in pairs]
+        score = dict(pairs)
+        marks = ",".join("?" * len(cids))
+        chunk_of = {}   # chunk_id -> (file_id, page_start, page_end)
+        for cid, fid, ps, pe in conn.execute(
+                f"SELECT id, file_id, page_start, page_end FROM chunks "
+                f"WHERE id IN ({marks})", cids):
+            chunk_of[cid] = (fid, ps, pe)
+
+        order = []                               # file ids, best chunk first
+        seen = set()
+        fpages = collections.defaultdict(set)
+        for cid, _ in pairs:                     # already sorted by score, desc
+            m = chunk_of.get(cid)
+            if not m:
+                continue
+            fid, ps, pe = m
+            if fid not in seen:
+                seen.add(fid)
+                order.append(fid)
+            if ps is not None:
+                fpages[fid].update(range(ps, (pe or ps) + 1))
+
+        if latest_only:
+            superseded = {r[0] for r in conn.execute(
+                "SELECT file_id FROM doc_revisions WHERE is_latest = 0")}
+            order = [f for f in order if f not in superseded]
+
+        capped = len(order) > _RESULT_LIMIT
+        order = order[:_RESULT_LIMIT]
+        if not order:
+            return [], False
+
+        marks2 = ",".join("?" * len(order))
+        frows = {r[0]: r for r in conn.execute(
+            f"SELECT f.id, {_file_select(conn)} FROM files f WHERE f.id IN ({marks2})",
+            order)}
+        revisions = _revisions(conn, order)
+        hits = []
+        for fid in order:                        # keep score order
+            fr = frows.get(fid)
+            if fr is None or fr[1] == 'BASE_PATH':
+                continue
+            hits.append(_hit(fr, db_path, revisions.get(fid, ("", False)),
+                             doc_source.page_text(fpages[fid])))
         return hits, capped
     finally:
         conn.close()
@@ -211,6 +363,7 @@ class IndexSearchWidget(QWidget):
         self._last_rows: list = []
         self._group_worker = None
         self._outdated_reported: set = set()   # told about this session already
+        self._no_embed_reported: set = set()   # databases without a semantic index
         self._setup_ui()
 
     def _setup_ui(self):
@@ -227,7 +380,22 @@ class IndexSearchWidget(QWidget):
         self.db_selector = QComboBox()
         self.db_selector.setFixedHeight(38)
         self.db_selector.setMinimumWidth(160)
+        # Each database in the list carries a ✕ that takes it off the list.
+        self._db_delegate = _RemovableDbs(self.db_selector)
+        self.db_selector.setItemDelegate(self._db_delegate)
+        self.db_selector.view().setMouseTracking(True)
+        self.db_selector.view().viewport().installEventFilter(self)
         self._refresh_selector()
+
+        self.mode_selector = QComboBox()
+        self.mode_selector.setFixedHeight(38)
+        self.mode_selector.addItem("Keyword", "keyword")
+        self.mode_selector.addItem("Semantic", "semantic")
+        self.mode_selector.setToolTip(
+            "Keyword: exact name / text / KKS tag match (fast).\n"
+            "Semantic: match by meaning, across languages "
+            "(needs a database built with Semantic ticked).")
+        self.mode_selector.currentIndexChanged.connect(self._on_mode_changed)
 
         self.search_input = QLineEdit()
         self.search_input.setFixedHeight(38)
@@ -251,11 +419,18 @@ class IndexSearchWidget(QWidget):
 
         h_layout.addWidget(self.import_btn)
         h_layout.addWidget(self.db_selector)
+        h_layout.addWidget(self.mode_selector)
         h_layout.addWidget(self.search_input, 1)
         h_layout.addWidget(self.chk_latest)
         h_layout.addWidget(self.search_btn)
         h_layout.addWidget(self.copy_name_btn)
         h_layout.addWidget(self.btn_group)
+
+        # ── Semantic device / recommendation notice (shown in Semantic mode) ──
+        self.lbl_semantic_hint = QLabel("")
+        self.lbl_semantic_hint.setWordWrap(True)
+        self.lbl_semantic_hint.setStyleSheet("font-size: 12px; padding: 2px 2px;")
+        self.lbl_semantic_hint.setVisible(False)
 
         # ── Result count ─────────────────────────────────────────
         self.lbl_count = QLabel("")
@@ -264,22 +439,31 @@ class IndexSearchWidget(QWidget):
         # ── Result table ─────────────────────────────────────────
         self.result_table = QTreeWidget()
         self.result_table.setObjectName("resultsTree")
-        self.result_table.setAlternatingRowColors(True)
+        self._stripe_rows()
         self.result_table.setUniformRowHeights(True)
         self.result_table.setRootIsDecorated(True)
-        self.result_table.setColumnCount(4)
-        self.result_table.setHeaderLabels(["File Name", "Rev", "Pages", "Path"])
-        self.result_table.headerItem().setToolTip(
-            1, "Revision, marked when a later one of the same document is indexed")
-        self.result_table.headerItem().setToolTip(
-            2, "Pages (PowerPoint: slides) the keyword or KKS tag was found on")
+        self.result_table.setColumnCount(len(_COLUMNS))
+        self.result_table.setHeaderLabels(_COLUMNS)
+        head = self.result_table.headerItem()
+        sort_tip = "\nClick to sort; click again to reverse."
+        head.setToolTip(0, "Double-click to open; hover for the file's path" + sort_tip)
+        head.setToolTip(1, "System code" + sort_tip)
+        head.setToolTip(_COL_REV, "Revision, marked when a later one of the same "
+                                  "document is indexed" + sort_tip)
+        head.setToolTip(_COL_SOURCE, doc_source.SOURCE_HELP + sort_tip)
+        head.setToolTip(_COL_PAGES,
+                        "Pages (PowerPoint: slides) the keyword or KKS tag was found on."
+                        "\nClick to sort by how many pages that is; click again to reverse.")
+        # Drag a header edge to resize a column, the header itself to move it.
         header = self.result_table.header()
-        header.setSectionResizeMode(0, header.ResizeMode.Stretch)
-        header.setSectionResizeMode(1, header.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(2, header.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(3, header.ResizeMode.Stretch)
+        header.setSectionResizeMode(header.ResizeMode.Interactive)
+        header.setSectionsMovable(True)
+        header.setStretchLastSection(True)
+        for col, width in _COL_WIDTHS.items():
+            header.resizeSection(col, width)
 
         main_layout.addLayout(h_layout)
+        main_layout.addWidget(self.lbl_semantic_hint)
         main_layout.addWidget(self.lbl_count)
         main_layout.addWidget(self.result_table)
 
@@ -293,11 +477,85 @@ class IndexSearchWidget(QWidget):
 
     # ── private ──────────────────────────────────────────────────
 
+    def _refill(self, items: list):
+        """Replace the table's rows with items, in the order given.
+
+        Sorting is off while they go in -- with it on, every insert re-sorts --
+        and comes back with no column chosen, so a new result keeps its own
+        order (name matches first, or the AI grouping) until a header is clicked.
+        """
+        table = self.result_table
+        table.setSortingEnabled(False)
+        table.clear()
+        self._stripe_rows()
+        table.addTopLevelItems(items)
+        # Group headers open, once they are in the tree (before, it is ignored).
+        stack = list(items)
+        while stack:
+            item = stack.pop()
+            if item.childCount():
+                item.setExpanded(True)
+                stack.extend(item.child(i) for i in range(item.childCount()))
+        table.header().setSortIndicator(-1, Qt.SortOrder.AscendingOrder)
+        table.setSortingEnabled(True)
+
+    def _stripe_rows(self):
+        """Alternate row colours on a light results page only. No theme sets the
+        alternate colour, so Qt's default -- near white -- striped the dark
+        themes' tree and their light text could not be read on every other row.
+        Checked again on each search, as the theme can change while running."""
+        self.result_table.setAlternatingRowColors(themes.light_page())
+
     def _refresh_selector(self):
+        current = self.db_selector.currentData()
         self.db_selector.clear()
         self.db_selector.addItem("All DBs")
         for p in self.db_paths:
             self.db_selector.addItem(os.path.basename(p), p)
+            self.db_selector.setItemData(self.db_selector.count() - 1, p, Qt.ToolTipRole)
+        if current in self.db_paths:              # keep the choice across a refresh
+            self.db_selector.setCurrentIndex(self.db_selector.findData(current))
+        # Wide enough for the longest name plus its ✕.
+        fm = self.db_selector.fontMetrics()
+        widest = max((fm.horizontalAdvance(self.db_selector.itemText(i))
+                      for i in range(self.db_selector.count())), default=0)
+        self.db_selector.view().setMinimumWidth(widest + _RemovableDbs.BOX + 40)
+
+    def eventFilter(self, obj, event):
+        """The ✕ in the database list: hover turns it red, a click on it takes
+        that database off the list instead of selecting it."""
+        view = self.db_selector.view()
+        if obj is view.viewport() and event.type() in (
+                QEvent.MouseMove, QEvent.MouseButtonPress, QEvent.MouseButtonRelease):
+            pos = event.position().toPoint()
+            index = view.indexAt(pos)
+            on_x = (index.isValid() and index.data(Qt.UserRole) is not None
+                    and self._db_delegate.close_rect(view.visualRect(index)).contains(pos))
+            if event.type() == QEvent.MouseMove:
+                row = index.row() if on_x else -1
+                if row != self._db_delegate.hover_row:
+                    self._db_delegate.hover_row = row
+                    view.viewport().update()
+                return False
+            if on_x:
+                if event.type() == QEvent.MouseButtonRelease:
+                    self._remove_db(index.data(Qt.UserRole))
+                return True                       # neither select nor close on the ✕
+        return super().eventFilter(obj, event)
+
+    def _remove_db(self, path: str):
+        """Take one database off DB Search's list. The file is not touched."""
+        self.db_paths = [p for p in self.db_paths if p != path]
+        _save_db_list(self.db_paths)
+        self._outdated_reported.discard(path)
+        self._no_embed_reported.discard(path)
+        self._db_delegate.hover_row = -1
+        self.db_selector.hidePopup()
+        self._refresh_selector()
+        self.lbl_count.setText(f"Removed {os.path.basename(path)} from the list "
+                               "- the file itself is untouched; Import DB brings it back.")
+        if self.db_paths:                         # reopen, to remove another
+            QTimer.singleShot(0, self.db_selector.showPopup)
 
     def _import_database(self):
         selected, _ = QFileDialog.getOpenFileNames(
@@ -326,30 +584,45 @@ class IndexSearchWidget(QWidget):
         selected_data = self.db_selector.currentData()
         targets = self.db_paths if selected_data is None else [selected_data]
         latest_only = self.chk_latest.isChecked()
+        semantic_mode = self.mode_selector.currentData() == "semantic"
+        search_fn = search_database_semantic if semantic_mode else search_database
         rows = []
         capped = False
         outdated = []
-        for db in targets:
-            try:
-                found, hit_cap = search_database(db, keyword, latest_only)
-            except _OutdatedDB:
-                outdated.append(db)
-                continue
-            except Exception as e:
-                QMessageBox.warning(self, "DB Error", f"Failed to search {db}: {e}")
-                continue
-            capped = capped or hit_cap
-            rows.extend(found)
+        no_embed = []
+        # The first semantic search of a session loads the model and the vectors;
+        # keep the cursor busy so the pause does not look like a freeze.
+        if semantic_mode:
+            QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            for db in targets:
+                try:
+                    found, hit_cap = search_fn(db, keyword, latest_only)
+                except _OutdatedDB:
+                    outdated.append(db)
+                    continue
+                except _NoEmbeddings:
+                    no_embed.append(db)
+                    continue
+                except Exception as e:
+                    QMessageBox.warning(self, "DB Error", f"Failed to search {db}: {e}")
+                    continue
+                capped = capped or hit_cap
+                rows.extend(found)
+        finally:
+            if semantic_mode:
+                QApplication.restoreOverrideCursor()
 
         self._last_rows = rows
-        self.result_table.clear()
+        self._refill([self._make_item(hit) for hit in rows])
         skipped_note = (
             f" — {len(outdated)} database(s) skipped, built by an older Create DB."
             if outdated else ""
         )
+        if no_embed:
+            skipped_note += (f" — {len(no_embed)} database(s) have no embeddings; "
+                             "rebuild with Semantic ticked.")
         if rows:
-            for hit in rows:
-                self.result_table.addTopLevelItem(self._make_item(hit))
             capped_note = (
                 f" — more than {_RESULT_LIMIT} matched, so only the closest are "
                 "shown. Add another word to narrow it."
@@ -365,6 +638,47 @@ class IndexSearchWidget(QWidget):
             self.lbl_count.setText(f"No results for \"{keyword}\"{skipped_note}")
             self.btn_group.setEnabled(False)
         self._report_outdated(outdated)
+        self._report_no_embeddings(no_embed)
+
+    def _on_mode_changed(self):
+        semantic_mode = self.mode_selector.currentData() == "semantic"
+        self.search_input.setPlaceholderText(
+            "Describe what you mean (any language)..." if semantic_mode
+            else "Enter keyword or KKS tag...")
+        if not semantic_mode:
+            self.lbl_semantic_hint.setVisible(False)
+            return
+        # Tell the user which device semantic will run on and whether it is worth it.
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            import core.semantic as semantic
+            status, msg = semantic.advice()
+        except Exception as e:
+            status, msg = "unavailable", f"Semantic unavailable: {e}"
+        finally:
+            QApplication.restoreOverrideCursor()
+        colour = {"GPU": "#15803d", "CPU": "#b45309"}.get(status, "#dc2626")
+        icon = {"GPU": "⚡", "CPU": "🐢"}.get(status, "⚠")
+        self.lbl_semantic_hint.setStyleSheet(
+            f"font-size: 12px; padding: 2px 2px; color: {colour};")
+        self.lbl_semantic_hint.setText(f"{icon}  {status}  —  {msg}")
+        self.lbl_semantic_hint.setVisible(True)
+
+    def _report_no_embeddings(self, dbs: list):
+        """Explain, once a session for each, that a database carries no vectors."""
+        new = [db for db in dbs if db not in self._no_embed_reported]
+        if not new:
+            return
+        self._no_embed_reported.update(new)
+        listed = "\n".join(f"  • {db}" for db in new)
+        QMessageBox.information(
+            self, "No Semantic Index",
+            "Semantic search needs the embeddings that Create DB writes when "
+            "Semantic is ticked, and these databases were built without them:\n\n"
+            f"{listed}\n\n"
+            "Rebuild them from Tools → Create DB with Semantic ticked (an incremental "
+            "run tops up the files already indexed), or use Keyword search instead.",
+        )
 
     def _report_outdated(self, dbs: list):
         """Explain, once a session for each, why a database was skipped, and
@@ -392,11 +706,22 @@ class IndexSearchWidget(QWidget):
 
     def _make_item(self, hit: _Hit, label: str = "") -> QTreeWidgetItem:
         rev = f"{hit.revision} (superseded)" if hit.superseded else hit.revision
-        item = QTreeWidgetItem([label or hit.name, rev, hit.pages, hit.path])
+        source = doc_source.source_label(hit.is_scanned, hit.ocr)
+        item = _Row([label or hit.name, hit.system_code, rev, source, hit.pages])
+        item.setData(_COL_PAGES, _PAGE_COUNT_ROLE, len(doc_source.page_set(hit.pages)))
         item.setData(0, Qt.UserRole, hit.db)
         item.setData(0, _PATH_ROLE, hit.path)
+        item.setToolTip(0, hit.path)
+        if hit.pages:                             # the whole list, however narrow the column
+            item.setToolTip(_COL_PAGES, hit.pages)
+        # Coloured for the page it sits on: the results tree is dark under most
+        # themes, where a colour chosen against white would not read.
+        item.setForeground(_COL_SOURCE, QColor(
+            doc_source.source_colour(source, themes.light_page())))
+        item.setToolTip(_COL_SOURCE,
+                        doc_source.source_tip(hit.is_scanned, hit.ocr, hit.page_count))
         if hit.superseded:
-            item.setToolTip(1, "A later revision of this document is in the database.")
+            item.setToolTip(_COL_REV, "A later revision of this document is in the database.")
         return item
 
     def _copy_name(self):
@@ -442,27 +767,25 @@ class IndexSearchWidget(QWidget):
         dupes = result.get("dupes", [])
         copies = result.get("copies", [])
 
-        self.result_table.clear()
-        total = 0
-
+        tops = []
         for grp in groups:
             label = grp["label"]
             files = grp["files"]  # [(filename, orig_idx), ...]
             header = QTreeWidgetItem([f"📂 {label}  ({len(files)} files)", ""])
-            header.setExpanded(True)
             for fname, orig_idx in files:
                 header.addChild(self._make_item(rows[orig_idx], fname))
-                total += 1
-            self.result_table.addTopLevelItem(header)
+            tops.append(header)
 
         # Two kinds of repeat, kept apart because they ask different questions:
         # several revisions leave you deciding which is current, while identical
         # copies only leave you deciding which folder to open.
-        self._add_duplicate_section(
-            f"⚠️ Multiple Revisions  ({len(dupes)} document(s))", dupes, rows)
-        self._add_duplicate_section(
-            f"📑 Same File in Several Folders  ({len(copies)} document(s))",
-            copies, rows)
+        for title, sets in (
+                (f"⚠️ Multiple Revisions  ({len(dupes)} document(s))", dupes),
+                (f"📑 Same File in Several Folders  ({len(copies)} document(s))", copies)):
+            section = self._duplicate_section(title, sets, rows)
+            if section is not None:
+                tops.append(section)
+        self._refill(tops)
 
         note = result.get("note", "")
         self.lbl_count.setText(
@@ -478,18 +801,17 @@ class IndexSearchWidget(QWidget):
         if result.get("alert"):
             QMessageBox.warning(self, "AI Group", note)
 
-    def _add_duplicate_section(self, title: str, sets: list, rows: list):
+    def _duplicate_section(self, title: str, sets: list, rows: list):
+        """A header item holding one sub-item per repeated document, or None."""
         if not sets:
-            return
+            return None
         header = QTreeWidgetItem([title, ""])
-        header.setExpanded(True)
         for entry in sets:
             sub = QTreeWidgetItem([f"  📄 {entry['base']}", ""])
-            sub.setExpanded(True)
             for fname, orig_idx in entry["files"]:
                 sub.addChild(self._make_item(rows[orig_idx], fname))
             header.addChild(sub)
-        self.result_table.addTopLevelItem(header)
+        return header
 
     def _open_file(self, item: QTreeWidgetItem, _column: int):
         db_path = item.data(0, Qt.UserRole)
