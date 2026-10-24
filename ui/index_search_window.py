@@ -6,6 +6,9 @@ they sit on, doc_revisions and kks_tags -- and always opens it read-only. A
 database without those tables (one from the old create_index2.1, or from
 Create DB before pages, revisions and KKS tags were indexed) is not searched
 in part: the tab says it needs rebuilding and offers to drop it from the list.
+
+Selecting a result shows, beside the list, the part of its page where the
+keyword is, boxed in red (core/hit_preview.py), drawn off the UI thread.
 """
 import collections
 import os
@@ -18,12 +21,13 @@ from PySide6.QtWidgets import (
     QDialog, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QComboBox,
     QLineEdit, QTreeWidget, QTreeWidgetItem, QFileDialog,
     QMessageBox, QApplication, QLabel, QCheckBox, QStyledItemDelegate,
+    QSplitter, QScrollArea,
 )
-from PySide6.QtCore import Qt, QTimer, QEvent, QRect
-from PySide6.QtGui import QColor
+from PySide6.QtCore import Qt, QTimer, QEvent, QRect, QThread, Signal
+from PySide6.QtGui import QColor, QImage, QPixmap
 
 import paths
-from core import doc_source, fts_search, kks
+from core import doc_source, fts_search, hit_preview, kks
 from core.ai_grouper import GroupWorker
 from ui import themes
 from ui.hud_widgets import qss_hud_metal_header_feel, qss_white_results
@@ -59,6 +63,12 @@ _COL_WIDTHS = {0: 460, 1: 80, 2: 110, 3: 90}   # starting widths; Pages takes th
 # Pages sorts by how many pages carry the keyword -- the document that mentions
 # it most -- rather than by the text "1–7, 9" (which would compare "1" with "3").
 _PAGE_COUNT_ROLE = Qt.UserRole + 2
+# The _Hit a row shows, for the preview.
+_HIT_ROLE = Qt.UserRole + 3
+# The preview's caption; amber, readable on the light and the dark themes, when
+# the page is shown whole because the hit could not be marked on it.
+_CAPTION_PLAIN = "font-size: 12px;"
+_CAPTION_UNMARKED = "font-size: 12px; font-weight: 600; color: #D97706;"
 _DIGITS = re.compile(r"(\d+)")
 
 # A file that holds every word of the keyword, but not together, is listed
@@ -171,6 +181,49 @@ def _save_db_list(paths_list: list):
 def _connect_ro(db_path: str) -> sqlite3.Connection:
     # Read-only, and a missing file is an error rather than a new empty one.
     return sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+
+
+def _absolute_path(db_path: str, relative_path: str):
+    """Where a result's file is on disk -- the database's BASE_PATH joined to
+    the path stored for it -- or None when the database has no BASE_PATH."""
+    conn = _connect_ro(db_path)
+    try:
+        row = conn.execute("SELECT path FROM files WHERE name = 'BASE_PATH'").fetchone()
+    finally:
+        conn.close()
+    return os.path.join(row[0], relative_path) if row else None
+
+
+class _PreviewJob(QThread):
+    """Finds a result's spots and draws one of them, off the UI thread: the
+    page has to be opened, and a large drawing takes a moment to read."""
+    done = Signal(int, object, int, object)   # seq, spots or None, index, (rgb, w, h) or error
+
+    def __init__(self, seq: int, hit, query: str, spots=None, index: int = 0,
+                 whole: bool = False):
+        super().__init__()
+        self.seq, self.hit, self.query = seq, hit, query
+        self.spots, self.index, self.whole = spots, index, whole
+
+    def run(self):
+        try:
+            path = _absolute_path(self.hit.db, self.hit.path)
+            if not path or not os.path.exists(path):
+                raise FileNotFoundError(path or self.hit.path)
+            spots = self.spots
+            if spots is None:
+                spots = hit_preview.locate(self.hit.db, path, self.hit.path, self.query,
+                                           self.hit.pages, self.hit.loose)
+            spot = spots[self.index]
+            if self.whole:                      # every place on the page, not just this one
+                spot = spot._replace(rects=tuple(
+                    r for s in spots if s.page == spot.page for r in s.rects))
+            image = hit_preview.render(path, spot, self.whole)
+            self.done.emit(self.seq, spots, self.index, image)
+        except FileNotFoundError as e:
+            self.done.emit(self.seq, None, 0, f"File not found: {e}")
+        except Exception as e:
+            self.done.emit(self.seq, None, 0, f"No preview: {type(e).__name__}: {e}")
 
 
 def _missing_parts(conn: sqlite3.Connection) -> list:
@@ -345,6 +398,18 @@ class IndexSearchWidget(QWidget):
         self._group_worker = None
         self._outdated_reported: set = set()   # told about this session already
         self._no_embed_reported: set = set()   # databases without a semantic index
+        self._last_keyword = ""
+        self._last_semantic = False
+        # The preview: a running job, at most one waiting (the latest asked
+        # for -- keyboard scrolling skips the rows in between), and what the
+        # panel shows. seq tells a stale answer from the one wanted.
+        self._preview_jobs: list = []
+        self._preview_next = None
+        self._preview_seq = 0
+        self._preview_hit = None
+        self._spots: list = []
+        self._spot_index = 0
+        self._preview_pixmap = None
         self._setup_ui()
 
     def _setup_ui(self):
@@ -444,10 +509,51 @@ class IndexSearchWidget(QWidget):
         for col, width in _COL_WIDTHS.items():
             header.resizeSection(col, width)
 
+        # ── Preview: where the keyword is on the selected result's page ──
+        self.preview = QWidget()
+        pv = QVBoxLayout(self.preview)
+        pv.setContentsMargins(0, 0, 0, 0)
+        pv.setSpacing(4)
+        bar = QHBoxLayout()
+        self.lbl_preview = QLabel("")
+        self.lbl_preview.setWordWrap(True)
+        self.lbl_preview.setStyleSheet(_CAPTION_PLAIN)
+        self.btn_prev_spot = QPushButton("◀")
+        self.btn_next_spot = QPushButton("▶")
+        for b, tip in ((self.btn_prev_spot, "Previous place"), (self.btn_next_spot, "Next place")):
+            b.setFixedSize(34, 28)
+            b.setToolTip(tip)
+        self.btn_whole = QPushButton("Whole page")
+        self.btn_whole.setCheckable(True)
+        self.btn_whole.setFixedHeight(28)
+        self.btn_whole.setToolTip("Show the whole page, every place marked")
+        bar.addWidget(self.lbl_preview, 1)
+        bar.addWidget(self.btn_prev_spot)
+        bar.addWidget(self.btn_next_spot)
+        bar.addWidget(self.btn_whole)
+        self.preview_scroll = QScrollArea()
+        self.preview_scroll.setWidgetResizable(True)
+        self.preview_image = QLabel()
+        self.preview_image.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
+        self.preview_image.setToolTip("Double-click to open the file")
+        self.preview_scroll.setWidget(self.preview_image)
+        pv.addLayout(bar)
+        pv.addWidget(self.preview_scroll, 1)
+        self.preview_scroll.viewport().installEventFilter(self)
+        self.preview_image.installEventFilter(self)
+        self._clear_preview()
+
+        self.splitter = QSplitter(Qt.Horizontal)
+        self.splitter.addWidget(self.result_table)
+        self.splitter.addWidget(self.preview)
+        self.splitter.setStretchFactor(0, 3)
+        self.splitter.setStretchFactor(1, 2)
+        self.splitter.setSizes([720, 480])
+
         main_layout.addLayout(h_layout)
         main_layout.addWidget(self.lbl_semantic_hint)
         main_layout.addWidget(self.lbl_count)
-        main_layout.addWidget(self.result_table)
+        main_layout.addWidget(self.splitter, 1)
 
         self.import_btn.clicked.connect(self._import_database)
         self.search_btn.clicked.connect(self._search)
@@ -456,6 +562,11 @@ class IndexSearchWidget(QWidget):
         self.copy_name_btn.clicked.connect(self._copy_name)
         self.btn_group.clicked.connect(self._run_group)
         self.result_table.itemDoubleClicked.connect(self._open_file)
+        self.result_table.currentItemChanged.connect(
+            lambda current, _previous: self._preview_item(current))
+        self.btn_prev_spot.clicked.connect(lambda: self._step_spot(-1))
+        self.btn_next_spot.clicked.connect(lambda: self._step_spot(1))
+        self.btn_whole.toggled.connect(lambda _checked: self._render_spot())
 
     # ── private ──────────────────────────────────────────────────
 
@@ -480,6 +591,7 @@ class IndexSearchWidget(QWidget):
                 stack.extend(item.child(i) for i in range(item.childCount()))
         table.header().setSortIndicator(-1, Qt.SortOrder.AscendingOrder)
         table.setSortingEnabled(True)
+        self._preview_item(None)
 
     def _stripe_rows(self):
         """Alternate row colours on a light results page only. No theme sets the
@@ -505,7 +617,18 @@ class IndexSearchWidget(QWidget):
 
     def eventFilter(self, obj, event):
         """The ✕ in the database list: hover turns it red, a click on it takes
-        that database off the list instead of selecting it."""
+        that database off the list instead of selecting it. Also the preview:
+        it is fitted to the panel's width, and a double-click opens the file."""
+        scroll = getattr(self, "preview_scroll", None)   # filters run before it is built
+        if scroll is not None and obj is scroll.viewport() and event.type() == QEvent.Resize:
+            self._fit_preview()
+            return False
+        if obj is getattr(self, "preview_image", None) and \
+                event.type() == QEvent.MouseButtonDblClick:
+            item = self.result_table.currentItem()
+            if item is not None:
+                self._open_file(item, 0)
+            return True
         view = self.db_selector.view()
         if obj is view.viewport() and event.type() in (
                 QEvent.MouseMove, QEvent.MouseButtonPress, QEvent.MouseButtonRelease):
@@ -599,6 +722,7 @@ class IndexSearchWidget(QWidget):
         # is stable, so each database's own order holds within each part.
         rows.sort(key=lambda hit: hit.loose)
         self._last_rows = rows
+        self._last_keyword, self._last_semantic = keyword, semantic_mode
         self._refill([self._make_item(hit) for hit in rows])
         skipped_note = (
             f" — {len(outdated)} database(s) skipped, built by an older Create DB."
@@ -699,6 +823,7 @@ class IndexSearchWidget(QWidget):
         item.setData(_COL_PAGES, _PAGE_COUNT_ROLE, len(doc_source.page_set(hit.pages)))
         item.setData(0, Qt.UserRole, hit.db)
         item.setData(0, _PATH_ROLE, hit.path)
+        item.setData(0, _HIT_ROLE, hit)
         item.setToolTip(0, hit.path)
         if hit.pages:                             # the whole list, however narrow the column
             item.setToolTip(_COL_PAGES, hit.pages)
@@ -816,14 +941,8 @@ class IndexSearchWidget(QWidget):
         if not db_path:
             return  # group/dupe header row — nothing to open
         try:
-            relative_path = item.data(0, _PATH_ROLE)
-            conn = _connect_ro(db_path)
-            cur = conn.cursor()
-            cur.execute("SELECT path FROM files WHERE name = 'BASE_PATH'")
-            row = cur.fetchone()
-            conn.close()
-            if row:
-                abs_path = os.path.join(row[0], relative_path)
+            abs_path = _absolute_path(db_path, item.data(0, _PATH_ROLE))
+            if abs_path:
                 if os.path.exists(abs_path):
                     os.startfile(abs_path)
                 else:
@@ -832,6 +951,114 @@ class IndexSearchWidget(QWidget):
                 QMessageBox.warning(self, "Error", "BASE_PATH not found in database.")
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to open file: {e}")
+
+    # ── Preview ──────────────────────────────────────────────────
+
+    def _clear_preview(self, text: str = "Select a result to see where the keyword is "
+                                         "on its page."):
+        self._preview_hit, self._spots, self._spot_index = None, [], 0
+        self._preview_pixmap = None
+        self.preview_image.clear()
+        self.lbl_preview.setStyleSheet(_CAPTION_PLAIN)
+        self.lbl_preview.setText(text)
+        self.btn_prev_spot.setEnabled(False)
+        self.btn_next_spot.setEnabled(False)
+        self.btn_whole.setEnabled(False)
+
+    def _preview_item(self, item):
+        """Show where the keyword is on the page of the row just selected."""
+        self._preview_seq += 1                  # whatever is still drawing is stale now
+        self._preview_next = None               # and so is whatever was waiting
+        hit = item.data(0, _HIT_ROLE) if item is not None else None
+        if hit is None:                         # nothing selected, or a group header
+            self._clear_preview()
+            return
+        ext = os.path.splitext(hit.path)[1].lower()
+        if ext not in hit_preview.PDF + hit_preview.IMAGES:
+            self._clear_preview(f"No preview for {ext or 'this'} files - double-click to open.")
+            return
+        self._clear_preview("Finding the keyword on the page…")
+        self._preview_hit = hit
+        self._queue_preview(_PreviewJob(self._preview_seq, hit, self._last_keyword,
+                                        whole=self.btn_whole.isChecked()))
+
+    def _step_spot(self, step: int):
+        if len(self._spots) > 1:
+            self._spot_index = (self._spot_index + step) % len(self._spots)
+            self._render_spot()
+
+    def _render_spot(self):
+        """Draw the current spot again: another place, or Whole page toggled."""
+        if self._preview_hit is None or not self._spots:
+            return
+        self._preview_seq += 1
+        self._queue_preview(_PreviewJob(self._preview_seq, self._preview_hit,
+                                        self._last_keyword, self._spots,
+                                        self._spot_index, self.btn_whole.isChecked()))
+
+    def _queue_preview(self, job: _PreviewJob):
+        """Start job, or keep it as the next one while another runs. PyMuPDF
+        is used from one thread at a time."""
+        self._preview_jobs = [j for j in self._preview_jobs if not j.isFinished()]
+        if self._preview_jobs:
+            self._preview_next = job
+            return
+        job.done.connect(self._on_preview)
+        job.finished.connect(self._on_preview_job_finished)
+        self._preview_jobs.append(job)
+        job.start()
+
+    def _on_preview_job_finished(self):
+        job, self._preview_next = self._preview_next, None
+        if job is not None:
+            QTimer.singleShot(0, lambda: self._queue_preview(job))
+
+    def _on_preview(self, seq: int, spots, index: int, image):
+        if seq != self._preview_seq:
+            return                              # the selection has moved on
+        if spots is None:
+            hit = self._preview_hit
+            self._clear_preview(str(image))
+            self._preview_hit = hit
+            return
+        self._spots, self._spot_index = spots, index
+        data, w, h = image
+        self._preview_pixmap = QPixmap.fromImage(
+            QImage(data, w, h, 3 * w, QImage.Format_RGB888).copy())
+        self._fit_preview()
+        self.btn_prev_spot.setEnabled(len(spots) > 1)
+        self.btn_next_spot.setEnabled(len(spots) > 1)
+        self.btn_whole.setEnabled(True)
+        # A page shown unmarked looks like a fault unless the reason stands out.
+        self.lbl_preview.setStyleSheet(_CAPTION_PLAIN if spots[index].marked
+                                       else _CAPTION_UNMARKED)
+        self.lbl_preview.setText(self._caption(spots[index], index, len(spots)))
+
+    def _caption(self, spot, index: int, count: int) -> str:
+        if spot.marked:
+            where = f"Page {spot.page}"
+            return where + (f" - place {index + 1} of {count}" if count > 1 else "")
+        if self._last_semantic:
+            why = "a meaning match has no single place to mark"
+        elif not self._preview_hit.pages:
+            why = "it matched the file name"
+        elif kks.search_globs(self._last_keyword):
+            why = ("this tag was read by OCR and the database has no position for it - "
+                   "rebuild it (with OCR drawings for drawings) to mark it")
+        else:
+            why = ("this page's text was read by OCR, where only KKS tags keep "
+                   "their position")
+        return f"Page {spot.page}, not marked: {why}."
+
+    def _fit_preview(self):
+        """The picture at the panel's width, never enlarged."""
+        if self._preview_pixmap is None:
+            return
+        room = self.preview_scroll.viewport().width() - 4
+        pixmap = self._preview_pixmap
+        if 0 < room < pixmap.width():
+            pixmap = pixmap.scaledToWidth(room, Qt.SmoothTransformation)
+        self.preview_image.setPixmap(pixmap)
 
 
 class IndexSearchWindow(QDialog):

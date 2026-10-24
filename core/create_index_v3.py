@@ -409,6 +409,24 @@ CREATE TABLE IF NOT EXISTS kks_tags (
     "CREATE INDEX IF NOT EXISTS idx_kks_file ON kks_tags(file_id)",
 )
 
+# Where an OCR'd page shows each KKS tag, so DB Search can show the spot when a
+# result is selected. One row per place -- a tag drawn twice on a sheet has two
+# -- with x0..y1 as fractions (0-1) of the page as rendered, which hold at any
+# resolution. Text-layer pages have no rows: their text says where it is, and
+# DB Search reads that from the file. A database built before this table, or a
+# page Tesseract read, simply has none.
+SCHEMA_TAG_BOXES = (
+    """
+CREATE TABLE IF NOT EXISTS tag_boxes (
+    file_id     INTEGER,
+    page        INTEGER,
+    tag_norm    TEXT,
+    x0 REAL, y0 REAL, x1 REAL, y1 REAL
+)
+""",
+    "CREATE INDEX IF NOT EXISTS idx_tagbox_file ON tag_boxes(file_id, tag_norm)",
+)
+
 # ─────────────────────────────────────────────────────────────────────────────
 #  METADATA PARSER  (từ tên file theo quy ước VP1)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -682,15 +700,24 @@ class IndexingStopped(BaseException):
     let it through, and a stopped document is not stored half-read."""
 
 
-def _ocr_pages(pdf_path, max_pages=None, only=None, on_page=None):
+def _tag_places(boxes, place) -> list:
+    """[(tag_norm, x0, y0, x1, y1)] for the tags on one OCR'd page, for the
+    tag_boxes table. place turns a rectangle in the boxes' frame into
+    fractions of the page (see ocr_engine.ocr_image_read)."""
+    return [(kks.norm(tag), *place(*rect)) for tag, rect in kks.located_tags(boxes)]
+
+
+def _ocr_pages(pdf_path, max_pages=None, only=None, on_page=None, places=None):
     """OCR the pages of a printed document (commissioning, O&M, training).
 
     only, a set of page numbers, limits it to those pages -- the scanned pages
     of a PDF that is partly text layer; max_pages then caps how many of them
     are read, by default OCR_MAX_PAGES_GPU or _CPU for the engine in use.
     on_page(done, of) is called after each page; it may raise IndexingStopped.
-    Returns (pages, error): pages is a list of (page number, text), and error
-    is set -- with pages empty -- when nothing at all could be read.
+    places, a dict, is given {page number: _tag_places} for the pages
+    PaddleOCR read. Returns (pages, error): pages is a list of (page number,
+    text), and error is set -- with pages empty -- when nothing at all could
+    be read.
     """
     try:
         import fitz
@@ -716,7 +743,10 @@ def _ocr_pages(pdf_path, max_pages=None, only=None, on_page=None):
                 # it had been read perfectly well.
                 try:
                     if paddle:
-                        text = ocr_engine.ocr_image_paddle(_page_image(pdf[i], 200))
+                        boxes, place = ocr_engine.ocr_image_read(_page_image(pdf[i], 200))
+                        text = '\n'.join(b[4] for b in boxes)
+                        if places is not None:
+                            places[i + 1] = _tag_places(boxes, place)
                     else:
                         text = pytesseract.image_to_string(
                             _preprocess(_page_image(pdf[i], 200), scale=2),
@@ -866,8 +896,9 @@ def _scan_dpi(page, dpi):
     return int(min(dpi, max(300, native)))
 
 
-def _ocr_sheets(pdf_path, sheets, dpi, on_page=None):
-    """OCR whole drawing sheets: {page no: text} for the sheets actually read.
+def _ocr_sheets(pdf_path, sheets, dpi, on_page=None, places=None):
+    """OCR whole drawing sheets: {page no: text} for the sheets actually read;
+    places, a dict, is given {page no: _tag_places} for the same sheets.
 
     sheets maps a page number to its _sheet_kind. A scanned sheet is read at
     dpi (no finer than its scan); a drawn one is probed first at
@@ -930,6 +961,11 @@ def _ocr_sheets(pdf_path, sheets, dpi, on_page=None):
                 body = kks.fix_ocr_text('\n'.join(b[4] for b in ocr_engine.reading_order(boxes)))
                 tags = kks.pair_tags(boxes)
                 out[no] = body + ('\n[KKS] ' + ' | '.join(tags) if tags else '')
+                if places is not None:
+                    # read() covers page.rect at at_dpi, the frame of the boxes
+                    w, h = page.rect.width * at_dpi / 72, page.rect.height * at_dpi / 72
+                    places[no] = _tag_places(
+                        boxes, lambda x0, y0, x1, y1: (x0 / w, y0 / h, x1 / w, y1 / h))
             except Exception as e:
                 out[no] = f'[OCR failed on sheet {no}: {e}]'
     return out
@@ -943,10 +979,12 @@ def extract_content(file_path, use_ocr=True):
     return content, is_scanned, page_count
 
 
-def extract_pages(file_path, use_ocr=True, on_page=None, drawing_dpi=0):
+def extract_pages(file_path, use_ocr=True, on_page=None, drawing_dpi=0, places=None):
     """extract_content plus the text of each page: (content, is_scanned, ocr,
     page_count, pages). on_page(done, of[, what]) follows the OCR of a PDF's
-    scanned pages and may raise IndexingStopped to abandon the file.
+    scanned pages and may raise IndexingStopped to abandon the file. places,
+    a dict, is given {page number: [(tag_norm, x0, y0, x1, y1)]} -- where each
+    page PaddleOCR read shows its tags, for the tag_boxes table.
 
     drawing_dpi, when set (the "OCR drawings" tick), also OCRs whole drawing
     sheets at that resolution -- pages _sheet_kind recognises, including AutoCAD
@@ -1014,14 +1052,16 @@ def extract_pages(file_path, use_ocr=True, on_page=None, drawing_dpi=0):
                 by_page = {}
                 rest = set(thin) - set(sheets)
                 if rest:
-                    read, error = _ocr_pages(file_path, only=rest, on_page=on_page)
+                    read, error = _ocr_pages(file_path, only=rest, on_page=on_page,
+                                             places=places)
                     if error and not sheets:
                         if scanned:
                             return error, 1, 0, page_count, None
                         return text, 0, 0, page_count, pages
                     by_page.update(read)
                 if sheets:
-                    by_page.update(_ocr_sheets(file_path, sheets, drawing_dpi, on_page))
+                    by_page.update(_ocr_sheets(file_path, sheets, drawing_dpi, on_page,
+                                               places))
                 merged = []
                 for no, layer in pages:
                     if no not in by_page:
@@ -1114,10 +1154,12 @@ def extract_pages(file_path, use_ocr=True, on_page=None, drawing_dpi=0):
             for no, frame in enumerate(frames, 1):
                 tags = []
                 if paddle:
-                    boxes = ocr_engine.ocr_image_boxes(frame)
+                    boxes, place = ocr_engine.ocr_image_read(frame)
                     text = '\n'.join(b[4] for b in boxes)
                     if drawing_dpi:              # a scanned drawing: its tags as well
                         tags = kks.pair_tags(boxes)
+                    if places is not None:
+                        places[no] = _tag_places(boxes, place)
                 else:
                     text = pytesseract.image_to_string(_preprocess(frame), lang='eng',
                                                        config='--psm 3')
@@ -1201,7 +1243,7 @@ def init_db(db_file):
     cur.execute(SCHEMA_CHUNK_VECTORS)
     cur.execute(SCHEMA_SEMANTIC_META)
     cur.execute(SCHEMA_VECTORS_TRIGGER_D)
-    for stmt in SCHEMA_FILES_IDX + SCHEMA_DOC_REVISIONS + SCHEMA_KKS:
+    for stmt in SCHEMA_FILES_IDX + SCHEMA_DOC_REVISIONS + SCHEMA_KKS + SCHEMA_TAG_BOXES:
         cur.execute(stmt)
     conn.commit()
     return conn
@@ -1600,6 +1642,17 @@ def insert_chunks(conn, file_id, content, pages=None, is_drawing=False):
     return len(records)
 
 
+def insert_tag_boxes(conn, file_id, places):
+    """Replace a file's tag_boxes rows with places, {page: [(tag_norm, x0, y0,
+    x1, y1)]} from extract_pages -- cleared even when empty, so a file
+    re-indexed without OCR keeps no stale spots. Committing is the caller's."""
+    cur = conn.cursor()
+    cur.execute("DELETE FROM tag_boxes WHERE file_id=?", (file_id,))
+    cur.executemany(
+        "INSERT INTO tag_boxes (file_id, page, tag_norm, x0, y0, x1, y1) VALUES (?,?,?,?,?,?,?)",
+        [(file_id, page, *spot) for page, spots in (places or {}).items() for spot in spots])
+
+
 
 
 def search_db(conn, query, lot_filter='', disc_filter='', scanned_filter=''):
@@ -1808,9 +1861,10 @@ class IndexWorker(QThread):
                     file_size_kb = max(1, os.path.getsize(_fs_path(full_path)) // 1024)
                     meta         = parse_metadata(os.path.basename(full_path))
 
+                    places = {}
                     content, is_scanned, ocr, page_count, pages = extract_pages(
                         full_path, self.use_ocr, on_page=on_page,
-                        drawing_dpi=self.drawing_dpi)
+                        drawing_dpi=self.drawing_dpi, places=places)
                     notes = _mupdf_notes()
                     if notes:
                         pdf_notes.append((full_path, notes))
@@ -1836,6 +1890,7 @@ class IndexWorker(QThread):
                     if file_id:
                         insert_chunks(conn, file_id, content, pages,
                                       _is_drawing_file(os.path.basename(full_path)))
+                        insert_tag_boxes(conn, file_id, places)
                     added += 1
                     if self._detail and (time.monotonic() - last_preview) > 0.4:
                         last_preview = time.monotonic()

@@ -103,6 +103,9 @@ CREATE TABLE kks_tags (
 ```
 Mỗi tag xuất hiện **một dòng cho mỗi chunk** có nó (nhắc nhiều lần trong cùng chunk vẫn một dòng).
 
+### `tag_boxes`
+Where a page read by OCR shows each tag: `file_id`, `page`, `tag_norm`, `x0, y0, x1, y1` (fractions 0-1 of the page). It exists so DB Search can show the spot; it holds nothing `kks_tags` does not, so answer tag questions from `kks_tags`. Databases built before it lack the table.
+
 ### Virtual tables (FTS5)
 - `files_fts` — FTS index trên `files(name, doc_number, system_code, content)`
 - `chunks_fts` — FTS index trên `chunks(heading, content)`

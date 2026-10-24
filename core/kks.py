@@ -144,26 +144,46 @@ def _overlap(a0, a1, b0, b1):
     return max(0, min(a1, b1) - max(a0, b0)) / max(1, min(a1 - a0, b1 - b0))
 
 
-def pair_tags(boxes) -> list:
-    """Full tags read off a drawing: sorted unique 'SYSTEM EQUIPMENT' strings.
+def _vertical(b) -> bool:
+    return (b[3] - b[1]) > 1.5 * (b[2] - b[0])
+
+
+def _span(b, start, end, length):
+    """The share [start, end) of a box's text, as a rectangle: measured along a
+    horizontal line by its characters, half a character wider each side since
+    their widths differ; a vertical box is given whole."""
+    if _vertical(b) or not length:
+        return tuple(b[:4])
+    x0, w = b[0], b[2] - b[0]
+    return (x0 + w * max(start - 0.5, 0) / length, b[1],
+            x0 + w * min(end + 0.5, length) / length, b[3])
+
+
+def located_tags(boxes) -> list:
+    """Every tag read off OCR boxes, with where it is: [(tag, (x0, y0, x1, y1))]
+    in the boxes' frame, one entry per place, so a tag drawn twice is there
+    twice.
 
     boxes are OCR boxes (x0, y0, x1, y1, text, score) in one coordinate frame.
-    An equipment part takes the nearest system part beside it -- to its left
-    for vertical labels, above it for horizontal ones -- within 2.5 times its
-    own width (or height). Measured on an A1 P&ID: 70 of 86 tags at 300 dpi,
-    85 at 600, against 58 without the misread fix."""
-    def vertical(b):
-        return (b[3] - b[1]) > 1.5 * (b[2] - b[0])
-
-    tags, systems, comps = set(), [], []
+    A full tag is 'SYSTEM EQUIPMENT': a whole one inside a line of text, one
+    label holding both parts, or two labels put together -- an equipment part
+    takes the nearest system part beside it, to its left for vertical labels,
+    above it for horizontal ones, within 2.5 times its own width (or height),
+    and is placed over both labels. A system part alone ('10MAW85') is listed
+    as well, for every system label and for a line naming no equipment."""
+    out, systems, comps = [], [], []
     for b in boxes:
         part = fix_ocr_part(b[4])
         if part is None:
             # a whole tag inside a longer line ("VALVE 10HAC10 AA001 OPEN")
-            for m in KKS_RE.finditer(fix_ocr_text(b[4])):
+            text = fix_ocr_text(b[4])
+            for m in KKS_RE.finditer(text):
                 n = norm(m.group(0))
+                place = _span(b, m.start(), m.end(), len(text))
                 if len(n) >= 12 and n[7:9] != _PIPE_SIZE:
-                    tags.add(f"{n[:7]} {n[7:12]}")
+                    out.append((f"{n[:7]} {n[7:12]}", place))
+                else:
+                    out.append((n[:7], place))
         elif len(part) != 7 and part[-5:-3] == _PIPE_SIZE:
             continue
         elif len(part) == 7:
@@ -171,22 +191,32 @@ def pair_tags(boxes) -> list:
         elif len(part) == 5:
             comps.append((part, b))
         else:
-            tags.add(part)
+            out.append((part, tuple(b[:4])))
     for part, c in comps:
         best = None
         for spart, s in systems:
-            if vertical(c) and vertical(s):
+            if _vertical(c) and _vertical(s):
                 w = c[2] - c[0]
                 gap = c[0] - s[2]
                 ok = -w < gap < 2.5 * w and _overlap(s[1], s[3], c[1], c[3]) > 0.4
-            elif not vertical(c) and not vertical(s):
+            elif not _vertical(c) and not _vertical(s):
                 h = c[3] - c[1]
                 gap = c[1] - s[3]
                 ok = -h < gap < 2.5 * h and _overlap(s[0], s[2], c[0], c[2]) > 0.4
             else:
                 ok = False
             if ok and (best is None or gap < best[0]):
-                best = (gap, spart)
+                best = (gap, spart, s)
         if best:
-            tags.add(f"{best[1]} {part}")
-    return sorted(tags)
+            s = best[2]
+            out.append((f"{best[1]} {part}", (min(s[0], c[0]), min(s[1], c[1]),
+                                              max(s[2], c[2]), max(s[3], c[3]))))
+    out += [(part, tuple(s[:4])) for part, s in systems]
+    return out
+
+
+def pair_tags(boxes) -> list:
+    """Full tags read off a drawing: sorted unique 'SYSTEM EQUIPMENT' strings
+    (see located_tags). Measured on an A1 P&ID: 70 of 86 tags at 300 dpi, 85
+    at 600, against 58 without the misread fix."""
+    return sorted({tag for tag, _ in located_tags(boxes) if ' ' in tag})

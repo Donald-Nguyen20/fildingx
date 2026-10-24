@@ -247,20 +247,44 @@ def reading_order(boxes) -> list:
     return sorted(boxes, key=lambda b: (round(((b[1] + b[3]) / 2) / line), b[0]))
 
 
+def _read_upright(img):
+    """(boxes in reading order, k): the image read as it stands, or turned by
+    np.rot90(img, k) when most of it reads vertically and turning reads better;
+    the boxes are then in the turned image's frame."""
+    import numpy as np
+    boxes, k = _read_tiled(img), 0
+    if len(boxes) >= 8 and _vertical_share(boxes) >= 0.6:
+        for turn in (1, 3):
+            turned = _read_tiled(np.ascontiguousarray(np.rot90(img, turn)))
+            if _weight(turned) > _weight(boxes):
+                boxes, k = turned, turn
+    return reading_order(boxes), k
+
+
 def ocr_image_boxes(pil_img) -> list:
     """ocr_image_paddle's reading as boxes (x0, y0, x1, y1, text, score), in
     reading order -- for callers that need to know where each line sits."""
     import numpy as np
+    return _read_upright(np.array(pil_img.convert("RGB")))[0]
+
+
+def ocr_image_read(pil_img) -> tuple:
+    """(boxes, place): ocr_image_boxes's reading, and place(x0, y0, x1, y1),
+    which gives a rectangle in the boxes' frame as fractions (0-1) of pil_img
+    as it was handed in -- turned back, for a page that was read turned."""
+    import numpy as np
     img = np.array(pil_img.convert("RGB"))
-    boxes = _read_tiled(img)
-    if len(boxes) >= 8 and _vertical_share(boxes) >= 0.6:
-        best = boxes
-        for k in (1, 3):
-            turned = _read_tiled(np.ascontiguousarray(np.rot90(img, k)))
-            if _weight(turned) > _weight(best):
-                best = turned
-        boxes = best
-    return reading_order(boxes)
+    H, W = img.shape[:2]
+    boxes, k = _read_upright(img)
+
+    def place(x0, y0, x1, y1):
+        if k == 1:      # np.rot90 once: (x, y) on the page is (W - y', x')
+            x0, y0, x1, y1 = W - y1, x0, W - y0, x1
+        elif k == 3:    # three times: (x, y) is (y', H - x')
+            x0, y0, x1, y1 = y0, H - x1, y1, H - x0
+        return (x0 / W, y0 / H, x1 / W, y1 / H)
+
+    return boxes, place
 
 
 def ocr_image_paddle(pil_img) -> str:
