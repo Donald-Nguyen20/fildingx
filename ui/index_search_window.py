@@ -520,12 +520,14 @@ class IndexSearchWidget(QWidget):
         self.lbl_preview.setStyleSheet(_CAPTION_PLAIN)
         self.btn_prev_spot = QPushButton("◀")
         self.btn_next_spot = QPushButton("▶")
+        # As tall as the toolbar's buttons: the themes pad a button by 8 px top
+        # and bottom and 14 px each side, which cut the text off at 28 px.
         for b, tip in ((self.btn_prev_spot, "Previous place"), (self.btn_next_spot, "Next place")):
-            b.setFixedSize(34, 28)
+            b.setFixedSize(46, 38)
             b.setToolTip(tip)
         self.btn_whole = QPushButton("Whole page")
         self.btn_whole.setCheckable(True)
-        self.btn_whole.setFixedHeight(28)
+        self.btn_whole.setFixedHeight(38)
         self.btn_whole.setToolTip("Show the whole page, every place marked")
         bar.addWidget(self.lbl_preview, 1)
         bar.addWidget(self.btn_prev_spot)
