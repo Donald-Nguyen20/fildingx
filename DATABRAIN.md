@@ -466,5 +466,6 @@ Báo cáo vận hành VP1 gồm các phần:
 - Tra thiết bị theo mã KKS bằng `kks_tags`, không bằng `MATCH`
 - Lấy thông số từ bản revision mới nhất; khi trích bản đã bị thay thế thì nói rõ
 - File `ocr > 0` có trang đọc bằng OCR (`ocr` = số trang) — nội dung các trang đó có thể có lỗi nhận dạng ký tự. `is_scanned = 1 AND ocr = 0` là bản scan **chưa** OCR: chỉ tên file tìm được, nội dung trống — đừng kết luận "tài liệu không nhắc tới X". Database cũ chưa có cột `ocr`: khi đó dùng `is_scanned`
+- A drawing sheet OCR'd with Create DB's "OCR drawings" (P&IDs whose labels are AutoCAD SHX strokes, scanned drawings) ends its page text with a `[KKS] 10MAW85 AA001 | 10MAW65 AA001 | ...` line: the tags read off the drawing, two-line labels (system part over or beside the equipment part) put back together by position. These tags are in `kks_tags` with the page, so a tag lookup finds the sheet; a tag can still be missing if OCR could not read its label
 - Khi trích dẫn trong báo cáo, ghi rõ: `Doc: [doc_number] Rev [revision], p. [page], Section: [heading]`. Lấy trang từ `page_start`–`page_end` của chunk, hoặc `kks_tags.page`; bỏ phần trang khi nó là NULL (Word/Excel), đừng tự đoán
 - DB không chứa hình ảnh — nếu cần bản vẽ P&ID thì phải mở file gốc

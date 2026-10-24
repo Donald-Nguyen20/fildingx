@@ -117,6 +117,14 @@ from PySide6.QtWidgets import QApplication
 from ui.main_window import FileSearchApp
 
 if __name__ == "__main__":
+    # Ctrl+C in the terminal that started the app -- pressed to copy, with
+    # nothing selected -- landed as a KeyboardInterrupt in whichever Qt slot ran
+    # next (the Data Brain orb, 60 times a second), and under the debugger that
+    # paused the whole app, a build of several hours included. Close the window
+    # to quit; the debugger's Stop does not go through SIGINT.
+    import signal
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+
     app = QApplication(sys.argv)
     app.setStyleSheet(
         "QToolTip { background-color: #1e1a2e; color: #e0aaff; "

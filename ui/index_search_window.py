@@ -23,7 +23,7 @@ from PySide6.QtCore import Qt, QTimer, QEvent, QRect
 from PySide6.QtGui import QColor
 
 import paths
-from core import doc_source, kks
+from core import doc_source, fts_search, kks
 from core.ai_grouper import GroupWorker
 from ui import themes
 from ui.hud_widgets import qss_hud_metal_header_feel, qss_white_results
@@ -41,7 +41,7 @@ _RESULT_LIMIT = 500
 
 # What a database must hold before this tab searches it: the tables Create DB
 # writes, and the page columns chunks gained after its first builds.
-_REQUIRED_TABLES = ("files", "chunks", "doc_revisions", "kks_tags")
+_REQUIRED_TABLES = ("files", "files_fts", "chunks", "chunks_fts", "doc_revisions", "kks_tags")
 _REQUIRED_CHUNK_COLUMNS = ("page_start", "page_end")
 
 # Qt.UserRole on a result item holds its database; this holds its path there.
@@ -60,6 +60,11 @@ _COL_WIDTHS = {0: 460, 1: 80, 2: 110, 3: 90}   # starting widths; Pages takes th
 # it most -- rather than by the text "1–7, 9" (which would compare "1" with "3").
 _PAGE_COUNT_ROLE = Qt.UserRole + 2
 _DIGITS = re.compile(r"(\d+)")
+
+# A file that holds every word of the keyword, but not together, is listed
+# after the phrase hits in grey italics.
+_LOOSE_INK = "#8A94A3"
+_LOOSE_TIP = "Has every word of the search, but not together as a phrase"
 
 
 def _natural(text: str) -> list:
@@ -122,6 +127,7 @@ class _Hit(NamedTuple):
     revision: str
     superseded: bool   # a later revision of the same document is indexed too
     pages: str         # where the keyword is, e.g. "3, 7–8"; "" when unknown
+    loose: bool = False   # has every word of the keyword, but not as a phrase
 
 
 def _file_select(conn: sqlite3.Connection) -> str:
@@ -129,11 +135,11 @@ def _file_select(conn: sqlite3.Connection) -> str:
     return f"{_FILE_FIELDS}, {doc_source.ocr_column(conn, 'f.')}, f.page_count"
 
 
-def _hit(row, db_path: str, revision: tuple, pages: str) -> _Hit:
-    """row is (id, *the _file_select columns); revision is (revision, superseded)."""
-    _fid, name, path, ftype, sysc, scanned, ocr, page_count = row
+def _hit(row, db_path: str, revision: tuple, pages: str, loose: bool = False) -> _Hit:
+    """row starts (id, *the _file_select columns); revision is (revision, superseded)."""
+    _fid, name, path, ftype, sysc, scanned, ocr, page_count = row[:8]
     return _Hit(name, path, ftype or "", sysc or "",
-                scanned or 0, ocr, page_count or 0, db_path, *revision, pages)
+                scanned or 0, ocr, page_count or 0, db_path, *revision, pages, loose)
 
 
 class _OutdatedDB(Exception):
@@ -177,39 +183,6 @@ def _missing_parts(conn: sqlite3.Connection) -> list:
     return missing
 
 
-def _hit_pages(conn: sqlite3.Connection, ids: list, like: str, tag) -> dict:
-    """file id -> the pages its matches are on, as text.
-
-    A chunk that joined a short page to the next spans both, and the keyword
-    may be on either, so both are listed. A file chunked whole (Word, Excel)
-    has no pages and gets none, as does one that matched only by name.
-
-    A section heading is stored apart from the chunk text, so it is matched as
-    well -- it used to be skipped, and a keyword in a heading found the file
-    but no page. Every chunk of a section carries its heading, though, while
-    the heading is printed only where the section starts; it counts for the
-    first chunk it heads (the rule insert_chunks uses for KKS tags).
-    """
-    marks = ",".join("?" * len(ids))
-    pages = collections.defaultdict(set)
-    for fid, start, end in conn.execute(
-            f"SELECT file_id, page_start, page_end FROM ("
-            f"  SELECT file_id, page_start, page_end, content, heading,"
-            f"         LAG(heading) OVER (PARTITION BY file_id ORDER BY chunk_index) AS prev"
-            f"  FROM chunks WHERE file_id IN ({marks})"
-            f") WHERE page_start IS NOT NULL"
-            f"  AND (content LIKE ? OR (heading LIKE ? AND heading IS NOT prev))",
-            (*ids, like, like)):
-        pages[fid].update(range(start, (end or start) + 1))
-    if tag:
-        for fid, page in conn.execute(
-                f"SELECT file_id, page FROM kks_tags "
-                f"WHERE file_id IN ({marks}) AND page IS NOT NULL AND tag_norm GLOB ?",
-                (*ids, tag + "*")):
-            pages[fid].add(page)
-    return {fid: doc_source.page_text(p) for fid, p in pages.items()}
-
-
 def _revisions(conn: sqlite3.Connection, ids: list) -> dict:
     """file id -> (revision, superseded) from the table Create DB rebuilds."""
     marks = ",".join("?" * len(ids))
@@ -222,12 +195,21 @@ def search_database(db_path: str, keyword: str, latest_only: bool = False) -> tu
     """One database's matches for keyword, closest first, and whether there
     were more than _RESULT_LIMIT of them.
 
-    A file matches when its name or its text contains the keyword. A keyword
-    that is a whole KKS tag also matches every file the tag was found in,
-    however it is spaced there ("10HAC10 AA001", "10HAC10-AA001"), and every
-    longer tag it begins ("10HAC10" finds "10HAC10AA001"). latest_only leaves
-    out files that a later revision of the same document supersedes; a file
-    whose revision could not be ranked is always kept.
+    A file matches when its name contains the keyword or its text holds it as
+    a phrase -- the words together and in order, however a line break or a
+    dash splits them (core/fts_search.py). A keyword that is a whole KKS tag
+    also matches every file the tag was found in, however it is spaced there
+    ("10HAC10 AA001", "10HAC10-AA001"), and every longer tag it begins
+    ("10HAC10" finds "10HAC10AA001"); typed without its unit ("HAC10 AA001")
+    it finds the tag on every unit. After those come, marked loose, the files
+    that hold every word of a several-word keyword but not together.
+    latest_only leaves out files that a later revision of the same document
+    supersedes; a file whose revision could not be ranked is always kept.
+
+    A hit's pages are where the phrase or the tag is, or for a loose one where
+    a chunk holds every word. A chunk that joined a short page to the next
+    spans both, and the keyword may be on either, so both are listed; a file
+    chunked whole (Word, Excel) has no pages, nor does one found by name only.
 
     Raises _OutdatedDB for a database without the Create DB schema, and
     sqlite3.Error for one that cannot be read.
@@ -237,27 +219,24 @@ def search_database(db_path: str, keyword: str, latest_only: bool = False) -> tu
         missing = _missing_parts(conn)
         if missing:
             raise _OutdatedDB(missing)
-        like = f"%{keyword}%"
-        tag = kks.search_key(keyword)
-        params = {"like": like, "limit": _RESULT_LIMIT + 1}
-        match = "f.name LIKE :like OR f.content LIKE :like"
-        if tag:
-            match += " OR f.id IN (SELECT file_id FROM kks_tags WHERE tag_norm GLOB :glob)"
-            params["glob"] = tag + "*"
+        globs = kks.search_globs(keyword)
+        strict, loose, params = fts_search.conditions(keyword, globs)
+        params["limit"] = _RESULT_LIMIT + 1
         latest = ("AND f.id NOT IN (SELECT file_id FROM doc_revisions WHERE is_latest = 0)"
                   if latest_only else "")
-        # A file whose *name* carries the keyword is a closer match than one
-        # that merely mentions it somewhere on page 300, so those come first
-        # and survive the cap. Within each half the order stays alphabetical.
-        # One row past the cap is fetched purely to tell "exactly the cap"
-        # apart from "more than we are showing".
+        # Phrase, name and tag hits before the loose ones, so they survive the
+        # cap. Among them, a file whose *name* carries the keyword is a closer
+        # match than one that merely mentions it somewhere on page 300. Within
+        # each part the order stays alphabetical. One row past the cap is
+        # fetched purely to tell "exactly the cap" apart from "more than we
+        # are showing".
         rows = conn.execute(
             f"""
-            SELECT f.id, {_file_select(conn)} FROM files f
-            WHERE ({match})
+            SELECT f.id, {_file_select(conn)}, NOT {strict} AS loose FROM files f
+            WHERE ({strict} OR {loose})
               AND f.name != 'BASE_PATH'
               {latest}
-            ORDER BY (f.name LIKE :like) DESC, f.name
+            ORDER BY loose, (f.name LIKE :like) DESC, f.name
             LIMIT :limit
             """,
             params,
@@ -268,8 +247,10 @@ def search_database(db_path: str, keyword: str, latest_only: bool = False) -> tu
             return [], False
         ids = [r[0] for r in rows]
         revisions = _revisions(conn, ids)
-        pages = _hit_pages(conn, ids, like, tag)
-        hits = [_hit(r, db_path, revisions.get(r[0], ("", False)), pages.get(r[0], ""))
+        pages = fts_search.hit_pages(conn, [r[0] for r in rows if not r[-1]],
+                                     [r[0] for r in rows if r[-1]], keyword, globs)
+        hits = [_hit(r, db_path, revisions.get(r[0], ("", False)),
+                     doc_source.page_text(pages.get(r[0])), bool(r[-1]))
                 for r in rows]
         return hits, capped
     finally:
@@ -392,7 +373,8 @@ class IndexSearchWidget(QWidget):
         self.mode_selector.addItem("Keyword", "keyword")
         self.mode_selector.addItem("Semantic", "semantic")
         self.mode_selector.setToolTip(
-            "Keyword: exact name / text / KKS tag match (fast).\n"
+            "Keyword: the words as a phrase in a name, the text or a KKS tag, then\n"
+            "in grey the files that hold every word apart (fast).\n"
             "Semantic: match by meaning, across languages "
             "(needs a database built with Semantic ticked).")
         self.mode_selector.currentIndexChanged.connect(self._on_mode_changed)
@@ -613,6 +595,9 @@ class IndexSearchWidget(QWidget):
             if semantic_mode:
                 QApplication.restoreOverrideCursor()
 
+        # Across databases too, every phrase hit before any loose one; the sort
+        # is stable, so each database's own order holds within each part.
+        rows.sort(key=lambda hit: hit.loose)
         self._last_rows = rows
         self._refill([self._make_item(hit) for hit in rows])
         skipped_note = (
@@ -629,9 +614,12 @@ class IndexSearchWidget(QWidget):
                 if capped else ""
             )
             latest_note = " (latest revisions only)" if latest_only else ""
+            apart = sum(hit.loose for hit in rows)
+            apart_note = (f": {len(rows) - apart} with the phrase, {apart} in grey "
+                          "with every word but not together" if apart else "")
             self.lbl_count.setText(
                 f"Found {len(rows)} result(s) for \"{keyword}\"{latest_note}"
-                f"{capped_note}{skipped_note}"
+                f"{apart_note}{capped_note}{skipped_note}"
             )
             self.btn_group.setEnabled(True)
         else:
@@ -722,6 +710,16 @@ class IndexSearchWidget(QWidget):
                         doc_source.source_tip(hit.is_scanned, hit.ocr, hit.page_count))
         if hit.superseded:
             item.setToolTip(_COL_REV, "A later revision of this document is in the database.")
+        if hit.loose:
+            # Mid grey reads on the light and the dark results trees alike;
+            # Source keeps its own colour.
+            font = item.font(0)
+            font.setItalic(True)
+            for col in range(len(_COLUMNS)):
+                item.setFont(col, font)
+                if col != _COL_SOURCE:
+                    item.setForeground(col, QColor(_LOOSE_INK))
+            item.setToolTip(0, f"{hit.path}\n{_LOOSE_TIP}")
         return item
 
     def _copy_name(self):

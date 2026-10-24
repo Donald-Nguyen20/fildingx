@@ -75,10 +75,42 @@ def advice() -> tuple:
     return ("Tesseract", "No GPU - OCR uses Tesseract on the CPU.")
 
 
+def _float32_normalise():
+    """Make RapidOCR's detector input normalisation stay in float32.
+
+    It divides by mean/std arrays held as float64, so every pixel of every page
+    went through float64 and back -- 16% of the time a drawing sheet took.
+    The same arithmetic in float32 agrees to 1e-5 and measured: A3 2.30 ->
+    2.00 s a page, an A1 drawing 36 -> 26 s, A4 within run-to-run noise
+    (0.72 -> 0.70 s), with the same words and tags read. Patched on the class
+    at runtime (the package itself is not edited); a mean or std that differs
+    by channel keeps the original."""
+    import numpy as np
+    from rapidocr_onnxruntime.ch_ppocr_det.utils import DetPreProcess
+    if getattr(DetPreProcess, "_float32", False):
+        return
+    original = DetPreProcess.__call__
+
+    def call(self, img):
+        if len(set(np.ravel(self.mean))) != 1 or len(set(np.ravel(self.std))) != 1:
+            return original(self, img)
+        resized = self.resize(img)
+        if resized is None:
+            return None
+        x = resized.astype(np.float32)
+        x *= np.float32(self.scale / np.ravel(self.std)[0])
+        x -= np.float32(np.ravel(self.mean)[0] / np.ravel(self.std)[0])
+        return np.ascontiguousarray(x.transpose(2, 0, 1))[None]
+
+    DetPreProcess.__call__ = call
+    DetPreProcess._float32 = True
+
+
 def _get_rapid():
     global _rapid
     if _rapid is None:
         _cuda_setup().setup()   # CUDA wheel DLLs on PATH before the sessions build
+        _float32_normalise()
         from rapidocr_onnxruntime import RapidOCR
         use_cuda = gpu_available()
         # Per-component flags are the knob that works in rapidocr-onnxruntime;
@@ -92,17 +124,153 @@ def _get_rapid():
             _rapid = RapidOCR(**kw)
         except Exception:
             _rapid = RapidOCR()
+        # RapidOCR shrinks any image whose long side passes 2,000 px before it
+        # looks for text. Measured on text-layer pages rendered at 200 dpi:
+        # A4 (2,339 px) read 92.4% of the words shrunk and 98.2% whole; A3 read
+        # 71.9% shrunk, 67.2% whole (and VRAM rose to 7.8 GB) but 96.2% in
+        # tiles; an A1 drawing read next to nothing whole. So a page up to
+        # SINGLE_MAX is read whole and unshrunk, anything larger in tiles.
+        _rapid.max_side_len = SINGLE_MAX
     return _rapid
 
 
-def ocr_image_paddle(pil_img) -> str:
-    """OCR one PIL image with RapidOCR (PaddleOCR models); lines joined by newline.
+SINGLE_MAX = 2400                 # an A4 page at 200 dpi is 2,339 px
+TILE, TILE_OVERLAP = 1800, 250    # tiles stay under SINGLE_MAX, so none is shrunk
 
-    RapidOCR runs its own detection, so the image is passed as-is rather than
-    through the Tesseract-tuned preprocessing.
-    """
+# A drawing sheet read at 600 dpi carries text three times taller than a page
+# at 200 dpi, so text can be *found* on a shrunk copy of each tile (the lines
+# are still read from the full-size tile), and more lines go to the GPU at a
+# time. Measured on the drawing set (A1 sheets at 600 dpi): 26 -> 18 s a sheet
+# with every tag still found. At 300 dpi the same lost tags (74 against 79 on
+# the MAW P&ID), and on document pages it lost words (89.9% of an A4 page's
+# words against 98.2%), so it applies to sheets read at DRAWING_MIN_DPI or finer.
+DRAWING_DET_SIDE = 1280
+DRAWING_BATCH = 16
+DRAWING_MIN_DPI = 600
+
+
+class drawing_mode:
+    """with drawing_mode(dpi): ... -- OCR settings for a drawing sheet read at
+    dpi, restored after. Below DRAWING_MIN_DPI it changes nothing."""
+
+    def __init__(self, dpi):
+        self.on = dpi >= DRAWING_MIN_DPI
+
+    def __enter__(self):
+        if not self.on:
+            return self
+        from rapidocr_onnxruntime.ch_ppocr_det.utils import DetPreProcess
+        eng = _get_rapid()
+        det = eng.text_det
+        self._batches = (eng.text_rec.rec_batch_num, eng.text_cls.cls_batch_num)
+        det.get_preprocess = lambda max_wh: DetPreProcess(
+            DRAWING_DET_SIDE, "max", det.mean, det.std)
+        eng.text_rec.rec_batch_num = eng.text_cls.cls_batch_num = DRAWING_BATCH
+        return self
+
+    def __exit__(self, *exc):
+        if not self.on:
+            return False
+        eng = _get_rapid()
+        eng.text_det.__dict__.pop("get_preprocess", None)
+        eng.text_rec.rec_batch_num, eng.text_cls.cls_batch_num = self._batches
+        return False
+
+
+def _read(img) -> list:
+    """One OCR pass: [(x0, y0, x1, y1, text, score), ...]."""
+    res, _ = _get_rapid()(img)
+    out = []
+    for box, text, score in res or []:
+        xs = [p[0] for p in box]
+        ys = [p[1] for p in box]
+        out.append((min(xs), min(ys), max(xs), max(ys), text, float(score)))
+    return out
+
+
+def read_regions(width, height, render, on_tile=None) -> list:
+    """OCR a width x height px area in overlapping tiles, drawing each with
+    render(x0, y0, x1, y1) -> RGB array -- so a sheet rendered at 600 dpi (an
+    A1 sheet is 19,867 x 14,034 px, about 800 MB as one image) never exists
+    whole. Each tile keeps only the boxes whose centre lies in its own share of
+    the overlaps: a line read twice is kept once, and a line cut by a tile
+    edge is taken from the tile that holds it. on_tile(done, of) follows along.
+    Returns boxes (x0, y0, x1, y1, text, score) in the area's coordinates."""
+    step = TILE - TILE_OVERLAP
+    ys = list(range(0, max(height - TILE_OVERLAP, 1), step))
+    xs = list(range(0, max(width - TILE_OVERLAP, 1), step))
+    half = TILE_OVERLAP / 2
+    out = []
+    n = 0
+    for yi, y0 in enumerate(ys):
+        top = y0 + half if yi else 0
+        bottom = y0 + step + half if yi < len(ys) - 1 else height
+        for xi, x0 in enumerate(xs):
+            left = x0 + half if xi else 0
+            right = x0 + step + half if xi < len(xs) - 1 else width
+            tile = render(x0, y0, min(x0 + TILE, width), min(y0 + TILE, height))
+            for bx0, by0, bx1, by1, text, score in _read(tile):
+                cx, cy = (bx0 + bx1) / 2 + x0, (by0 + by1) / 2 + y0
+                if left <= cx < right and top <= cy < bottom:
+                    out.append((bx0 + x0, by0 + y0, bx1 + x0, by1 + y0, text, score))
+            n += 1
+            if on_tile is not None:
+                on_tile(n, len(xs) * len(ys))
+    return out
+
+
+def _read_tiled(img) -> list:
+    """OCR an image whole when it fits SINGLE_MAX, else in tiles."""
+    H, W = img.shape[:2]
+    if max(H, W) <= SINGLE_MAX:
+        return _read(img)
+    return read_regions(W, H, lambda x0, y0, x1, y1: img[y0:y1, x0:x1])
+
+
+def _vertical_share(boxes) -> float:
+    if not boxes:
+        return 0.0
+    return sum((b[3] - b[1]) > 1.5 * (b[2] - b[0]) for b in boxes) / len(boxes)
+
+
+def _weight(boxes) -> float:
+    """How much confidently read, horizontal text a reading produced."""
+    return sum(len(b[4]) * b[5] for b in boxes if (b[3] - b[1]) <= 1.5 * (b[2] - b[0]))
+
+
+def reading_order(boxes) -> list:
+    """Top to bottom by line, left to right within a line."""
+    if not boxes:
+        return []
+    heights = sorted(b[3] - b[1] for b in boxes)
+    line = max(heights[len(heights) // 2] * 0.8, 1.0)
+    return sorted(boxes, key=lambda b: (round(((b[1] + b[3]) / 2) / line), b[0]))
+
+
+def ocr_image_boxes(pil_img) -> list:
+    """ocr_image_paddle's reading as boxes (x0, y0, x1, y1, text, score), in
+    reading order -- for callers that need to know where each line sits."""
     import numpy as np
-    res, _ = _get_rapid()(np.array(pil_img.convert("RGB")))
-    if not res:
-        return ""
-    return "\n".join(line[1] for line in res)
+    img = np.array(pil_img.convert("RGB"))
+    boxes = _read_tiled(img)
+    if len(boxes) >= 8 and _vertical_share(boxes) >= 0.6:
+        best = boxes
+        for k in (1, 3):
+            turned = _read_tiled(np.ascontiguousarray(np.rot90(img, k)))
+            if _weight(turned) > _weight(best):
+                best = turned
+        boxes = best
+    return reading_order(boxes)
+
+
+def ocr_image_paddle(pil_img) -> str:
+    """OCR one PIL image with RapidOCR (PaddleOCR models); lines in reading order.
+
+    Large images are read in tiles (see SINGLE_MAX). A page lying on its side --
+    most of what was found reads vertically -- is turned both ways and read
+    again, keeping whichever reads best: measured, such pages read 65-80% of
+    their words as they stood against 98% upright. A drawing, with its vertical
+    labels among horizontal text, does not trip it. RapidOCR runs its own
+    detection, so no Tesseract-style preprocessing is applied.
+    """
+    return "\n".join(b[4] for b in ocr_image_boxes(pil_img))

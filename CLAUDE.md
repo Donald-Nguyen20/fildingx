@@ -10,7 +10,7 @@ The **document-database domain** — the schema of `Databasev3.db`, the VP1 docu
 
 ```bash
 pip install -r requirements.txt
-python Finding8.py                    # run the app; no CLI arguments
+python Finding8.py                    # run the app; no CLI arguments; Ctrl+C is ignored, close the window
 ```
 
 `requirements.txt` does **not** list `claude_agent_sdk`, which `ui/claude_assistant/agent.py` imports. Install it separately if the Data Brain tab fails to load.
@@ -29,6 +29,14 @@ python -c "from ui.main_window import FileSearchApp; print('ok')"               
 ```
 
 The app is normally running live under the VS Code debugger while you work — never kill stray `python.exe` processes without checking which one it is.
+
+**OCR changes are measured, not tested.** `ocr_bench.py` reads a fixed set of text-layer pages (and any drawing sheets you name) the way Create DB does and prints the share of words read, the full KKS tags found and the seconds per page. Run it before and after touching `core/ocr_engine.py`, `core/kks.py` or the OCR paths of `core/create_index_v3.py`, with the app's own build stopped so the GPU is free:
+
+```bash
+python ocr_bench.py --docs "<folder of PDFs>" --sheet "<P&ID.pdf>=<drawing no>" --register "<sqlite with kks_xref>"
+```
+
+The page choice is kept in `ocr_bench_set.json` (gitignored) so runs compare like with like. On an RTX 4060 the last measurement was A4 98.2% at 0.7 s a page, A3 93.9% at 2.0 s, and the MAW P&ID at 600 dpi 17 of its 18 printed tags in 17 s. Differences under about 10% in time are run-to-run noise.
 
 **The two read-only CLI helpers.** These exist so the Data Brain agent can drive them through `Bash`, and they are also the fastest way for you to inspect the data yourself:
 
@@ -65,14 +73,16 @@ This is the most important structural rule in the repo.
 
 | Tab | Config file | Database | Access |
 |---|---|---|---|
-| **DB Search** | `db_list.json` | a Create DB database — `files` `LIKE` on name/content, plus `kks_tags` for a typed tag, `chunks.page_start/page_end` for the Pages column and `doc_revisions` for Rev / "Latest revision only"; always `name != 'BASE_PATH'`, `_RESULT_LIMIT = 500` | read-only |
+| **DB Search** | `db_list.json` | a Create DB database — `files_fts` / `chunks_fts` phrase search plus `LIKE` on the name, `kks_tags` for a typed tag, `chunks.page_start/page_end` for the Pages column and `doc_revisions` for Rev / "Latest revision only"; always `name != 'BASE_PATH'`, `_RESULT_LIMIT = 500` | read-only |
 | **Data Brain** | `claude_db.json` | a Create DB database plus a `dcs_folder` of Toshiba DCS CAD databases | read-only |
 
 Both tabs read the schema `core/create_index_v3.py` writes (Tools → Create DB), so one file can serve both; the two config files stay separate and may point at the same database. This replaced, on 2026-10-22, the old split in which DB Search read the simple `create_index2.1.py` schema of `AB Drawings.db`.
 
-DB Search **refuses** a database that lacks `chunks`, `doc_revisions`, `kks_tags` or the chunk page columns — `AB Drawings.db`, and any Create DB build from before those were added — with a message to rebuild it (into a new file, or with *Incremental* unticked, since an incremental run leaves already-indexed files without pages or tags) and an offer to drop it from `db_list.json`. Do not add cross-schema detection or a "limited mode" that searches such a database in part. Always open with `sqlite3.connect(f"file:{path}?mode=ro", uri=True)` and never write: `AB Drawings.db` is still the live daily database, and the DCS databases are the plant's design masters.
+DB Search **refuses** a database that lacks `chunks`, `doc_revisions`, `kks_tags`, the two FTS tables or the chunk page columns — `AB Drawings.db`, and any Create DB build from before those were added — with a message to rebuild it (into a new file, or with *Incremental* unticked, since an incremental run leaves already-indexed files without pages or tags) and an offer to drop it from `db_list.json`. Do not add cross-schema detection or a "limited mode" that searches such a database in part. Always open with `sqlite3.connect(f"file:{path}?mode=ro", uri=True)` and never write: `AB Drawings.db` is still the live daily database, and the DCS databases are the plant's design masters.
 
-The KKS tag pattern lives in `core/kks.py` (unit prefix `00`/`10`/`20` only), shared by the indexer and DB Search so a typed tag is read exactly as it was stored.
+The KKS tag pattern lives in `core/kks.py` (unit prefix `00`/`10`/`20` only), shared by the indexer and DB Search so a typed tag is read exactly as it was stored. `kks.search_globs()` turns a typed tag into `kks_tags.tag_norm` patterns: any spacing or dash, and a tag typed without its unit (`MAW85 AA001`) stands for it on every unit, one indexed pattern per prefix.
+
+**Both search boxes run one query**, `core/fts_search.py` (Qt-free): DB Search's keyword mode and the Create DB window's own search. A keyword is found as a phrase in the FTS index (words together and in order, across line breaks and dashes, last word a prefix), in a file name by `LIKE`, or as a KKS tag; after those, marked `loose` and shown in grey italics, come files holding every space-separated term apart. Keep the two boxes on it — they used to disagree, one matching every word anywhere and the other a raw `LIKE` substring that missed a phrase split by a line break. The measurements behind the choice are in the module docstring.
 
 DB Search shows Name, System, Rev, Source and Pages (the path is the Name tooltip); its columns can be resized and dragged, and a header click sorts (names naturally, Pages by how many pages hold the keyword); each new search starts back in relevance order. Both result tables take the **Source** label (OCR / Text+OCR / Text / Scanned), its colour and tooltip, and the **Pages** text from `core/doc_source.py`, which is Qt-free. `files.ocr` counts the pages read by OCR; a database built before it has no such column, so `doc_source.ocr_column()` selects NULL and its scans show as "Scanned/OCR". That is a display fallback for one optional column, not a limited mode — the required-schema refusal above still applies. `ui/index_search_window.py` keeps its query layer (`search_database`) Qt-free, and fetches `_RESULT_LIMIT + 1` rows so it can tell the user there are more results than it is showing.
 

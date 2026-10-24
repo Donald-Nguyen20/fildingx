@@ -125,6 +125,10 @@ faiss/
 *.bin
 *.onnx
 models/
+# Plant documents and other people's tools with their data -- the repo is public.
+app/
+filetest/
+ocr_bench_set.json
 *.pkl
 *.joblib
 *.parquet

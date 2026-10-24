@@ -20,9 +20,9 @@ import os, re, sys, io, sqlite3, json, csv, warnings, unicodedata, collections
 from datetime import datetime
 
 try:
-    from core import doc_naming, doc_source, kks
+    from core import doc_naming, doc_source, fts_search, kks
 except ImportError:                  # run as a script from inside core/
-    import doc_naming, doc_source, kks
+    import doc_naming, doc_source, fts_search, kks
 
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QGridLayout,
@@ -615,7 +615,14 @@ def _page_image(page, dpi):
     """
     from PIL import Image
     pix = page.get_pixmap(dpi=dpi)
-    return Image.open(io.BytesIO(pix.tobytes("png")))
+    # The pixels straight from the pixmap. Encoding them to PNG and decoding
+    # that again gave the same image (checked pixel for pixel) for 0.16 s a
+    # page -- 16% of the time an OCR'd page takes on the GPU.
+    mode = {(1, 0): "L", (2, 1): "LA", (3, 0): "RGB", (4, 1): "RGBA"}.get(
+        (pix.n, int(bool(pix.alpha))))
+    if mode:
+        return Image.frombytes(mode, (pix.width, pix.height), pix.samples)
+    return Image.open(io.BytesIO(pix.tobytes("png")))   # e.g. CMYK: let PNG convert
 
 # max_pages decides how much of a scanned document exists in the index at all,
 # and at the 20 it started on it was discarding 8,804 of the 12,565 pages in the
@@ -638,12 +645,50 @@ OCR_MAX_PAGES_CPU = 150
 OCR_MAX_PAGES_GPU = 1000
 
 
-def _ocr_pages(pdf_path, max_pages=None, only=None):
+def _quiet_mupdf():
+    """Keep MuPDF's complaints about malformed PDFs off the console. It prints
+    a line per problem -- 3D annotations, colour profiles, broken xrefs -- by
+    the hundred in a large build, burying anything that matters; the messages
+    are still kept, for _mupdf_notes to put in the skip log."""
+    try:
+        import fitz
+        fitz.TOOLS.mupdf_display_errors(False)
+        fitz.TOOLS.mupdf_display_warnings(False)
+        fitz.TOOLS.mupdf_warnings(reset=True)
+    except Exception:
+        pass
+
+
+def _mupdf_notes():
+    """MuPDF's messages since the last call, each once, and clear them."""
+    try:
+        import fitz
+        text = fitz.TOOLS.mupdf_warnings(reset=True)
+    except Exception:
+        return []
+    notes = []
+    for line in (text or "").splitlines():
+        line = line.strip()
+        if line and line not in notes:
+            notes.append(line)
+    return notes
+
+
+class IndexingStopped(BaseException):
+    """Raised by an on_page callback to abandon the document being read.
+
+    A BaseException, so the extractors' `except Exception` handlers -- which
+    turn real failures into "[OCR Error: ...]" text that is then indexed --
+    let it through, and a stopped document is not stored half-read."""
+
+
+def _ocr_pages(pdf_path, max_pages=None, only=None, on_page=None):
     """OCR the pages of a printed document (commissioning, O&M, training).
 
     only, a set of page numbers, limits it to those pages -- the scanned pages
     of a PDF that is partly text layer; max_pages then caps how many of them
     are read, by default OCR_MAX_PAGES_GPU or _CPU for the engine in use.
+    on_page(done, of) is called after each page; it may raise IndexingStopped.
     Returns (pages, error): pages is a list of (page number, text), and error
     is set -- with pages empty -- when nothing at all could be read.
     """
@@ -660,11 +705,8 @@ def _ocr_pages(pdf_path, max_pages=None, only=None):
             max_pages = OCR_MAX_PAGES_GPU if paddle else OCR_MAX_PAGES_CPU
         pages, failed, first_err = [], 0, ''
         with fitz.open(pdf_path) as pdf:
-            for i in range(len(pdf)):
-                if only is not None and i + 1 not in only:
-                    continue
-                if len(pages) >= max_pages:
-                    break
+            todo = [i for i in range(len(pdf)) if only is None or i + 1 in only][:max_pages]
+            for i in todo:
                 # Caught per page, not per document. The whole loop used to sit
                 # inside the handler below, so a single unreadable page threw
                 # away every page already read and the function returned
@@ -679,6 +721,7 @@ def _ocr_pages(pdf_path, max_pages=None, only=None):
                         text = pytesseract.image_to_string(
                             _preprocess(_page_image(pdf[i], 200), scale=2),
                             lang='eng', config='--psm 3 --oem 3')
+                    text = kks.fix_ocr_text(text)
                 except Exception as e:
                     failed += 1
                     first_err = first_err or f'{type(e).__name__}: {e}'
@@ -687,6 +730,8 @@ def _ocr_pages(pdf_path, max_pages=None, only=None):
                     # mistake this file has already been bitten by once.
                     text = f'[OCR failed on page {i + 1}: {e}]'
                 pages.append((i + 1, text))
+                if on_page is not None:
+                    on_page(len(pages), len(todo))
         if pages and failed == len(pages):
             # Nothing was read. Report it as a document-level failure so
             # _write_skip_log lists the file and it can be retried, rather than
@@ -695,6 +740,14 @@ def _ocr_pages(pdf_path, max_pages=None, only=None):
         return pages, ''
     except Exception as e:
         return [], f"[OCR Error: {e}]"
+
+def _rgb(frame):
+    """A PIL image or TIFF frame as RGB, including 16-bit greyscale scans."""
+    try:
+        return frame.convert("RGB")
+    except ValueError:
+        return frame.convert("I").point(lambda v: v / 256).convert("L").convert("RGB")
+
 
 def _ocr_titleblock(pdf_path):
     """OCR title block (góc dưới phải) – dùng cho bản vẽ kỹ thuật.
@@ -723,7 +776,7 @@ def _ocr_titleblock(pdf_path):
         else:
             text = pytesseract.image_to_string(_preprocess(crop, scale=2),
                                                lang='eng', config=_CFG)
-        return f"[TITLE BLOCK]\n{text}"
+        return f"[TITLE BLOCK]\n{kks.fix_ocr_text(text)}"
     except Exception as e:
         return f"[OCR Error: {e}]"
 
@@ -751,6 +804,137 @@ def mostly_scanned(n_scanned, n_pages):
 # ─────────────────────────────────────────────────────────────────────────────
 #  CONTENT EXTRACTORS
 # ─────────────────────────────────────────────────────────────────────────────
+# ── Drawing sheets (the "OCR drawings" tick) ─────────────────────────────────
+# A P&ID exported from AutoCAD draws its text in SHX fonts, as strokes: its text
+# layer holds the title block and nothing else (an A1 sheet: 126 words, no tag,
+# 20,425 vector paths), so the page-by-page rule above never OCRs it. Measured
+# over 152 A3-and-larger pages of the drawing folders: 48 were scans, about 40
+# drew their text (a content stream of 300 KB and more, under 400 words, under
+# 5 tags), 15 carried their tags as text, and the rest -- process flow and
+# electrical diagrams of 500-1,000 words -- were real text without KKS tags.
+# Telling them apart costs about 45 ms a page.
+SHEET_MIN_SIDE = 1150        # pt; A3 is 1,191
+SHEET_SCAN_MIN_SIDE = 1680   # pt; a scanned page this size (A2) is a drawing even
+                             # when the file name does not say so
+SHEET_STREAM_KB = 300
+SHEET_WORDS_MAX = 400
+SHEET_TAGS_MAX = 5
+# Those rules also pass real-text sheets that happen to be sparse -- grounding
+# layouts of 350 words read as "drawn", and OCR'd at 600 dpi only re-read their
+# own text, 30 s a page. So a drawn sheet is first OCR'd at SHEET_PROBE_DPI,
+# and read in full only when that finds tags its text layer lacks. Measured
+# (new tag system parts found by the probe): the A1 test P&ID 20, a P&ID with
+# real notes but drawn tags 4, grounding and process-flow sheets 0; the probe
+# takes 1-6 s a sheet.
+SHEET_PROBE_DPI = 150
+SHEET_PROBE_MIN_TAGS = 2
+
+
+def _paddle_ready():
+    """Sheets need PaddleOCR: putting tags together needs each label's box,
+    which Tesseract's plain text does not give."""
+    try:
+        from core import ocr_engine
+    except ImportError:
+        import ocr_engine
+    return ocr_engine.use_paddle()
+
+
+def _sheet_kind(pdf, page, text, drawing_name=False):
+    """'scan' or 'vector' for a page to OCR as a drawing sheet, else None."""
+    long_side = max(page.rect.width, page.rect.height)
+    if long_side < SHEET_MIN_SIDE:
+        return None
+    if len(text.strip()) < PAGE_TEXT_MIN:
+        # A scanned A3 page of a report is still read as a page, at 200 dpi.
+        return 'scan' if (drawing_name or long_side >= SHEET_SCAN_MIN_SIDE) else None
+    if len(text.split()) >= SHEET_WORDS_MAX:
+        return None
+    if len({m.group(0) for m in kks.KKS_RE.finditer(text)}) >= SHEET_TAGS_MAX:
+        return None
+    kb = sum(len(pdf.xref_stream(x) or b'') for x in page.get_contents()) // 1024
+    return 'vector' if kb >= SHEET_STREAM_KB else None
+
+
+def _scan_dpi(page, dpi):
+    """A scanned sheet is rendered no finer than it was scanned, nor below 300."""
+    try:
+        px = max((max(im[2], im[3]) for im in page.get_images(full=True)), default=0)
+        native = px / (max(page.rect.width, page.rect.height) / 72)
+    except Exception:
+        native = 0
+    return int(min(dpi, max(300, native)))
+
+
+def _ocr_sheets(pdf_path, sheets, dpi, on_page=None):
+    """OCR whole drawing sheets: {page no: text} for the sheets actually read.
+
+    sheets maps a page number to its _sheet_kind. A scanned sheet is read at
+    dpi (no finer than its scan); a drawn one is probed first at
+    SHEET_PROBE_DPI and read at dpi only when the probe finds tags its text
+    layer lacks -- otherwise it is left out and keeps its text layer. Each
+    sheet is rendered tile by tile from one display list (an A1 sheet at 600
+    dpi would be about 800 MB as one image, and re-reading 20,000 paths for
+    every tile is slow), read by PaddleOCR, and its two-line tags put back
+    together by kks.pair_tags; they close the page's text as a
+    "[KKS] tag | tag ..." line. Measured on the MAW P&ID (A1, RTX 4060): 79
+    distinct full tags in 9.5 s at 300 dpi, 92 in 16 s at 600. on_page(done,
+    of, what) follows tile by tile and may raise IndexingStopped.
+    """
+    import fitz
+    import numpy as np
+    try:
+        from core import ocr_engine
+    except ImportError:
+        import ocr_engine
+
+    def read(page, dl, at_dpi, tick):
+        zoom = at_dpi / 72
+        matrix = fitz.Matrix(zoom, zoom)
+
+        def render(x0, y0, x1, y1):
+            pix = dl.get_pixmap(matrix=matrix, alpha=False,
+                                clip=fitz.Rect(x0 / zoom, y0 / zoom, x1 / zoom, y1 / zoom))
+            a = np.frombuffer(pix.samples, np.uint8).reshape(pix.height, pix.width, pix.n)
+            return np.ascontiguousarray(a[..., :3])
+
+        return ocr_engine.read_regions(int(page.rect.width * zoom),
+                                       int(page.rect.height * zoom), render, tick)
+
+    out = {}
+    with fitz.open(pdf_path) as pdf:
+        order = sorted(sheets)
+        for k, no in enumerate(order, 1):
+            page = pdf[no - 1]
+
+            def tick(done, of, what='tile', _k=k):
+                if on_page is not None:
+                    on_page(done, of, f"drawing {_k}/{len(order)}, {what}")
+
+            try:
+                dl = page.get_displaylist()
+                if sheets[no] == 'vector':
+                    probe = read(page, dl, SHEET_PROBE_DPI,
+                                 lambda d, n: tick(d, n, 'probe'))
+                    layer = {kks.norm(m.group(0))[:7]
+                             for m in kks.KKS_RE.finditer(page.get_text('text'))}
+                    found = {p[:7] for p in (kks.fix_ocr_part(b[4]) for b in probe)
+                             if p and len(p) >= 7} - layer
+                    if len(found) < SHEET_PROBE_MIN_TAGS:
+                        continue          # drawn, but no tags in it: the text layer stands
+                    at_dpi = dpi
+                else:
+                    at_dpi = _scan_dpi(page, dpi)
+                with ocr_engine.drawing_mode(at_dpi):   # not for the 150-dpi probe
+                    boxes = read(page, dl, at_dpi, tick)
+                body = kks.fix_ocr_text('\n'.join(b[4] for b in ocr_engine.reading_order(boxes)))
+                tags = kks.pair_tags(boxes)
+                out[no] = body + ('\n[KKS] ' + ' | '.join(tags) if tags else '')
+            except Exception as e:
+                out[no] = f'[OCR failed on sheet {no}: {e}]'
+    return out
+
+
 def extract_content(file_path, use_ocr=True):
     """
     Trả về (content_text, is_scanned, page_count)
@@ -759,9 +943,15 @@ def extract_content(file_path, use_ocr=True):
     return content, is_scanned, page_count
 
 
-def extract_pages(file_path, use_ocr=True):
+def extract_pages(file_path, use_ocr=True, on_page=None, drawing_dpi=0):
     """extract_content plus the text of each page: (content, is_scanned, ocr,
-    page_count, pages).
+    page_count, pages). on_page(done, of[, what]) follows the OCR of a PDF's
+    scanned pages and may raise IndexingStopped to abandon the file.
+
+    drawing_dpi, when set (the "OCR drawings" tick), also OCRs whole drawing
+    sheets at that resolution -- pages _sheet_kind recognises, including AutoCAD
+    sheets whose text is drawn -- and an image's text is read with its tags
+    put back together (see _ocr_sheets).
 
     is_scanned is 1 when at least half of a PDF's pages are scans (see
     PAGE_TEXT_MIN), and for an image. ocr counts the pages whose text the OCR
@@ -783,9 +973,16 @@ def extract_pages(file_path, use_ocr=True):
     if ext == '.pdf':
         try:
             import fitz
+            sheets = {}
             with fitz.open(file_path) as pdf:
                 page_count = len(pdf)
                 pages = [(i + 1, page.get_text('text')) for i, page in enumerate(pdf)]
+                if drawing_dpi and use_ocr and _paddle_ready():
+                    drawing_name = _is_drawing_file(os.path.basename(file_path))
+                    for no, t in pages:
+                        kind = _sheet_kind(pdf, pdf[no - 1], t, drawing_name)
+                        if kind:
+                            sheets[no] = kind
             text = '\n'.join(t for _, t in pages)
 
             # Decided page by page. The whole file used to count as text layer
@@ -794,7 +991,7 @@ def extract_pages(file_path, use_ocr=True):
             # characters -- seven such files, 1,375 pages, in a single folder.
             thin = scanned_pages(pages)
             scanned = 1 if mostly_scanned(len(thin), page_count) else 0
-            if not thin:
+            if not thin and not sheets:
                 return text, 0, 0, page_count, pages        # text layer throughout
             if not use_ocr:
                 return text, scanned, 0, page_count, pages  # scans left un-OCR'd
@@ -806,20 +1003,25 @@ def extract_pages(file_path, use_ocr=True):
             # looks indexed, reads as empty, and cannot be listed again to retry.
             # A mostly-text PDF whose scanned pages fail keeps its text layer.
             try:
-                if _is_drawing_file(os.path.basename(file_path)):
-                    # A drawing only ever has its title block read.
+                if not sheets and _is_drawing_file(os.path.basename(file_path)):
+                    # Without "OCR drawings", a drawing only has its title block read.
                     if not scanned:
                         return text, 0, 0, page_count, pages
                     tb = _ocr_titleblock(file_path)
                     if tb.startswith('[OCR Error:'):
                         return tb, 1, 0, page_count, None
                     return tb, 1, 1, page_count, [(1, tb)]
-                read, error = _ocr_pages(file_path, only=set(thin))
-                if error:
-                    if scanned:
-                        return error, 1, 0, page_count, None
-                    return text, 0, 0, page_count, pages
-                by_page = dict(read)
+                by_page = {}
+                rest = set(thin) - set(sheets)
+                if rest:
+                    read, error = _ocr_pages(file_path, only=rest, on_page=on_page)
+                    if error and not sheets:
+                        if scanned:
+                            return error, 1, 0, page_count, None
+                        return text, 0, 0, page_count, pages
+                    by_page.update(read)
+                if sheets:
+                    by_page.update(_ocr_sheets(file_path, sheets, drawing_dpi, on_page))
                 merged = []
                 for no, layer in pages:
                     if no not in by_page:
@@ -893,12 +1095,37 @@ def extract_pages(file_path, use_ocr=True):
 
     # ── IMAGES ───────────────────────────────────────────────────────────────
     elif ext in ('.jpg', '.jpeg', '.png', '.tif', '.tiff'):
+        # An image is all scan. It used to go to Tesseract even with PaddleOCR on
+        # the GPU, and on a machine without tesseract.exe every image was stored
+        # as an "[Error: ...]" line. A multi-page TIFF is read frame by frame.
         try:
-            import pytesseract
-            from PIL import Image
-            img = Image.open(file_path)
-            text = pytesseract.image_to_string(_preprocess(img), lang='eng', config='--psm 3')
-            return text, 1, 1, 1, [(1, text)]   # image -> always OCR
+            from PIL import Image, ImageSequence
+            try:
+                from core import ocr_engine
+            except ImportError:
+                import ocr_engine
+            paddle = ocr_engine.use_paddle()
+            if not paddle:
+                import pytesseract
+            cap = OCR_MAX_PAGES_GPU if paddle else OCR_MAX_PAGES_CPU
+            with Image.open(file_path) as img:
+                frames = [_rgb(f) for _, f in zip(range(cap), ImageSequence.Iterator(img))]
+            pages = []
+            for no, frame in enumerate(frames, 1):
+                tags = []
+                if paddle:
+                    boxes = ocr_engine.ocr_image_boxes(frame)
+                    text = '\n'.join(b[4] for b in boxes)
+                    if drawing_dpi:              # a scanned drawing: its tags as well
+                        tags = kks.pair_tags(boxes)
+                else:
+                    text = pytesseract.image_to_string(_preprocess(frame), lang='eng',
+                                                       config='--psm 3')
+                text = kks.fix_ocr_text(text)
+                pages.append((no, text + ('\n[KKS] ' + ' | '.join(tags) if tags else '')))
+                if on_page is not None:
+                    on_page(no, len(frames))
+            return '\n'.join(t for _, t in pages), 1, len(pages), len(pages), pages
         except Exception as e:
             return f"[Error: {e}]", 0, 0, 0, None
 
@@ -1345,14 +1572,22 @@ def insert_chunks(conn, file_id, content, pages=None, is_drawing=False):
         chunk_id = cur.lastrowid
         char_pos = char_end
 
-        found = {}                   # tag_norm -> (tag as written, page)
-        for m in kks.KKS_RE.finditer(body):
+        found = {}                   # tag_norm -> (tag, misreads put right; page)
+        # Tags are read from the text with OCR-style misreads put right
+        # ("10LAB33 BROO6" -> BR006): measured, a text layer is full of them,
+        # many vendors' "text" PDFs being OCR'd themselves. The stored content
+        # keeps what the document says; the fix is length-preserving, so a
+        # match position still maps to its page.
+        scan = kks.fix_ocr_text(body)
+        if len(scan) != len(body):
+            scan = body
+        for m in kks.KKS_RE.finditer(scan):
             found.setdefault(kks.norm(m.group(0)),
                              (m.group(0), _page_at(breaks, m.start())))
         # A split chunk leaves its heading out of the body, and an inherited
         # one sits on an earlier page; read it where it first applies.
         if heading and heading != prev_head:
-            for m in kks.KKS_RE.finditer(heading):
+            for m in kks.KKS_RE.finditer(kks.fix_ocr_text(heading)):
                 found.setdefault(kks.norm(m.group(0)), (m.group(0), page_start))
         prev_head = heading
         tags.extend((tag, norm, file_id, chunk_id, page)
@@ -1367,69 +1602,35 @@ def insert_chunks(conn, file_id, content, pages=None, is_drawing=False):
 
 
 
-def _match_pages(cur, fts_query, file_ids):
-    """file_id -> set of the pages whose chunks match fts_query.
-
-    A chunk is one page, except short pages merged with a neighbour, so a hit
-    in such a chunk reports its small page range. An older database without
-    chunks or chunk page columns simply yields no pages.
-
-    Every chunk of a section carries the section heading, but the heading is
-    printed only where the section starts, so its words count for the first
-    chunk it heads; further chunks need the match in their own text. Without
-    that a word in a heading reported every page of the section. The DB Search
-    tab applies the same rule.
-    """
-    found = {}
-    if not fts_query or not file_ids:
-        return found
-    ids = list(file_ids)
-    for i in range(0, len(ids), 500):          # stay under SQLite's variable limit
-        part = ids[i:i + 500]
-        try:
-            rows = cur.execute(
-                "SELECT file_id, page_start, page_end FROM ("
-                "  SELECT id, file_id, page_start, page_end, heading,"
-                "         LAG(heading) OVER (PARTITION BY file_id ORDER BY chunk_index) AS prev"
-                f"  FROM chunks WHERE file_id IN ({','.join('?' * len(part))})"
-                ") WHERE id IN (SELECT rowid FROM chunks_fts WHERE chunks_fts MATCH ?)"
-                "  AND (heading IS NOT prev"
-                "       OR id IN (SELECT rowid FROM chunks_fts WHERE chunks_fts MATCH ?))",
-                [*part, fts_query, f"content : ({fts_query})"]).fetchall()
-        except sqlite3.OperationalError:
-            return {}
-        for fid, ps, pe in rows:
-            if ps is None:
-                continue
-            pe = pe if (pe is not None and pe >= ps) else ps
-            found.setdefault(fid, set()).update(range(ps, pe + 1))
-    return found
-
-
 def search_db(conn, query, lot_filter='', disc_filter='', scanned_filter=''):
     """Rows of (name, path, type, lot, discipline, system_code, doc_number,
-    revision, is_scanned, ocr, page_count, pages) -- ocr is how many pages
-    were read by OCR, pages where the query appears, e.g. '3–5, 9', empty when
-    it matched only the name or no query was given."""
+    revision, is_scanned, ocr, page_count, pages, loose) -- ocr is how many
+    pages were read by OCR, pages where the query appears, e.g. '3–5, 9',
+    empty when it matched only the name or no query was given.
+
+    The query is looked for as DB Search looks for it (core/fts_search.py):
+    as a phrase, in a name, or as a KKS tag however spaced and with or without
+    its unit, which come first; then as every word apart, which come after
+    with loose True."""
     cur = conn.cursor()
-    params = []
+    params = {}
     where_clauses = ["name != 'BASE_PATH'"]   # the folder-root row, not a document
-    fts_query = ''
+    loose = '0'
+    globs = []
     has_ocr = 'ocr' in {r[1] for r in cur.execute("PRAGMA table_info(files)")}
 
     if query.strip():
-        # Bọc từng token trong ngoặc kép để FTS5 không nhầm số/ký tự đặc biệt
-        # thành cú pháp column-filter (vd: "16" bị hiểu là cột số 16 → lỗi)
-        tokens = query.strip().split()
-        fts_query = ' '.join(f'"{t}"*' for t in tokens if t)
-        where_clauses.append("id IN (SELECT rowid FROM files_fts WHERE files_fts MATCH ?)")
-        params.append(fts_query)
+        tables = {r[0] for r in cur.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+        globs = kks.search_globs(query) if 'kks_tags' in tables else []
+        strict, loose, params = fts_search.conditions(query, globs, 'files')
+        where_clauses.append(f"({strict} OR {loose})")
+        loose = f"NOT {strict}"
     if lot_filter:
-        where_clauses.append("lot = ?")
-        params.append(lot_filter)
+        where_clauses.append("lot = :lot")
+        params['lot'] = lot_filter
     if disc_filter:
-        where_clauses.append("discipline = ?")
-        params.append(disc_filter)
+        where_clauses.append("discipline = :disc")
+        params['disc'] = disc_filter
     # Matching doc_source.source_label(): 'text' = text layer only, 'ocr' = any page read
     # by OCR (OCR and Text+OCR), 'scanned' = mostly scans, none OCR'd. A
     # database from before files.ocr has no OCR rows to show.
@@ -1442,16 +1643,16 @@ def search_db(conn, query, lot_filter='', disc_filter='', scanned_filter=''):
 
     sql = f"""
         SELECT id, name, path, type, lot, discipline, system_code, doc_number,
-               revision, is_scanned, {'ocr' if has_ocr else 'NULL'}, page_count
+               revision, is_scanned, {'ocr' if has_ocr else 'NULL'}, page_count,
+               {loose} AS loose
         FROM files
+        WHERE {" AND ".join(where_clauses)}
+        ORDER BY loose, lot, discipline, name LIMIT 500
     """
-    if where_clauses:
-        sql += " WHERE " + " AND ".join(where_clauses)
-    sql += " ORDER BY lot, discipline, name LIMIT 500"
-
     rows = cur.execute(sql, params).fetchall()
-    pages = _match_pages(cur, fts_query, [r[0] for r in rows])
-    return [(*r[1:], doc_source.page_text(pages.get(r[0]))) for r in rows]
+    pages = fts_search.hit_pages(conn, [r[0] for r in rows if not r[-1]],
+                                 [r[0] for r in rows if r[-1]], query, globs)
+    return [(*r[1:-1], doc_source.page_text(pages.get(r[0])), bool(r[-1])) for r in rows]
 
 
 # Result table layout; open_file reads the path back from COL_PATH.
@@ -1460,6 +1661,10 @@ def search_db(conn, query, lot_filter='', disc_filter='', scanned_filter=''):
 RESULT_COLUMNS = ["Name", "Lot", "Disc", "System", "Rev",
                   "Source", "Pages", "Type", "Path"]
 COL_PATH = RESULT_COLUMNS.index("Path")
+# A file that holds every word of the search, but not together, is listed
+# after the phrase hits in grey italics; the Source colour stays.
+LOOSE_INK = '#8A94A3'
+LOOSE_TIP = "Has every word of the search, but not together as a phrase"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1472,7 +1677,7 @@ class IndexWorker(QThread):
     preview    = Signal(str, bytes, list, int)  # name, page png, first chunks, total chunks
 
     def __init__(self, folder_path, db_file, use_ocr, incremental,
-                 ext_filter=None, path_filter=None, semantic=False):
+                 ext_filter=None, path_filter=None, semantic=False, drawing_dpi=0):
         super().__init__()
         self.folder_path = folder_path
         self.db_file     = db_file
@@ -1481,6 +1686,7 @@ class IndexWorker(QThread):
         self.ext_filter  = ext_filter    # set of extensions, e.g. {'.pdf'}
         self.path_filter = path_filter   # set of absolute paths (cho Cần OCR)
         self.semantic    = semantic      # also embed every chunk (optional)
+        self.drawing_dpi = drawing_dpi   # "OCR drawings": sheet resolution, 0 = off
         self._stop       = False
         self._detail     = False     # render a page preview per file while on
         self.skip_log    = ''        # path of the report, once there is one
@@ -1564,16 +1770,29 @@ class IndexWorker(QThread):
             added    = 0
             skipped  = 0
             failures = []      # (path, reason) -- written out at the end
+            pdf_notes = []     # (path, [MuPDF messages]) -- PDFs read despite damage
             dirty    = 0       # documents written since the last commit
             import time
             last_preview = 0.0  # throttle the Detail preview so it never slows indexing
+            _quiet_mupdf()
 
             for idx, full_path in enumerate(all_files):
                 if self._stop:
                     break
 
                 rel_path = os.path.relpath(full_path, self.folder_path)
-                self.progress.emit(idx + 1, total, os.path.basename(full_path))
+                name = os.path.basename(full_path)
+                self.progress.emit(idx + 1, total, name)
+                _mupdf_notes()                    # drop what earlier work left
+
+                def on_page(done, of, what="page", _n=idx + 1, _name=name):
+                    """Page progress inside a long scan -- a 274-page report
+                    used to sit on one progress step for four minutes -- and
+                    the Stop button, honoured between pages (or drawing tiles),
+                    not files."""
+                    if self._stop:
+                        raise IndexingStopped
+                    self.progress.emit(_n, total, f"OCR {what} {done}/{of} · {_name}")
 
                 # Incremental: skip only while the file on disk still matches
                 # the row already in the index -- same size, not modified since.
@@ -1590,7 +1809,11 @@ class IndexWorker(QThread):
                     meta         = parse_metadata(os.path.basename(full_path))
 
                     content, is_scanned, ocr, page_count, pages = extract_pages(
-                        full_path, self.use_ocr)
+                        full_path, self.use_ocr, on_page=on_page,
+                        drawing_dpi=self.drawing_dpi)
+                    notes = _mupdf_notes()
+                    if notes:
+                        pdf_notes.append((full_path, notes))
 
                     if content is None:
                         skipped += 1
@@ -1624,6 +1847,11 @@ class IndexWorker(QThread):
                     if dirty >= COMMIT_EVERY:
                         conn.commit()
                         dirty = 0
+                except IndexingStopped:
+                    # Stop pressed mid-document: leave it out entirely, so an
+                    # incremental run reads it again instead of skipping a
+                    # half-OCR'd file as done.
+                    break
                 except Exception as e:
                     # A locked file, a corrupt PDF, an OCR crash, a path the OS
                     # will not open. Only OSError used to be caught, so anything
@@ -1676,17 +1904,18 @@ class IndexWorker(QThread):
                                      f'semantic embedding failed: '
                                      f'{type(e).__name__}: {e}'))
 
-            self._write_skip_log(failures, unsupported, junk)
+            self._write_skip_log(failures, unsupported, junk, pdf_notes)
             conn.close()
             self.finished.emit(added, skipped)
 
         except Exception as e:
             self.error.emit(str(e))
 
-    def _write_skip_log(self, failures, unsupported, junk=0):
-        """Write what did not make it into the index, beside the database."""
+    def _write_skip_log(self, failures, unsupported, junk=0, pdf_notes=()):
+        """Write what did not make it into the index, beside the database, and
+        the PDFs MuPDF had to work around (pdf_notes) -- still indexed."""
         self.skip_log = ''
-        if not failures and not unsupported and not junk:
+        if not failures and not unsupported and not junk and not pdf_notes:
             return
         path = os.path.splitext(self.db_file)[0] + '_skipped.txt'
         try:
@@ -1707,6 +1936,17 @@ class IndexWorker(QThread):
                     fh.write(f"Files that failed ({len(failures)}):\n")
                     for p, why in failures:
                         fh.write(f"  {p}\n      {why}\n")
+                if pdf_notes:
+                    fh.write(f"\nPDFs indexed despite damage MuPDF worked around "
+                             f"({len(pdf_notes)}). Most of it is harmless (3D "
+                             f"annotations, colour profiles, layers); \"cannot find\" "
+                             f"means a missing object, which may leave a page blank:\n")
+                    for p, notes in pdf_notes:
+                        fh.write(f"  {p}\n")
+                        for line in notes[:3]:
+                            fh.write(f"      {line[:160]}\n")
+                        if len(notes) > 3:
+                            fh.write(f"      … {len(notes) - 3} more\n")
             self.skip_log = path
         except Exception:
             self.skip_log = ''
@@ -1725,6 +1965,7 @@ class ScanWorker(QThread):
 
     def run(self):
         import fitz as _fitz
+        _quiet_mupdf()
         counts        = {}
         ocr_needed    = 0
         scanned_paths = []
@@ -1897,6 +2138,24 @@ class MainWindow(QMainWindow):
         self.lbl_ocr_info.setWordWrap(True)
         self.lbl_ocr_info.setStyleSheet("font-size: 11px; color: #64748b;")
         idx_lay.addWidget(self.lbl_ocr_info, 3, 1, 1, 5)
+
+        # Drawing sheets: a P&ID exported from AutoCAD draws its tags as SHX
+        # strokes, so its text layer holds the title block and nothing else.
+        self.chk_drawings = QCheckBox("OCR drawings")
+        self.chk_drawings.setToolTip(
+            "Read whole drawing sheets (P&ID, layouts) by OCR, including tags drawn as\n"
+            "AutoCAD SHX strokes, and put two-line tags back together (10MAW85 / AA001).\n"
+            "Slow: about 17 s per A1 sheet at 600 dpi, 10 s at 300 dpi on an RTX 4060.")
+        self.cmb_drawing_dpi = QComboBox()
+        self.cmb_drawing_dpi.addItem("600 dpi (most tags)", 600)
+        self.cmb_drawing_dpi.addItem("300 dpi (faster)", 300)
+        self.cmb_drawing_dpi.setToolTip(
+            "Measured on an A1 P&ID: 600 dpi found 92 tags, 300 dpi 79.")
+        self.chk_ocr.toggled.connect(self.chk_drawings.setEnabled)
+        self.chk_drawings.toggled.connect(self.cmb_drawing_dpi.setEnabled)
+        self.cmb_drawing_dpi.setEnabled(False)
+        idx_lay.addWidget(self.chk_drawings, 4, 1)
+        idx_lay.addWidget(self.cmb_drawing_dpi, 4, 2)
         from PySide6.QtCore import QTimer
         QTimer.singleShot(200, self._update_semantic_info)
 
@@ -2271,8 +2530,12 @@ class MainWindow(QMainWindow):
         if not folder or not os.path.isdir(folder):
             QMessageBox.warning(self, "Error", "Please select a valid folder first.")
             return
+        # An existing database is added to, never replaced, so the dialog does
+        # not ask to overwrite it; with Incremental ticked, picking the database
+        # of a stopped build carries on where it stopped.
         path, _ = QFileDialog.getSaveFileName(
-            self, f"Tạo DB — {label}", "", "Database (*.db)")
+            self, f"Tạo DB — {label}", "", "Database (*.db)",
+            options=QFileDialog.DontConfirmOverwrite)
         if not path:
             return
         if not path.endswith('.db'):
@@ -2284,10 +2547,13 @@ class MainWindow(QMainWindow):
         self.worker = IndexWorker(
             folder, path,
             use_ocr=self.chk_ocr.isChecked(),
-            incremental=False,
+            # It used to be forced off, so a category build stopped after hours
+            # began again from its first file.
+            incremental=self.chk_incr.isChecked(),
             ext_filter=ext_filter,
             path_filter=path_filter,
-            semantic=self.chk_semantic.isChecked()
+            semantic=self.chk_semantic.isChecked(),
+            drawing_dpi=self._drawing_dpi()
         )
         self.worker.progress.connect(self._on_progress)
         self.worker.finished.connect(self._on_finished)
@@ -2378,6 +2644,12 @@ class MainWindow(QMainWindow):
         self.lbl_ocr_info.setStyleSheet(f"font-size: 11px; color: {ocolour};")
         self.lbl_ocr_info.setText(f"{oicon}  OCR will use {engine}  —  {omsg}")
 
+    def _drawing_dpi(self):
+        """Resolution for "OCR drawings", or 0 when it is off (it needs OCR on)."""
+        if self.chk_ocr.isChecked() and self.chk_drawings.isChecked():
+            return self.cmb_drawing_dpi.currentData()
+        return 0
+
     def start_index(self):
         if not self.db_file:
             QMessageBox.warning(self, "Error", "Please create or open a database first.")
@@ -2394,7 +2666,8 @@ class MainWindow(QMainWindow):
             folder, self.db_file,
             use_ocr     = self.chk_ocr.isChecked(),
             incremental = self.chk_incr.isChecked(),
-            semantic    = self.chk_semantic.isChecked()
+            semantic    = self.chk_semantic.isChecked(),
+            drawing_dpi = self._drawing_dpi()
         )
         self.worker.progress.connect(self._on_progress)
         self.worker.finished.connect(self._on_finished)
@@ -2470,7 +2743,10 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Search Error", str(e))
             return
 
-        self.lbl_results.setText(f"Results: {len(rows)}")
+        apart = sum(1 for r in rows if r[-1])
+        self.lbl_results.setText(f"Results: {len(rows)}" + (
+            f"  ({len(rows) - apart} with the phrase, {apart} grey: every word, not together)"
+            if apart else ""))
         self.table.setRowCount(len(rows))
 
         DISC_COLOR = {
@@ -2484,7 +2760,7 @@ class MainWindow(QMainWindow):
 
         for r_idx, row in enumerate(rows):
             (name, path, ftype, lot, disc, sys_code, _doc_no, rev,
-             is_scan, ocr, page_count, pages) = row
+             is_scan, ocr, page_count, pages, loose) = row
             source = doc_source.source_label(is_scan, ocr)
             tip = doc_source.source_tip(is_scan, ocr, page_count)
             colour = QColor(doc_source.source_colour(source))   # rows are always light here
@@ -2500,6 +2776,13 @@ class MainWindow(QMainWindow):
                     item.setToolTip(tip)
                 if c_idx == col_pages and pages:
                     item.setToolTip(f"Search term found on page(s): {pages}")
+                if loose and c_idx != col_source:
+                    item.setForeground(QColor(LOOSE_INK))
+                    font = item.font()
+                    font.setItalic(True)
+                    item.setFont(font)
+                    if c_idx == 0:
+                        item.setToolTip(LOOSE_TIP)
                 self.table.setItem(r_idx, c_idx, item)
 
     # ── OPEN FILE ────────────────────────────────────────────────────────────
