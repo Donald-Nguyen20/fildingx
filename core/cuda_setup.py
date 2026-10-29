@@ -18,6 +18,8 @@ import sys
 import glob
 import importlib.util
 
+import paths
+
 _setup_done = False
 _cuda_works = None
 
@@ -25,9 +27,11 @@ _cuda_works = None
 def _wheel_roots():
     """Directories that may hold the nvidia-*-cu12 wheel bin folders."""
     roots = []
-    # Frozen build: PyInstaller collects the DLLs under _internal/.
-    if getattr(sys, "frozen", False):
-        roots.append(getattr(sys, "_MEIPASS", os.path.dirname(sys.executable)))
+    # Frozen build: PyInstaller collects the DLLs under _internal/ (_MEIPASS),
+    # Nuitka beside the binary -- bundle_dir() returns whichever it is, '' from source.
+    bundled = paths.bundle_dir()
+    if bundled:
+        roots.append(bundled)
     # Dev / venv: the wheels sit in the same site-packages as onnxruntime.
     try:
         spec = importlib.util.find_spec("onnxruntime")

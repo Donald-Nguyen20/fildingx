@@ -77,8 +77,15 @@ import os
 import sys
 
 # ── Playwright browser path khi chạy từ exe đã đóng gói ──────────
-if getattr(sys, "frozen", False):
-    _internal = getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
+# PyInstaller giải nén data vào _MEIPASS; Nuitka đặt cạnh binary (containing_dir,
+# fallback sys.argv[0]). Giữ nội tuyến, không import paths, để nhánh CLI helper
+# bên dưới vẫn khởi động nhẹ.
+if getattr(sys, "frozen", False) or "__compiled__" in globals():
+    _internal = getattr(sys, "_MEIPASS", None)
+    if _internal is None:                       # Nuitka
+        _comp = globals().get("__compiled__")
+        _internal = (getattr(_comp, "containing_dir", "") if _comp else "") \
+            or os.path.dirname(os.path.abspath(sys.argv[0]))
     _browsers = os.path.join(_internal, "ms-playwright")
     if os.path.isdir(_browsers):
         os.environ["PLAYWRIGHT_BROWSERS_PATH"] = _browsers

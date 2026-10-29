@@ -51,14 +51,10 @@ CONFIG_NAME = "llm_config.json"
 
 
 def get_config_path() -> str:
-
-    if getattr(sys, "frozen", False):
-        exe_dir = Path(sys.argv[0]).resolve().parent
-        return str(exe_dir / CONFIG_NAME)
-
-    # dev — đi lên 1 cấp (core/ → root)
-    base_dir = Path(__file__).resolve().parent.parent
-    return str(base_dir / CONFIG_NAME)
+    # APP_DIR is the folder beside the .exe when packaged (PyInstaller or Nuitka)
+    # and the repo root from source -- the config stays editable without rebuilding.
+    import paths
+    return str(Path(paths.APP_DIR) / CONFIG_NAME)
 
 
 def _atomic_write_json(path: str, data: Dict[str, Any]) -> None:

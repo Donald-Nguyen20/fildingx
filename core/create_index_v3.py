@@ -38,7 +38,8 @@ warnings.filterwarnings("ignore")
 def _use_bundled_tesseract():
     """Ưu tiên Tesseract đóng gói kèm app (build.ps1 copy vào thư mục 'tesseract').
     Chạy từ source không có thư mục này → giữ nguyên, dùng tesseract trên PATH."""
-    base = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
+    import paths
+    base = paths.bundle_dir() or os.path.dirname(os.path.abspath(__file__))
     tess_dir = os.path.join(base, 'tesseract')
     if os.path.isfile(os.path.join(tess_dir, 'tesseract.exe')):
         os.environ['PATH'] = tess_dir + os.pathsep + os.environ.get('PATH', '')

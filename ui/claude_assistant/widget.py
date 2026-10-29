@@ -1539,8 +1539,8 @@ class ClaudeAssistantWidget(QWidget):
         try:
             import paths
             roots = [paths.APP_DIR]
-            bundled = getattr(sys, "_MEIPASS", "")
-            if bundled:
+            bundled = paths.bundle_dir()
+            if bundled and bundled not in roots:
                 roots.append(bundled)
             for root in roots:
                 for name in ("DATABRAIN.md", "CLAUDE.md"):
