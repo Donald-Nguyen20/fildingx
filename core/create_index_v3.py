@@ -261,9 +261,16 @@ CREATE TABLE IF NOT EXISTS files (
     ocr           INTEGER DEFAULT 0,
     page_count    INTEGER DEFAULT 0,
     file_size_kb  INTEGER DEFAULT 0,
-    indexed_date  TEXT
+    indexed_date  TEXT,
+    drawing_dpi   INTEGER DEFAULT 0
 )
 """
+# files.drawing_dpi: the "OCR drawings" resolution the file's drawing sheets
+# were read at, 0 when none was read, -1 when one was read before the
+# resolution was recorded. An incremental build reads a file again when it is
+# asked for a finer one (see _finer_drawings), so a folder can be built quickly
+# at 300 dpi and its drawings alone brought up to 600 later.
+UNRECORDED_DRAWING_DPI = 300    # what -1 is taken for: the lower of the two settings
 SCHEMA_FTS = """
 CREATE VIRTUAL TABLE IF NOT EXISTS files_fts USING fts5(
     name, doc_number, system_code, content,
@@ -979,12 +986,14 @@ def extract_content(file_path, use_ocr=True):
     return content, is_scanned, page_count
 
 
-def extract_pages(file_path, use_ocr=True, on_page=None, drawing_dpi=0, places=None):
+def extract_pages(file_path, use_ocr=True, on_page=None, drawing_dpi=0, places=None,
+                  info=None):
     """extract_content plus the text of each page: (content, is_scanned, ocr,
     page_count, pages). on_page(done, of[, what]) follows the OCR of a PDF's
     scanned pages and may raise IndexingStopped to abandon the file. places,
     a dict, is given {page number: [(tag_norm, x0, y0, x1, y1)]} -- where each
-    page PaddleOCR read shows its tags, for the tag_boxes table.
+    page PaddleOCR read shows its tags, for the tag_boxes table. info, a dict,
+    is given 'drawing_dpi' when drawing sheets were read, for files.drawing_dpi.
 
     drawing_dpi, when set (the "OCR drawings" tick), also OCRs whole drawing
     sheets at that resolution -- pages _sheet_kind recognises, including AutoCAD
@@ -1060,8 +1069,12 @@ def extract_pages(file_path, use_ocr=True, on_page=None, drawing_dpi=0, places=N
                         return text, 0, 0, page_count, pages
                     by_page.update(read)
                 if sheets:
-                    by_page.update(_ocr_sheets(file_path, sheets, drawing_dpi, on_page,
-                                               places))
+                    read_sheets = _ocr_sheets(file_path, sheets, drawing_dpi, on_page, places)
+                    by_page.update(read_sheets)
+                    # A failed sheet does not count: a later build should try it again.
+                    if info is not None and any(not t.startswith('[OCR failed')
+                                                for t in read_sheets.values()):
+                        info['drawing_dpi'] = drawing_dpi
                 merged = []
                 for no, layer in pages:
                     if no not in by_page:
@@ -1218,7 +1231,10 @@ def init_db(db_file):
     # reader that opens it with mode=ro still sees an ordinary rollback-journal
     # database. WAL would be faster here but it persists in the file, and both
     # db_query.py and the Data Brain tab open this database read-only.
-    cur.execute("PRAGMA synchronous=NORMAL")
+    # FULL, not NORMAL: in rollback-journal mode NORMAL leaves a small chance
+    # that a power cut at the wrong moment corrupts the file -- a build runs for
+    # hours, often overnight -- and its extra syncs cost nothing beside OCR.
+    cur.execute("PRAGMA synchronous=FULL")
     cur.execute("PRAGMA temp_store=MEMORY")
     cur.execute("PRAGMA cache_size=-65536")      # 64 MB of page cache
     cur.execute(SCHEMA_FILES)
@@ -1226,6 +1242,12 @@ def init_db(db_file):
     # not OCR'd -- a rebuild fills it in properly).
     if 'ocr' not in {row[1] for row in cur.execute("PRAGMA table_info(files)")}:
         cur.execute("ALTER TABLE files ADD COLUMN ocr INTEGER DEFAULT 0")
+    if 'drawing_dpi' not in {row[1] for row in cur.execute("PRAGMA table_info(files)")}:
+        cur.execute("ALTER TABLE files ADD COLUMN drawing_dpi INTEGER DEFAULT 0")
+        # A PDF whose text ends a page with the [KKS] line had sheets read by
+        # "OCR drawings", at a resolution nobody wrote down.
+        cur.execute("UPDATE files SET drawing_dpi = -1 WHERE type = '.pdf' "
+                    "AND instr(content, char(10) || '[KKS] ') > 0")
     cur.execute(SCHEMA_FTS)
     cur.execute(SCHEMA_TRIGGER_INSERT)
     cur.execute(SCHEMA_TRIGGER_DELETE)
@@ -1243,16 +1265,45 @@ def init_db(db_file):
     cur.execute(SCHEMA_CHUNK_VECTORS)
     cur.execute(SCHEMA_SEMANTIC_META)
     cur.execute(SCHEMA_VECTORS_TRIGGER_D)
-    for stmt in SCHEMA_FILES_IDX + SCHEMA_DOC_REVISIONS + SCHEMA_KKS + SCHEMA_TAG_BOXES:
+    for stmt in (SCHEMA_FILES_IDX + SCHEMA_DOC_REVISIONS + SCHEMA_KKS + SCHEMA_TAG_BOXES
+                 + SCHEMA_INTERRUPTED):
         cur.execute(stmt)
     conn.commit()
     return conn
 
 def get_indexed_state(conn):
-    """path -> (file_size_kb, indexed_date) for everything already indexed."""
+    """path -> (file_size_kb, indexed_date, drawing_dpi, id) for everything
+    already indexed."""
     cur = conn.cursor()
-    cur.execute("SELECT path, file_size_kb, indexed_date FROM files")
-    return {row[0]: (row[1], row[2]) for row in cur.fetchall()}
+    cur.execute("SELECT path, file_size_kb, indexed_date, drawing_dpi, id FROM files")
+    return {row[0]: (row[1], row[2], row[3] or 0, row[4]) for row in cur.fetchall()}
+
+
+def _finer_drawings(full_path, state, dpi):
+    """True when a file the index already holds unchanged should still be read
+    again: its drawing sheets were read at a lower "OCR drawings" resolution
+    than dpi, and reading them at dpi can see more. A drawn sheet always can;
+    a scanned one only up to the resolution it was scanned at, so a 300-dpi
+    scan is not read again for nothing. Unreadable counts as yes."""
+    was = state[2] if state and len(state) > 2 else 0
+    if not dpi or not was:            # "OCR drawings" off, or no sheet was read
+        return False
+    if was < 0:
+        was = UNRECORDED_DRAWING_DPI
+    if was >= dpi or not full_path.lower().endswith('.pdf'):
+        return False
+    try:
+        import fitz
+        drawing_name = _is_drawing_file(os.path.basename(full_path))
+        with fitz.open(_fs_path(full_path)) as pdf:
+            for page in pdf:
+                kind = _sheet_kind(pdf, page, page.get_text('text'), drawing_name)
+                if kind == 'vector' or (kind == 'scan' and
+                                        _scan_dpi(page, dpi) > _scan_dpi(page, was)):
+                    return True
+        return False
+    except Exception:
+        return True
 
 
 def _is_unchanged(full_path, state):
@@ -1268,7 +1319,7 @@ def _is_unchanged(full_path, state):
     """
     if state is None:
         return False
-    size_kb, indexed_date = state
+    size_kb, indexed_date = state[:2]
     if not indexed_date:
         return False
     try:
@@ -1287,7 +1338,8 @@ def _is_unchanged(full_path, state):
     mtime = datetime.fromtimestamp(st.st_mtime).replace(second=0, microsecond=0)
     return mtime <= was
 
-def insert_file(conn, name, rel_path, ext, content, meta, is_scanned, ocr, page_count, file_size_kb):
+def insert_file(conn, name, rel_path, ext, content, meta, is_scanned, ocr, page_count,
+                file_size_kb, drawing_dpi=0):
     """Insert the file, or refresh the row that already holds this path.
 
     Returns its row id. The previous INSERT OR IGNORE silently kept the old row
@@ -1297,9 +1349,9 @@ def insert_file(conn, name, rel_path, ext, content, meta, is_scanned, ocr, page_
     cur = conn.cursor()
     cur.execute("""
         INSERT INTO files
-            (name, path, type, content, doc_number, lot, discipline,
-             system_code, revision, is_scanned, ocr, page_count, file_size_kb, indexed_date)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            (name, path, type, content, doc_number, lot, discipline, system_code,
+             revision, is_scanned, ocr, page_count, file_size_kb, indexed_date, drawing_dpi)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         ON CONFLICT(path) DO UPDATE SET
             name         = excluded.name,
             type         = excluded.type,
@@ -1313,13 +1365,14 @@ def insert_file(conn, name, rel_path, ext, content, meta, is_scanned, ocr, page_
             ocr          = excluded.ocr,
             page_count   = excluded.page_count,
             file_size_kb = excluded.file_size_kb,
-            indexed_date = excluded.indexed_date
+            indexed_date = excluded.indexed_date,
+            drawing_dpi  = excluded.drawing_dpi
     """, (
         name, rel_path, ext, content,
         meta['doc_number'], meta['lot'], meta['discipline'],
         meta['system_code'], meta['revision'],
         is_scanned, ocr, page_count, file_size_kb,
-        datetime.now().strftime('%Y-%m-%d %H:%M')
+        datetime.now().strftime('%Y-%m-%d %H:%M'), drawing_dpi
     ))
     cur.execute("SELECT id FROM files WHERE path=?", (rel_path,))
     row = cur.fetchone()
@@ -1332,6 +1385,108 @@ CHUNK_MAX     = 1200   # ký tự tối đa mỗi chunk
 CHUNK_MIN     = 80     # ký tự tối thiểu để chunk có nghĩa
 CHUNK_OVERLAP = 120    # ký tự overlap giữa 2 chunk liên tiếp
 COMMIT_EVERY  = 50     # files per commit; one commit per file cost two fsyncs each
+# ...but never more than this much reading left uncommitted, and a file read by
+# OCR or embedded is committed at once: fifty scanned files are hours of OCR, all
+# lost to a crash or a power cut before the fiftieth.
+COMMIT_SECONDS = 30
+
+
+# ── Surviving a crash or a power cut ────────────────────────────────────────
+# Beside the database while a build runs: where it is. A build that ends --
+# finished, stopped or failed -- deletes it, so finding it means the last one
+# was cut off (the app closed or crashed, the power went), and says at which
+# file. Written without fsync: it only has to outlive the app, not the machine.
+def progress_marker(db_file):
+    return os.path.splitext(db_file)[0] + '_inprogress.json'
+
+
+def interrupted_build(db_file):
+    """What the last build of db_file was doing when it was cut off, or None
+    when it ended normally: {'started', 'file', 'phase', 'n', 'total'}."""
+    try:
+        with io.open(progress_marker(db_file), encoding='utf-8') as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return None
+
+
+def _where_cut_off(cut) -> str:
+    """'started 2026-10-26 10:05, at file 123 of 259: name.pdf' for a marker."""
+    text = f"started {cut.get('started', '?')}"
+    if cut.get('file'):
+        text += f", at file {cut.get('n', '?')} of {cut.get('total', '?')}: " \
+                f"{os.path.basename(cut['file'])}"
+    return text
+
+
+def _mark(path, **state):
+    try:
+        with io.open(path, 'w', encoding='utf-8') as fh:
+            json.dump(state, fh, ensure_ascii=False)
+    except OSError:
+        pass
+
+
+def _own_files(db_file):
+    """What a build writes beside its database -- never documents, though a
+    database kept inside the folder it indexes used to take its own skip log
+    for one at every build."""
+    return {os.path.normcase(os.path.abspath(p)) for p in
+            (os.path.splitext(db_file)[0] + '_skipped.txt', progress_marker(db_file))}
+
+
+_ARTEFACT_SUFFIXES = ('_skipped.txt', '_inprogress.json')
+
+
+def _is_build_artefact(root, fname) -> bool:
+    """A skip log or marker that some build wrote beside its database, here:
+    'rr_skipped.txt' next to 'rr.db'. A folder of test databases held three."""
+    low = fname.lower()
+    for suffix in _ARTEFACT_SUFFIXES:
+        if low.endswith(suffix):
+            return os.path.exists(os.path.join(root, fname[:-len(suffix)] + '.db'))
+    return False
+
+
+# A file the app quit on twice while reading it is not read again until it
+# changes: a PDF that crashes MuPDF or the OCR runtime would otherwise end every
+# build at the same place. Once could be a closed window or a power cut, so the
+# first time it is only read again, and noted.
+CRASHES_TO_SKIP = 2
+SCHEMA_INTERRUPTED = (
+    """
+CREATE TABLE IF NOT EXISTS interrupted_reads (
+    path        TEXT PRIMARY KEY,
+    crashes     INTEGER,
+    size_kb     INTEGER,
+    last_seen   TEXT
+)
+""",
+)
+
+
+def _forget(conn, rel_path):
+    """Take one file out of the index entirely (its vectors go with its chunks)."""
+    row = conn.execute("SELECT id FROM files WHERE path = ?", (rel_path,)).fetchone()
+    if row:
+        for table in ('kks_tags', 'tag_boxes', 'chunks', 'doc_revisions'):
+            conn.execute(f"DELETE FROM {table} WHERE file_id = ?", row)
+        conn.execute("DELETE FROM files WHERE id = ?", row)
+
+
+def _keep_awake(on):
+    """Keep Windows from sleeping while the calling thread builds -- two gaps
+    of 10 and 14 hours in one long build were the machine asleep. The screen
+    may still turn off, and the request ends with the thread."""
+    if sys.platform != 'win32':
+        return
+    try:
+        import ctypes
+        ES_CONTINUOUS, ES_SYSTEM_REQUIRED = 0x80000000, 0x00000001
+        ctypes.windll.kernel32.SetThreadExecutionState(
+            ES_CONTINUOUS | (ES_SYSTEM_REQUIRED if on else 0))
+    except Exception:
+        pass
 
 # Pattern phát hiện heading trong tài liệu kỹ thuật
 _HEAD_RE = re.compile(
@@ -1743,6 +1898,8 @@ class IndexWorker(QThread):
         self._stop       = False
         self._detail     = False     # render a page preview per file while on
         self.skip_log    = ''        # path of the report, once there is one
+        self.semantic_note = ''      # how far the vectors go, once a build has ended
+        self.build_notes = []        # about the build itself: one cut off before it, ...
 
     def stop(self):
         self._stop = True
@@ -1775,6 +1932,8 @@ class IndexWorker(QThread):
         self.preview.emit(name, png, chunks[:40], len(chunks))
 
     def run(self):
+        _keep_awake(True)
+        marker = progress_marker(self.db_file)
         try:
             conn = init_db(self.db_file)
 
@@ -1785,7 +1944,47 @@ class IndexWorker(QThread):
                 "INSERT INTO files (name, path, type, content) VALUES (?,?,?,?)",
                 ('BASE_PATH', self.folder_path, 'folder', '')
             )
+            # Skip logs and markers -- this build's, or another database's
+            # beside it -- indexed as documents by builds from before they
+            # were left out of the walk.
+            own = _own_files(self.db_file)
+            for (rel,) in cur.execute(
+                    "SELECT path FROM files WHERE name LIKE '%\\_skipped.txt' ESCAPE '\\' "
+                    "OR name LIKE '%\\_inprogress.json' ESCAPE '\\'").fetchall():
+                full = os.path.join(self.folder_path, rel)
+                if (os.path.normcase(os.path.abspath(full)) in own
+                        or _is_build_artefact(os.path.dirname(full), os.path.basename(full))):
+                    _forget(conn, rel)
+
+            # The last build was cut off: say so, and count it against the file
+            # it was reading. The count holds through any kind of build -- one
+            # that reads every file again would otherwise crash on it for ever --
+            # and goes when the file changes or is once read through.
+            build_notes = []   # for the skip log and the Done dialog
+            now = datetime.now().strftime('%Y-%m-%d %H:%M')
+            prev = interrupted_build(self.db_file)
+            if prev:
+                where = prev.get('file')
+                doing = {'read': 'reading', 'semantic': 'embedding'}.get(prev.get('phase'), '')
+                build_notes.append("The previous build did not finish (the app closed or crashed, "
+                             "or the power went)"
+                             + (f", while {doing} {where}." if where and doing else "."))
+                if where and prev.get('phase') == 'read':
+                    try:
+                        size = max(1, os.path.getsize(
+                            _fs_path(os.path.join(self.folder_path, where))) // 1024)
+                    except OSError:
+                        size = None
+                    row = cur.execute("SELECT crashes, size_kb FROM interrupted_reads "
+                                      "WHERE path = ?", (where,)).fetchone()
+                    crashes = row[0] + 1 if row and row[1] == size else 1
+                    cur.execute("INSERT OR REPLACE INTO interrupted_reads VALUES (?,?,?,?)",
+                                (where, crashes, size, now))
+            suspects = {p: (n, kb) for p, n, kb in
+                        cur.execute("SELECT path, crashes, size_kb FROM interrupted_reads")}
             conn.commit()
+            started = now
+            _mark(marker, started=started, file=None, phase='start')
 
             indexed_state = get_indexed_state(conn) if self.incremental else {}
 
@@ -1800,6 +1999,9 @@ class IndexWorker(QThread):
                 for fname in fnames:
                     if _JUNK_RE.match(fname):
                         junk += 1
+                        continue
+                    if (os.path.normcase(os.path.abspath(os.path.join(root, fname))) in own
+                            or _is_build_artefact(root, fname)):
                         continue
                     _e = os.path.splitext(fname)[1].lower()
                     if _e in supported:
@@ -1829,6 +2031,49 @@ class IndexWorker(QThread):
             last_preview = 0.0  # throttle the Detail preview so it never slows indexing
             _quiet_mupdf()
 
+            # Semantic, file by file: a file's chunks are embedded as soon as they
+            # are written, and committed with them. The vectors used to be made
+            # only after the last file, so a build stopped anywhere before that --
+            # a 36-hour one, stopped near its end -- kept not one of them. A file
+            # an incremental build skips is topped up as it passes, so an older
+            # database fills in file by file too, and a stop keeps what was done.
+            semantic, live_semantic = None, False
+            if self.semantic:
+                try:
+                    import core.semantic as semantic
+                    live_semantic = semantic.available()
+                    if not live_semantic:
+                        failures.append((self.db_file,
+                                         'semantic skipped: fastembed not installed'))
+                except Exception as e:
+                    failures.append((self.db_file, f'semantic unavailable: '
+                                                   f'{type(e).__name__}: {e}'))
+
+            def embed(file_id, n, name):
+                """Embed one file's chunks that have no vector; how many were done.
+                The first failure is reported and ends it for this build -- the
+                file itself stays indexed, and a later build tops it up."""
+                nonlocal live_semantic
+                try:
+                    return semantic.embed_file(
+                        conn, file_id, should_stop=lambda: self._stop,
+                        progress=lambda d, t: self.progress.emit(
+                            n, total, f"Semantic {d}/{t} · {name}"))
+                except Exception as e:
+                    live_semantic = False
+                    failures.append((self.db_file,
+                                     f'semantic embedding failed at {name}: '
+                                     f'{type(e).__name__}: {e} -- the files from here '
+                                     f'on have no vectors until a later build'))
+                    return 0
+
+            last_commit = time.monotonic()
+
+            def commit():
+                nonlocal dirty, last_commit
+                conn.commit()
+                dirty, last_commit = 0, time.monotonic()
+
             for idx, full_path in enumerate(all_files):
                 if self._stop:
                     break
@@ -1848,11 +2093,39 @@ class IndexWorker(QThread):
                     self.progress.emit(_n, total, f"OCR {what} {done}/{of} · {_name}")
 
                 # Incremental: skip only while the file on disk still matches
-                # the row already in the index -- same size, not modified since.
-                if self.incremental and _is_unchanged(full_path,
-                                                      indexed_state.get(rel_path)):
-                    skipped += 1
-                    continue
+                # the row already in the index -- same size, not modified since
+                # -- and its drawings were not read coarser than asked now.
+                state = indexed_state.get(rel_path)
+                if self.incremental and _is_unchanged(full_path, state):
+                    if not _finer_drawings(full_path, state, self.drawing_dpi):
+                        skipped += 1
+                        if live_semantic:
+                            _mark(marker, started=started, file=rel_path, phase='semantic',
+                                  n=idx + 1, total=total)
+                            if embed(state[3], idx + 1, name):
+                                commit()         # a file's vectors, kept as they come
+                        continue
+                    self.progress.emit(idx + 1, total,
+                                       f"Drawings again at {self.drawing_dpi} dpi · {name}")
+
+                # A file the app quit on CRASHES_TO_SKIP times is left out until
+                # it changes.
+                crash = suspects.get(rel_path)
+                if crash and crash[0] >= CRASHES_TO_SKIP:
+                    try:
+                        size_now = max(1, os.path.getsize(_fs_path(full_path)) // 1024)
+                    except OSError:
+                        size_now = None
+                    if size_now == crash[1]:
+                        skipped += 1
+                        failures.append((full_path, (
+                            f"not read: the app quit {crash[0]} times while reading it "
+                            f"(a damaged file can crash the PDF or OCR library). It is "
+                            f"read again once the file changes -- open and save it again, "
+                            f"or replace it.")))
+                        continue
+                _mark(marker, started=started, file=rel_path, phase='read',
+                      n=idx + 1, total=total)
 
                 _ext = os.path.splitext(full_path)[1].lower()
 
@@ -1861,10 +2134,10 @@ class IndexWorker(QThread):
                     file_size_kb = max(1, os.path.getsize(_fs_path(full_path)) // 1024)
                     meta         = parse_metadata(os.path.basename(full_path))
 
-                    places = {}
+                    places, info = {}, {}
                     content, is_scanned, ocr, page_count, pages = extract_pages(
                         full_path, self.use_ocr, on_page=on_page,
-                        drawing_dpi=self.drawing_dpi, places=places)
+                        drawing_dpi=self.drawing_dpi, places=places, info=info)
                     notes = _mupdf_notes()
                     if notes:
                         pdf_notes.append((full_path, notes))
@@ -1885,12 +2158,20 @@ class IndexWorker(QThread):
                         conn,
                         os.path.basename(full_path),
                         rel_path, ext, content,
-                        meta, is_scanned, ocr, page_count, file_size_kb
+                        meta, is_scanned, ocr, page_count, file_size_kb,
+                        info.get('drawing_dpi', 0)
                     )
+                    if rel_path in suspects:     # read through this time: not its fault
+                        cur.execute("DELETE FROM interrupted_reads WHERE path = ?", (rel_path,))
+                    embedded = 0
                     if file_id:
                         insert_chunks(conn, file_id, content, pages,
                                       _is_drawing_file(os.path.basename(full_path)))
                         insert_tag_boxes(conn, file_id, places)
+                        if live_semantic:
+                            _mark(marker, started=started, file=rel_path, phase='semantic',
+                                  n=idx + 1, total=total)
+                            embedded = embed(file_id, idx + 1, name)
                     added += 1
                     if self._detail and (time.monotonic() - last_preview) > 0.4:
                         last_preview = time.monotonic()
@@ -1899,9 +2180,13 @@ class IndexWorker(QThread):
                         except Exception:
                             pass
                     dirty += 1
-                    if dirty >= COMMIT_EVERY:
-                        conn.commit()
-                        dirty = 0
+                    # Committed at once when the file was read by OCR or
+                    # embedded -- minutes of work a crash or a power cut would
+                    # otherwise take with it, beside a commit's milliseconds --
+                    # and never more than COMMIT_SECONDS after the last commit.
+                    if (dirty >= COMMIT_EVERY or ocr or embedded
+                            or time.monotonic() - last_commit >= COMMIT_SECONDS):
+                        commit()
                 except IndexingStopped:
                     # Stop pressed mid-document: leave it out entirely, so an
                     # incremental run reads it again instead of skipping a
@@ -1936,41 +2221,64 @@ class IndexWorker(QThread):
             except Exception:
                 pass
 
-            # Semantic layer, last: embed every chunk that has no vector yet, so an
-            # incremental run only tops up. A load/model failure is reported but does
-            # not undo the keyword index already written.
-            if self.semantic and not self._stop:
-                try:
-                    import core.semantic as semantic
-                    if not semantic.available():
-                        failures.append((self.db_file,
-                                         'semantic skipped: fastembed not installed'))
-                    else:
-                        self.progress.emit(0, 0, 'Embedding chunks (semantic)...')
+            # Semantic, the rest: chunks no file of this build embedded -- files
+            # outside its filter, or ones left without vectors that it did not
+            # pass. Not after a stop: what is done is kept, and the next build
+            # with Semantic ticked carries on. Either way the build says how far
+            # the vectors go, so a database is never taken for searchable by
+            # meaning when it is not.
+            self.semantic_note = ''
+            if semantic is not None:
+                if live_semantic and not self._stop:
+                    try:
+                        self.progress.emit(0, 0, 'Embedding the remaining chunks (semantic)...')
                         semantic.build_embeddings(
                             conn,
                             progress=lambda d, t: self.progress.emit(
                                 d, t, f'Embedding chunks {d}/{t}'),
                             should_stop=lambda: self._stop,
                         )
-                        conn.commit()
-                except Exception as e:
-                    failures.append((self.db_file,
-                                     f'semantic embedding failed: '
-                                     f'{type(e).__name__}: {e}'))
+                    except Exception as e:
+                        failures.append((self.db_file,
+                                         f'semantic embedding failed: '
+                                         f'{type(e).__name__}: {e}'))
+                try:
+                    have, of = semantic.coverage(conn)
+                    if have:
+                        semantic.write_meta(conn)
+                    self.semantic_note = f"Semantic: {have:,} of {of:,} chunks have vectors."
+                    if have < of:
+                        self.semantic_note += (
+                            " The rest are added by the next build with Semantic ticked;"
+                            " with Incremental it only fills in what is missing.")
+                except Exception:
+                    pass
 
-            self._write_skip_log(failures, unsupported, junk, pdf_notes)
+            if 'The rest' in self.semantic_note:
+                build_notes.append(self.semantic_note)
+            self.build_notes = build_notes
+            self._write_skip_log(failures, unsupported, junk, pdf_notes, build_notes)
             conn.close()
             self.finished.emit(added, skipped)
 
         except Exception as e:
             self.error.emit(str(e))
+        finally:
+            # Ended, however it ended: no longer "cut off". A crash or a power
+            # cut never gets here, and leaves the marker for the next build.
+            try:
+                os.remove(marker)
+            except OSError:
+                pass
+            _keep_awake(False)
 
-    def _write_skip_log(self, failures, unsupported, junk=0, pdf_notes=()):
+    def _write_skip_log(self, failures, unsupported, junk=0, pdf_notes=(), notes=()):
         """Write what did not make it into the index, beside the database, and
-        the PDFs MuPDF had to work around (pdf_notes) -- still indexed."""
+        the PDFs MuPDF had to work around (pdf_notes) -- still indexed -- after
+        notes about the build itself: one cut off before it, vectors still
+        missing."""
         self.skip_log = ''
-        if not failures and not unsupported and not junk and not pdf_notes:
+        if not (failures or unsupported or junk or pdf_notes or notes):
             return
         path = os.path.splitext(self.db_file)[0] + '_skipped.txt'
         try:
@@ -1978,6 +2286,8 @@ class IndexWorker(QThread):
                 fh.write(f"Source folder : {self.folder_path}\n")
                 fh.write(f"Written       : "
                          f"{datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n")
+                for note in notes:
+                    fh.write(f"{note}\n\n")
                 if unsupported:
                     fh.write("Formats with no extractor (never indexed):\n")
                     for ext, n in sorted(unsupported.items(), key=lambda kv: -kv[1]):
@@ -2205,7 +2515,9 @@ class MainWindow(QMainWindow):
         self.cmb_drawing_dpi.addItem("600 dpi (most tags)", 600)
         self.cmb_drawing_dpi.addItem("300 dpi (faster)", 300)
         self.cmb_drawing_dpi.setToolTip(
-            "Measured on an A1 P&ID: 600 dpi found 92 tags, 300 dpi 79.")
+            "Measured on an A1 P&ID: 600 dpi found 92 tags, 300 dpi 79.\n"
+            "With Incremental, drawings read at 300 dpi are read again when 600 is\n"
+            "chosen later; nothing else is.")
         self.chk_ocr.toggled.connect(self.chk_drawings.setEnabled)
         self.chk_drawings.toggled.connect(self.cmb_drawing_dpi.setEnabled)
         self.cmb_drawing_dpi.setEnabled(False)
@@ -2398,13 +2710,21 @@ class MainWindow(QMainWindow):
                                WHERE name != 'BASE_PATH'
                                AND (content IS NULL OR length(trim(content))=0)""")
                 empty = cur.fetchone()[0]
+                # How far the semantic vectors go: a database is searchable by
+                # meaning only as far as this says.
+                vectors = ''
+                if cur.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' "
+                               "AND name = 'chunk_vectors'").fetchone():
+                    import core.semantic as semantic
+                    have, of = semantic.coverage(conn)
+                    vectors = f"  |  semantic {have:,}/{of:,} chunks"
                 conn.close()
 
                 self.statusBar().showMessage(
                     f"Opened: {os.path.basename(path)}  |  "
                     f"{total} files indexed  |  "
                     f"{scanned} scanned/OCR  |  "
-                    f"{empty} empty (not extracted)"
+                    f"{empty} empty (not extracted)" + vectors
                 )
 
                 # Nếu folder tự động điền được → thông báo sẵn sàng bổ sung
@@ -2414,6 +2734,15 @@ class MainWindow(QMainWindow):
                 elif row:
                     self.lbl_current.setText(
                         "⚠  Folder cũ không tìm thấy trên máy này. Dùng 'Browse Folder' hoặc 'Change Base Path'.")
+
+                # The last build was cut off: carry on from it by default.
+                cut = interrupted_build(path)
+                if cut:
+                    self.chk_incr.setChecked(True)
+                    self.lbl_current.setText(
+                        f"⚠  The last build of this database did not finish "
+                        f"({_where_cut_off(cut)}). Incremental is ticked: Start carries on "
+                        f"from where it stopped.")
 
             except Exception as e:
                 self.statusBar().showMessage(f"Opened (could not read stats): {e}")
@@ -2595,6 +2924,8 @@ class MainWindow(QMainWindow):
             return
         if not path.endswith('.db'):
             path += '.db'
+        if not self._carry_on_check(path):
+            return
         self.db_file = path
         self.db_input.setText(path)
         self.btn_index.setEnabled(False)
@@ -2705,6 +3036,33 @@ class MainWindow(QMainWindow):
             return self.cmb_drawing_dpi.currentData()
         return 0
 
+    def _carry_on_check(self, db_path) -> bool:
+        """Before a build: when the last one of this database was cut off and
+        Incremental is not ticked, ask whether to carry on from it or to read
+        every file again. False when the build should not start."""
+        cut = interrupted_build(db_path)
+        if not cut or self.chk_incr.isChecked():
+            return True
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Warning)
+        box.setWindowTitle("The last build did not finish")
+        box.setText(
+            f"The last build of {os.path.basename(db_path)} stopped unexpectedly "
+            f"({_where_cut_off(cut)}).\n\n"
+            "Carry on from where it stopped? The files already in the database are "
+            "skipped (Incremental). Reading every file again takes as long as the "
+            "first build did. Either way, a file the app has quit on twice is left "
+            "out until it changes.")
+        carry = box.addButton("Carry on", QMessageBox.AcceptRole)
+        again = box.addButton("Read every file again", QMessageBox.DestructiveRole)
+        box.addButton(QMessageBox.Cancel)
+        box.setDefaultButton(carry)
+        box.exec()
+        if box.clickedButton() is carry:
+            self.chk_incr.setChecked(True)
+            return True
+        return box.clickedButton() is again
+
     def start_index(self):
         if not self.db_file:
             QMessageBox.warning(self, "Error", "Please create or open a database first.")
@@ -2712,6 +3070,8 @@ class MainWindow(QMainWindow):
         folder = self.folder_input.text()
         if not folder or not os.path.isdir(folder):
             QMessageBox.warning(self, "Error", "Please select a valid folder.")
+            return
+        if not self._carry_on_check(self.db_file):
             return
 
         self.btn_index.setEnabled(False)
@@ -2758,9 +3118,14 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
+        semantic_note = getattr(self.worker, 'semantic_note', '') if self.worker else ''
+        # The build's other notes -- one cut off before it -- the semantic one is shown apart.
+        others = [n for n in (getattr(self.worker, 'build_notes', []) if self.worker else [])
+                  if n != semantic_note]
         self.statusBar().showMessage(
             f"Indexing complete.  Added: {added}  |  Skipped: {skipped}  |  "
-            f"Total chunks: {chunk_count:,}")
+            f"Total chunks: {chunk_count:,}"
+            + (f"  |  {semantic_note.split('.')[0]}" if semantic_note else ""))
         log = getattr(self.worker, 'skip_log', '') if self.worker else ''
         QMessageBox.information(self, "Done",
             f"Indexing complete.\n\n"
@@ -2768,6 +3133,8 @@ class MainWindow(QMainWindow):
             f"  Files skipped : {skipped}\n"
             f"  Chunks created: {chunk_count:,}\n\n"
             f"Chunks giúp Cowork/Claude tìm kiếm chính xác hơn và tiết kiệm token."
+            + (f"\n\n{semantic_note}" if semantic_note else "")
+            + "".join(f"\n\n{n}" for n in others)
             + (f"\n\nWhat was left out is listed in:\n{log}" if log else ""))
 
     def _on_error(self, msg):

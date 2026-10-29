@@ -115,27 +115,17 @@ def embed_query(text):
 
 # ── Index-side: fill chunk_vectors for chunks that do not have one yet ────────
 
-def build_embeddings(conn, progress=None, should_stop=None, batch=64):
-    """Embed every chunk missing a vector and record the model used.
+_MISSING = ("SELECT c.id, c.heading, c.content FROM chunks c "
+            "LEFT JOIN chunk_vectors v ON v.chunk_id = c.id WHERE v.chunk_id IS NULL")
 
-    conn is an open read-write connection to a Create DB database whose schema
-    already carries chunk_vectors / semantic_meta (init_db creates them). Returns
-    how many chunks were embedded. Safe to re-run: it only touches chunks whose
-    vector is absent, so an incremental index tops up rather than redoing the lot.
-    """
+
+def _embed_rows(conn, rows, should_stop=None, progress=None, batch=64, commit=True) -> int:
+    """Embed rows of (chunk id, heading, content) into chunk_vectors, batch by
+    batch, and return how many were done. Between batches should_stop() is
+    asked and progress(done, of) told; what is done before a stop stays."""
     cur = conn.cursor()
-    rows = cur.execute(
-        "SELECT c.id, c.heading, c.content FROM chunks c "
-        "LEFT JOIN chunk_vectors v ON v.chunk_id = c.id "
-        "WHERE v.chunk_id IS NULL"
-    ).fetchall()
-    total = len(rows)
-    if total == 0:
-        _write_meta(conn)
-        return 0
-
     done = 0
-    for i in range(0, total, batch):
+    for i in range(0, len(rows), batch):
         if should_stop is not None and should_stop():
             break
         part = rows[i:i + batch]
@@ -145,15 +135,49 @@ def build_embeddings(conn, progress=None, should_stop=None, batch=64):
             "INSERT OR REPLACE INTO chunk_vectors (chunk_id, vector) VALUES (?, ?)",
             [(cid, v.tobytes()) for (cid, _, _), v in zip(part, vecs)],
         )
-        conn.commit()
+        if commit:
+            conn.commit()
         done += len(part)
         if progress is not None:
-            progress(done, total)
-    _write_meta(conn)
+            progress(done, len(rows))
     return done
 
 
-def _write_meta(conn):
+def embed_file(conn, file_id, should_stop=None, progress=None) -> int:
+    """Embed the chunks of one file that have no vector yet; returns how many.
+
+    Create DB calls it for each file as it goes, so the vectors of every file
+    finished are kept when the build is stopped: they used to be made only
+    once every file had been read, and a 36-hour build stopped near its end
+    had 140,248 chunks and not one vector. Nothing is committed here -- the
+    caller commits the vectors together with the file's chunks."""
+    rows = conn.execute(_MISSING + " AND c.file_id = ?", (file_id,)).fetchall()
+    return _embed_rows(conn, rows, should_stop, progress, commit=False)
+
+
+def build_embeddings(conn, progress=None, should_stop=None, batch=64):
+    """Embed every chunk missing a vector and record the model used.
+
+    conn is an open read-write connection to a Create DB database whose schema
+    already carries chunk_vectors / semantic_meta (init_db creates them). Returns
+    how many chunks were embedded. Safe to re-run: it only touches chunks whose
+    vector is absent, so an incremental index tops up rather than redoing the lot.
+    Each batch is committed, so a stop keeps what was done.
+    """
+    done = _embed_rows(conn, conn.execute(_MISSING).fetchall(),
+                       should_stop, progress, batch, commit=True)
+    write_meta(conn)
+    return done
+
+
+def coverage(conn) -> tuple:
+    """(chunks that have a vector, all chunks) in an open database."""
+    return (conn.execute("SELECT COUNT(*) FROM chunk_vectors v "
+                         "JOIN chunks c ON c.id = v.chunk_id").fetchone()[0],
+            conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0])
+
+
+def write_meta(conn):
     cur = conn.cursor()
     cur.execute("INSERT OR REPLACE INTO semantic_meta (key, value) VALUES ('model', ?)",
                 (MODEL_NAME,))

@@ -44,7 +44,9 @@ CREATE TABLE files (
                                   --     (missing in databases built before 2026-10-23)
     page_count    INTEGER,
     file_size_kb  INTEGER,
-    indexed_date  TEXT
+    indexed_date  TEXT,
+    drawing_dpi   INTEGER         -- "OCR drawings" resolution the sheets were read at; 0 = none read,
+                                  --     -1 = read before it was recorded (missing before 2026-10-25)
 )
 ```
 
