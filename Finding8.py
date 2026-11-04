@@ -111,6 +111,27 @@ if __name__ == "__main__" and len(sys.argv) > 1 and sys.argv[1] in _HELPER_FLAGS
     _helper.main()
     sys.exit(0)
 
+# ── Frozen-build self-test (--selftest) ───────────────────────────────
+# Imports the heavy optional dependencies the way the app would and prints one
+# JSON object {module: "ok <ver>" | "FAIL: ..."}, then exits non-zero if any
+# failed. Lets a packaged build be checked without driving the GUI -- above all
+# that PyMuPDF (fitz), which is shipped beside the exe instead of compiled in,
+# imports at runtime. Runs before Qt, like the helper flags above.
+if __name__ == "__main__" and len(sys.argv) > 1 and sys.argv[1] == "--selftest":
+    import json, importlib
+    _report = {}
+    for _m in ("fitz", "pymupdf", "fastembed", "onnxruntime", "rapidocr_onnxruntime",
+               "pdfplumber", "pytesseract", "PIL", "docx", "pptx", "win32com.client",
+               "bs4", "rapidfuzz", "markdown_it", "pygments", "playwright",
+               "notebooklm", "requests", "openpyxl"):
+        try:
+            _obj = importlib.import_module(_m)
+            _report[_m] = ("ok " + str(getattr(_obj, "__version__", ""))).strip()
+        except Exception as _e:
+            _report[_m] = f"FAIL: {type(_e).__name__}: {_e}"
+    print(json.dumps(_report, ensure_ascii=True))
+    sys.exit(0 if all(v.startswith("ok") for v in _report.values()) else 1)
+
 # ── CUDA DLL path for onnxruntime-gpu (semantic search + PaddleOCR) ───
 # onnxruntime's CUDA provider loads cublas/cudnn/cudart at session time through
 # the native loader, which only finds them on PATH -- os.add_dll_directory is not
