@@ -178,6 +178,11 @@ def locate(db_path: str, abs_path: str, rel_path: str, query: str,
     try:
         row = conn.execute("SELECT id FROM files WHERE path = ?", (rel_path,)).fetchone()
         spots = _box_spots(conn, row[0], globs) if row else []
+        # A signal tag (...XQ01) is held in the page text, but on a drawing its
+        # box is stored under the equipment tag (...AA501). With no box of its
+        # own, mark that one -- it is where the instrument sits on the sheet.
+        if row and not spots:
+            spots = _box_spots(conn, row[0], kks.base_globs(query))
     finally:
         conn.close()
     if ext in PDF:

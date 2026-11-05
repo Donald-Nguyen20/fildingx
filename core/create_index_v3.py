@@ -1052,13 +1052,20 @@ def extract_pages(file_path, use_ocr=True, on_page=None, drawing_dpi=0, places=N
             # A mostly-text PDF whose scanned pages fail keeps its text layer.
             try:
                 if not sheets and _is_drawing_file(os.path.basename(file_path)):
-                    # Without "OCR drawings", a drawing only has its title block read.
+                    # A drawing with no sheet large enough for _sheet_kind to
+                    # catch -- an A4 schematic, a small scanned diagram. Its
+                    # tags are drawn on the sheet, not in a text layer.
                     if not scanned:
                         return text, 0, 0, page_count, pages
-                    tb = _ocr_titleblock(file_path)
-                    if tb.startswith('[OCR Error:'):
-                        return tb, 1, 0, page_count, None
-                    return tb, 1, 1, page_count, [(1, tb)]
+                    if not drawing_dpi:
+                        # "OCR drawings" off: a drawing keeps only its title block.
+                        tb = _ocr_titleblock(file_path)
+                        if tb.startswith('[OCR Error:'):
+                            return tb, 1, 0, page_count, None
+                        return tb, 1, 1, page_count, [(1, tb)]
+                    # "OCR drawings" on: OCR every page as a sheet, at the chosen
+                    # resolution capped per page to its own scan dpi.
+                    sheets = {no: 'scan' for no, _ in pages}
                 by_page = {}
                 rest = set(thin) - set(sheets)
                 if rest:
@@ -1283,25 +1290,50 @@ def get_indexed_state(conn):
 def _finer_drawings(full_path, state, dpi):
     """True when a file the index already holds unchanged should still be read
     again: its drawing sheets were read at a lower "OCR drawings" resolution
-    than dpi, and reading them at dpi can see more. A drawn sheet always can;
-    a scanned one only up to the resolution it was scanned at, so a 300-dpi
-    scan is not read again for nothing. Unreadable counts as yes."""
+    than dpi -- including not at all (drawing_dpi 0), a drawing that was
+    indexed with "OCR drawings" off and so kept only its title block -- and
+    reading them at dpi can see more. A drawn sheet always can; a scanned one
+    only up to the resolution it was scanned at, so a 300-dpi scan is not read
+    again for nothing. The 0 case is limited to files whose name marks them a
+    drawing, so unchanged text documents and scanned reports (also 0) are not
+    reopened on every incremental run. Unreadable counts as yes."""
     was = state[2] if state and len(state) > 2 else 0
-    if not dpi or not was:            # "OCR drawings" off, or no sheet was read
+    if not dpi or not full_path.lower().endswith('.pdf'):   # "OCR drawings" off
         return False
     if was < 0:
         was = UNRECORDED_DRAWING_DPI
-    if was >= dpi or not full_path.lower().endswith('.pdf'):
+    drawing_name = _is_drawing_file(os.path.basename(full_path))
+    if not was:
+        # Its drawing sheets were never read. Read them now, but only for a
+        # file the name marks a drawing -- otherwise every unchanged text
+        # document and scanned report at drawing_dpi 0 would be opened and its
+        # pages scanned on every incremental run, for nothing.
+        if not drawing_name:
+            return False
+    elif was >= dpi:
         return False
     try:
         import fitz
-        drawing_name = _is_drawing_file(os.path.basename(full_path))
         with fitz.open(_fs_path(full_path)) as pdf:
-            for page in pdf:
-                kind = _sheet_kind(pdf, page, page.get_text('text'), drawing_name)
+            pages, any_sheet = [], False
+            for i in range(pdf.page_count):
+                page = pdf[i]
+                t = page.get_text('text')
+                pages.append((i + 1, t))
+                kind = _sheet_kind(pdf, page, t, drawing_name)
+                if kind:
+                    any_sheet = True
                 if kind == 'vector' or (kind == 'scan' and
                                         _scan_dpi(page, dpi) > _scan_dpi(page, was)):
                     return True
+            # A drawing with no sheet _sheet_kind catches (an A4 schematic): the
+            # build OCRs every page as a scan when "OCR drawings" is on, so read
+            # it again when those scans can be read finer than they were.
+            if drawing_name and not any_sheet:
+                thin = scanned_pages(pages)
+                if mostly_scanned(len(thin), len(pages)):
+                    return any(_scan_dpi(pdf[no - 1], dpi) > _scan_dpi(pdf[no - 1], was)
+                               for no in thin)
         return False
     except Exception:
         return True

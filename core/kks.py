@@ -59,6 +59,26 @@ def search_globs(text: str) -> list:
     return []
 
 
+def base_globs(text: str) -> list:
+    """GLOB patterns for the equipment tag inside a typed signal tag.
+
+    A drawing sheet stores a tag's box under its equipment part
+    ("10LCJ11AA501"); the signal part ("10LCJ11AA501XQ01") is only in the page
+    text. So when a signal tag finds no box of its own, its equipment tag's box
+    is the place to mark. Mirrors search_globs' unit handling. [] when text is
+    not a tag that carries a signal part to drop.
+    """
+    base = re.fullmatch(
+        rf'((?:00|10|20)?{_L}{{3}}\d{{2}}{_L}{{2}}\d{{3}}){_L}{{2}}\d{{2}}',
+        norm(text))
+    if not base:
+        return []
+    core = base.group(1)
+    if core[:2] in UNITS:
+        return [core + '*']
+    return [unit + core + '*' for unit in UNITS]
+
+
 # ── OCR misreads of a tag ────────────────────────────────────────────────────
 # OCR swaps digits and look-alike letters: "1OHLV51" for 10HLV51, "LOPGE87 CT501"
 # for 10PGE87 CT501, "CT5O1" for CT501. KKS has no I or O and a unit prefix is
