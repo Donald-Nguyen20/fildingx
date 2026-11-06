@@ -12,8 +12,8 @@ CLAUDE_URL = "https://claude.ai"
 
 
 def _get_paths():
-    from paths import APP_DIR
-    base = Path(APP_DIR) / "claude_data"
+    from paths import DATA_DIR
+    base = Path(DATA_DIR) / "claude_data"
     base.mkdir(parents=True, exist_ok=True)
     storage  = base / "storage_state.json"
     profile  = base / "browser_profile"

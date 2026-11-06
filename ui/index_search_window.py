@@ -32,7 +32,7 @@ from core.ai_grouper import GroupWorker
 from ui import themes
 from ui.hud_widgets import qss_hud_metal_header_feel, qss_white_results
 
-_DB_LIST_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "db_list.json")
+_DB_LIST_FILE = paths.DB_LIST_FILE
 
 # How many rows one database may contribute to a search.
 #

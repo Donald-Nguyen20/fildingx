@@ -39,7 +39,7 @@ Two departures from the original, both about not writing to the plant's data:
       which is ~/.tdesigner_index.db -- shared with T_Designer_Lite itself, so
       the two would evict each other and rebuild on every switch. Callers here
       pass out_path= instead; logic_query.py names it after a hash of the DCS
-      folder and keeps it in APP_DIR, one index per unit.
+      folder and keeps it in the app's data dir (DATA_DIR), one index per unit.
 
 Everything else is left as it came, so that this copy stays a copy.
 """

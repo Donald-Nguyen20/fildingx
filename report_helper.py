@@ -36,12 +36,12 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Cm, Pt, RGBColor
 
-# Output directory — luôn nằm CẠNH app (cùng cấp .exe), không nằm trong thư mục
-# đóng gói (_internal của PyInstaller). Khi chạy dev thì nằm cạnh source.
-# paths.APP_DIR xử lý cả PyInstaller lẫn Nuitka.
+# Output directory -- in paths.DATA_DIR: beside the program when packaged
+# (PyInstaller or Nuitka), the repo root from source, so an update that replaces
+# the program keeps the reports.
 import paths
-_APP_BASE = Path(paths.APP_DIR)
-REPORTS_DIR = _APP_BASE / "reports"
+_DATA_BASE = Path(paths.DATA_DIR)
+REPORTS_DIR = _DATA_BASE / "reports"
 REPORTS_DIR.mkdir(exist_ok=True)
 
 

@@ -51,10 +51,11 @@ CONFIG_NAME = "llm_config.json"
 
 
 def get_config_path() -> str:
-    # APP_DIR is the folder beside the .exe when packaged (PyInstaller or Nuitka)
-    # and the repo root from source -- the config stays editable without rebuilding.
+    # DATA_DIR sits beside the program when packaged (above _internal\ for Nuitka)
+    # and is the repo root from source, so the API keys survive an update that
+    # replaces the program and stay editable.
     import paths
-    return str(Path(paths.APP_DIR) / CONFIG_NAME)
+    return str(Path(paths.DATA_DIR) / CONFIG_NAME)
 
 
 def _atomic_write_json(path: str, data: Dict[str, Any]) -> None:

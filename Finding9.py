@@ -1,11 +1,11 @@
 r"""
-Finding8.py — Entry point.
+Finding9.py — Entry point.
 
 Build:
 
 
   
-pyinstaller --noconfirm --clean --onedir --windowed --name "Finding9.6.2" "Finding8.py" --icon "icon.ico" `
+pyinstaller --noconfirm --clean --onedir --windowed --name "Finding9.6.2" "Finding9.py" --icon "icon.ico" `
   --add-data "$env:LOCALAPPDATA\ms-playwright\chromium-1208;ms-playwright\chromium-1208" `
   --add-data "$env:LOCALAPPDATA\ms-playwright\ffmpeg-1011;ms-playwright\ffmpeg-1011" `
   --add-data "$env:LOCALAPPDATA\ms-playwright\winldd-1007;ms-playwright\winldd-1007" `
@@ -43,10 +43,19 @@ pyinstaller --noconfirm --clean --onedir --windowed --name "Finding9.6.2" "Findi
   --add-data "DATABRAIN.md;." `
   --add-data "ui/dcs_logic/*.json;ui/dcs_logic"
 
-After the build, copy DATABRAIN.md beside the .exe as well: the --add-data copy
-above is only a fallback inside the bundle, and the one outside can be edited
-without rebuilding. db_query.py and logic_query.py no longer need copying --
-the exe runs them itself through --db-query / --logic-query.
+  # Nuitka, CPU -> build_nuitka\<release name>\   (asks for the name)
+.\build_nuitka.ps1
+
+# Nuitka, GPU -> build_nuitka\gpu\<release name>\   (+~2.4 GB nvidia cu12)
+.\build_nuitka.ps1 -Gpu
+
+PyInstaller only: after the build, copy DATABRAIN.md beside the .exe as well:
+the --add-data copy above is only a fallback inside the bundle, and the one
+outside can be edited without rebuilding. A Nuitka build needs no copying:
+DATABRAIN.md ships inside _internal\, which is the folder holding its .exe.
+db_query.py and logic_query.py need no copying either -- the exe runs them
+itself through --db-query / --logic-query. Check any packaged build with
+"<exe> --selftest" (imports and resolved paths, one JSON line).
 
 Create DB (the Tools panel) runs core/create_index_v3.py, which OCRs
 scanned PDFs through pytesseract. pytesseract is only a wrapper: it calls
@@ -76,16 +85,17 @@ Without it OCR still works, on the Chinese recogniser, and Create DB says so.
 import os
 import sys
 
-# ── Playwright browser path khi chạy từ exe đã đóng gói ──────────
-# PyInstaller giải nén data vào _MEIPASS; Nuitka đặt cạnh binary (containing_dir,
-# fallback sys.argv[0]). Giữ nội tuyến, không import paths, để nhánh CLI helper
-# bên dưới vẫn khởi động nhẹ.
+# ── Playwright browser path in a packaged build ──────────────────
+# PyInstaller unpacks data under _MEIPASS; Nuitka puts it beside the exe, which
+# __compiled__.process_exe names (containing_dir is one level too high -- see
+# paths._nuitka_exe). Inline rather than importing paths, so the CLI helper
+# branch below stays light.
 if getattr(sys, "frozen", False) or "__compiled__" in globals():
     _internal = getattr(sys, "_MEIPASS", None)
     if _internal is None:                       # Nuitka
         _comp = globals().get("__compiled__")
-        _internal = (getattr(_comp, "containing_dir", "") if _comp else "") \
-            or os.path.dirname(os.path.abspath(sys.argv[0]))
+        _internal = os.path.dirname(os.path.abspath(
+            getattr(_comp, "process_exe", None) or sys.argv[0]))
     _browsers = os.path.join(_internal, "ms-playwright")
     if os.path.isdir(_browsers):
         os.environ["PLAYWRIGHT_BROWSERS_PATH"] = _browsers
@@ -129,6 +139,19 @@ if __name__ == "__main__" and len(sys.argv) > 1 and sys.argv[1] == "--selftest":
             _report[_m] = ("ok " + str(getattr(_obj, "__version__", ""))).strip()
         except Exception as _e:
             _report[_m] = f"FAIL: {type(_e).__name__}: {_e}"
+    # The paths a packaged build resolves. Nuitka once put these one folder too
+    # high and every import above still passed, so check the files themselves.
+    import paths
+    if paths.is_frozen():
+        _brain = os.path.join(paths.bundle_dir() or paths.APP_DIR, "DATABRAIN.md")
+        _ocr = paths.ocr_rec_model()
+        _web = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "")
+        for _k, _p, _ok in (("program_exe", paths.program_exe(), os.path.isfile(paths.program_exe())),
+                            ("DATABRAIN.md", _brain, os.path.isfile(_brain)),
+                            ("ocr_model", _ocr or "", bool(_ocr)),
+                            ("ms-playwright", _web, os.path.isdir(_web))):
+            _report[_k] = ("ok " + _p) if _ok else f"FAIL: not found ({_p or 'unset'})"
+        _report["data_dir"] = "ok " + paths.DATA_DIR
     print(json.dumps(_report, ensure_ascii=True))
     sys.exit(0 if all(v.startswith("ok") for v in _report.values()) else 1)
 
@@ -152,6 +175,12 @@ if __name__ == "__main__":
     # to quit; the debugger's Stop does not go through SIGINT.
     import signal
     signal.signal(signal.SIGINT, signal.SIG_IGN)
+
+    # Config lives in DATA_DIR, beside the program rather than inside it, so an
+    # update that replaces the program keeps it; config dropped inside a Nuitka
+    # dist (beside the .exe) is lifted out to DATA_DIR once.
+    import paths
+    paths.migrate_user_data()
 
     app = QApplication(sys.argv)
     app.setStyleSheet(

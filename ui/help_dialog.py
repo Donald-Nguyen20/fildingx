@@ -388,7 +388,7 @@ class HelpDialog(QDialog):
         </ol>
         <div class="ok">
           <b>File báo cáo lưu ở đâu?</b> Thư mục <code>reports/</code> nằm <b>cạnh file chạy của app</b>
-          (cạnh .exe khi đã đóng gói, hoặc cạnh <code>Finding8.py</code> khi chạy từ source).
+          (cạnh .exe khi đã đóng gói, hoặc cạnh <code>Finding9.py</code> khi chạy từ source).
         </div>
 
         <h3>🔧 Work Pack — Gói chuẩn bị công việc</h3>

@@ -95,6 +95,8 @@ onefile-build/
 *.onefile-build/
 *.dist-info/
 *.build/
+build_nuitka/
+nuitka-crash-report.xml
 
 # ###########################################################################
 #   9) PYTHON PACKAGING

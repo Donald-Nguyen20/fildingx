@@ -17,9 +17,9 @@ import time
 from contextlib import closing
 from typing import Optional
 
-from paths import APP_DIR, db_query_cmd, logic_query_cmd
+from paths import DATA_DIR, db_query_cmd, logic_query_cmd
 
-_HISTORY_FILE = os.path.join(APP_DIR, "diagnosis_history.json")
+_HISTORY_FILE = os.path.join(DATA_DIR, "diagnosis_history.json")
 _HISTORY_MAX = 50
 
 

@@ -29,7 +29,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from paths import APP_DIR                                    # noqa: E402
+from paths import DATA_DIR                                   # noqa: E402
 from ui.dcs_logic import cond_tree, dbreader                 # noqa: E402
 from ui.dcs_logic import project_index, sheet_render         # noqa: E402
 from ui.dcs_logic import signal_graph                        # noqa: E402
@@ -82,14 +82,14 @@ def _dcs_dbs(folder: str) -> list[str]:
 
 
 def _index_for(dbs: list[str], folder: str) -> str:
-    """Signal index for this folder, kept beside the app.
+    """Signal index for this folder, kept in the app's writable data dir.
 
     Named after a hash of the folder so a second unit's databases get their own
     index instead of evicting this one on every switch, and kept out of the DCS
     folder itself, which holds the design masters and is not ours to write to.
     """
     tag = hashlib.sha1(os.path.abspath(folder).lower().encode()).hexdigest()[:8]
-    out = os.path.join(APP_DIR, "dcs_index_%s.db" % tag)
+    out = os.path.join(DATA_DIR, "dcs_index_%s.db" % tag)
     return project_index.ensure(dbs, out_path=out)
 
 
