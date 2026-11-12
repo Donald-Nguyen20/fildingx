@@ -31,6 +31,10 @@ IMAGES = ('.jpg', '.jpeg', '.png', '.tif', '.tiff')
 PREVIEW_DPI = 200      # a crop; a tag's letters are about 25 px tall at this
 CONTEXT = (150, 100)   # pt of page shown either side of a hit, across and down
 WHOLE_MAX_PX = 1600    # long side of a whole-page view
+# A view zoomed in past those is drawn again, finer, up to these: drawings are
+# OCR'd at 600 dpi at most, and 5000 px is about 70 MB once on screen.
+ZOOM_MAX_DPI = 600
+ZOOM_MAX_PX = 5000
 SCAN_PAGES_MAX = 40    # text-layer pages read looking for the keyword
 RECTS_MAX = 60         # boxes drawn on one page, for a common word
 MARK = (220, 38, 38)
@@ -202,10 +206,12 @@ def _draw(img, rects, to_px):
         d.rectangle([x0 - 5, y0 - 5, x1 + 5, y1 + 5], outline=MARK, width=3)
 
 
-def render(abs_path: str, spot: Spot, whole: bool = False) -> tuple:
+def render(abs_path: str, spot: Spot, whole: bool = False, scale: float = 1.0) -> tuple:
     """(rgb bytes, width, height) of the spot: the page around its first box,
     every box on it drawn in red -- or the whole page, for whole=True or a spot
-    with nothing pinned."""
+    with nothing pinned. scale > 1 draws it that much finer, for a zoomed-in
+    view, within ZOOM_MAX_DPI and ZOOM_MAX_PX; an image file is never drawn
+    finer than its own pixels."""
     from PIL import Image
     ext = os.path.splitext(abs_path)[1].lower()
     if ext in PDF:
@@ -221,7 +227,10 @@ def render(abs_path: str, spot: Spot, whole: bool = False) -> tuple:
                 x0, y0, x1, y1 = pts[0]
                 clip = fitz.Rect(x0 - CONTEXT[0], y0 - CONTEXT[1],
                                  x1 + CONTEXT[0], y1 + CONTEXT[1]) & R
-            zoom = min(PREVIEW_DPI / 72, WHOLE_MAX_PX / max(clip.width, clip.height, 1))
+            side = max(clip.width, clip.height, 1)
+            zoom = min(PREVIEW_DPI / 72, WHOLE_MAX_PX / side)
+            if scale > 1:
+                zoom = min(zoom * scale, ZOOM_MAX_DPI / 72, ZOOM_MAX_PX / side)
             pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), clip=clip, alpha=False)
             img = Image.frombytes('RGB', (pix.width, pix.height), pix.samples)
             _draw(img, pts, lambda r: ((r[0] - clip.x0) * zoom, (r[1] - clip.y0) * zoom,
@@ -244,7 +253,8 @@ def render(abs_path: str, spot: Spot, whole: bool = False) -> tuple:
             left, top = max(0, int(x0 - cx)), max(0, int(y0 - cy))
             page = page.crop((left, top, min(W, int(x1 + cx)), min(H, int(y1 + cy))))
         _draw(page, px, lambda r: (r[0] - left, r[1] - top, r[2] - left, r[3] - top))
-        scale = min(1.0, WHOLE_MAX_PX / max(page.size))
-        img = page.resize((max(1, int(page.width * scale)), max(1, int(page.height * scale))),
-                          Image.LANCZOS) if scale < 1 else page
+        side = max(page.size)
+        fit = min(1.0, WHOLE_MAX_PX / side * max(scale, 1.0), ZOOM_MAX_PX / side)
+        img = page.resize((max(1, int(page.width * fit)), max(1, int(page.height * fit))),
+                          Image.LANCZOS) if fit < 1 else page
     return img.tobytes(), img.width, img.height

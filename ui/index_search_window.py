@@ -9,8 +9,11 @@ in part: the tab says it needs rebuilding and offers to drop it from the list.
 
 Selecting a result shows, beside the list, the part of its page where the
 keyword is, boxed in red (core/hit_preview.py), drawn off the UI thread.
+Ctrl+wheel zooms it about the mouse, and draws it again finer once the wheel
+stops.
 """
 import collections
+import math
 import os
 import json
 import re
@@ -23,8 +26,8 @@ from PySide6.QtWidgets import (
     QMessageBox, QApplication, QLabel, QCheckBox, QStyledItemDelegate,
     QSplitter, QScrollArea,
 )
-from PySide6.QtCore import Qt, QTimer, QEvent, QRect, QThread, Signal
-from PySide6.QtGui import QColor, QImage, QPixmap
+from PySide6.QtCore import Qt, QTimer, QEvent, QPoint, QRect, QSize, QThread, Signal
+from PySide6.QtGui import QColor, QImage, QPainter, QPixmap
 
 import paths
 from core import doc_source, fts_search, hit_preview, kks
@@ -69,6 +72,14 @@ _HIT_ROLE = Qt.UserRole + 3
 # the page is shown whole because the hit could not be marked on it.
 _CAPTION_PLAIN = "font-size: 12px;"
 _CAPTION_UNMARKED = "font-size: 12px; font-weight: 600; color: #D97706;"
+# Ctrl+wheel zooms the preview about the mouse, 25% a notch, from 6 notches
+# out (a quarter of the panel's width) to 9 in (about 7.5 times it); counting
+# notches rather than multiplying keeps the way back to the panel's width exact.
+# Once the wheel stops, a picture shown larger than its pixels is drawn again
+# finer, so a drawing's letters come out sharp rather than blurred.
+_ZOOM_STEP = 1.25
+_ZOOM_NOTCHES = (-6, 9)
+_SHARPEN_MS = 250
 _DIGITS = re.compile(r"(\d+)")
 
 # A file that holds every word of the keyword, but not together, is listed
@@ -197,13 +208,14 @@ def _absolute_path(db_path: str, relative_path: str):
 class _PreviewJob(QThread):
     """Finds a result's spots and draws one of them, off the UI thread: the
     page has to be opened, and a large drawing takes a moment to read."""
-    done = Signal(int, object, int, object)   # seq, spots or None, index, (rgb, w, h) or error
+    # seq, spots or None, index, (rgb, w, h) or error, the scale it was drawn at
+    done = Signal(int, object, int, object, float)
 
     def __init__(self, seq: int, hit, query: str, spots=None, index: int = 0,
-                 whole: bool = False):
+                 whole: bool = False, scale: float = 1.0):
         super().__init__()
         self.seq, self.hit, self.query = seq, hit, query
-        self.spots, self.index, self.whole = spots, index, whole
+        self.spots, self.index, self.whole, self.scale = spots, index, whole, scale
 
     def run(self):
         try:
@@ -218,12 +230,96 @@ class _PreviewJob(QThread):
             if self.whole:                      # every place on the page, not just this one
                 spot = spot._replace(rects=tuple(
                     r for s in spots if s.page == spot.page for r in s.rects))
-            image = hit_preview.render(path, spot, self.whole)
-            self.done.emit(self.seq, spots, self.index, image)
+            image = hit_preview.render(path, spot, self.whole, self.scale)
+            self.done.emit(self.seq, spots, self.index, image, self.scale)
         except FileNotFoundError as e:
-            self.done.emit(self.seq, None, 0, f"File not found: {e}")
+            self.done.emit(self.seq, None, 0, f"File not found: {e}", self.scale)
         except Exception as e:
-            self.done.emit(self.seq, None, 0, f"No preview: {type(e).__name__}: {e}")
+            self.done.emit(self.seq, None, 0, f"No preview: {type(e).__name__}: {e}",
+                           self.scale)
+
+
+class _PreviewCanvas(QWidget):
+    """The preview's picture, painted at whatever size the zoom asks for.
+    Zooming changes the size it is painted at, not the pixmap, so a page shown
+    eight times larger costs no more memory -- only the part in view is drawn.
+    Centred across when narrower than the panel.
+
+    When it is larger than the panel, the left button drags it about (an open
+    hand shows it can). panned says the user moved the view."""
+    panned = Signal()
+
+    def __init__(self, scroll: QScrollArea):
+        super().__init__()
+        self._scroll = scroll
+        self._pixmap = None
+        self._drawn = None                  # the pixmap, shrunk ahead when shown smaller
+        self._shown = QSize()
+        self._grab = None                   # (mouse on screen, scroll x, scroll y) at the press
+
+    def set_picture(self, pixmap, shown: QSize, room: QSize):
+        """Paint pixmap (None: nothing) at size shown, in a panel of size room."""
+        self._pixmap, self._shown = pixmap, QSize(shown)
+        # Shrunk ahead with a smooth scale: painting a large pixmap small in one
+        # step skips pixels, and the thin lines of a drawing break up.
+        self._drawn = (pixmap.scaled(shown, Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
+                       if pixmap is not None and shown.width() < pixmap.width() else pixmap)
+        self.resize(room.expandedTo(shown) if pixmap is not None else room)
+        if pixmap is None:
+            self._grab = None
+        self._show_hand()
+        self.update()
+
+    def _pannable(self) -> bool:
+        view = self._scroll.viewport()
+        return self._pixmap is not None and (self.width() > view.width()
+                                             or self.height() > view.height())
+
+    def _show_hand(self):
+        if self._grab is not None:
+            self.setCursor(Qt.ClosedHandCursor)
+        elif self._pannable():
+            self.setCursor(Qt.OpenHandCursor)
+        else:
+            self.unsetCursor()
+
+    # The mouse is followed on screen: the canvas itself moves as it scrolls.
+    def mousePressEvent(self, event):
+        if event.button() != Qt.LeftButton or not self._pannable():
+            event.ignore()
+            return
+        self._grab = (event.globalPosition().toPoint(),
+                      self._scroll.horizontalScrollBar().value(),
+                      self._scroll.verticalScrollBar().value())
+        self._show_hand()
+
+    def mouseMoveEvent(self, event):
+        if self._grab is None:
+            event.ignore()
+            return
+        start, x, y = self._grab
+        moved = event.globalPosition().toPoint() - start
+        self._scroll.horizontalScrollBar().setValue(x - moved.x())
+        self._scroll.verticalScrollBar().setValue(y - moved.y())
+        self.panned.emit()
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton and self._grab is not None:
+            self._grab = None
+            self._show_hand()
+        else:
+            event.ignore()
+
+    def picture_rect(self) -> QRect:
+        return QRect(max(0, (self.width() - self._shown.width()) // 2), 0,
+                     self._shown.width(), self._shown.height())
+
+    def paintEvent(self, event):
+        if self._drawn is None:
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.SmoothPixmapTransform)
+        painter.drawPixmap(self.picture_rect(), self._drawn)
 
 
 def _missing_parts(conn: sqlite3.Connection) -> list:
@@ -410,6 +506,19 @@ class IndexSearchWidget(QWidget):
         self._spots: list = []
         self._spot_index = 0
         self._preview_pixmap = None
+        # Zoom, in wheel notches from the panel's width. scale is how much
+        # finer than first drawn the pixmap is, and scale_cap the finest the
+        # renderer gave. zoom_aim: (mouse, place on the picture) the wheel is
+        # zooming about, until the mouse moves or the user scrolls.
+        self._preview_base = QSize()            # the picture's size as first drawn
+        self._preview_notches = 0.0
+        self._zoom_aim = None
+        self._preview_scale = 1.0
+        self._scale_cap = math.inf
+        self._sharpen_timer = QTimer(self)
+        self._sharpen_timer.setSingleShot(True)
+        self._sharpen_timer.setInterval(_SHARPEN_MS)
+        self._sharpen_timer.timeout.connect(self._sharpen_preview)
         self._setup_ui()
 
     def _setup_ui(self):
@@ -534,11 +643,17 @@ class IndexSearchWidget(QWidget):
         bar.addWidget(self.btn_next_spot)
         bar.addWidget(self.btn_whole)
         self.preview_scroll = QScrollArea()
-        self.preview_scroll.setWidgetResizable(True)
-        self.preview_image = QLabel()
-        self.preview_image.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
-        self.preview_image.setToolTip("Double-click to open the file")
+        # Sized by _fit_preview, not the scroll area.
+        self.preview_image = _PreviewCanvas(self.preview_scroll)
+        self.preview_image.setToolTip(
+            "Double-click to open the file; Ctrl+wheel to zoom; drag to move it")
         self.preview_scroll.setWidget(self.preview_image)
+        # The user moving the view ends a zoom's aim: actionTriggered is the
+        # scroll bars moved by wheel, drag or keys (setValue does not emit it).
+        for scroll_bar in (self.preview_scroll.horizontalScrollBar(),
+                           self.preview_scroll.verticalScrollBar()):
+            scroll_bar.actionTriggered.connect(lambda _action: setattr(self, "_zoom_aim", None))
+        self.preview_image.panned.connect(lambda: setattr(self, "_zoom_aim", None))
         pv.addLayout(bar)
         pv.addWidget(self.preview_scroll, 1)
         self.preview_scroll.viewport().installEventFilter(self)
@@ -620,11 +735,20 @@ class IndexSearchWidget(QWidget):
     def eventFilter(self, obj, event):
         """The ✕ in the database list: hover turns it red, a click on it takes
         that database off the list instead of selecting it. Also the preview:
-        it is fitted to the panel's width, and a double-click opens the file."""
+        it is fitted to the panel's width, Ctrl+wheel zooms it, and a
+        double-click opens the file."""
         scroll = getattr(self, "preview_scroll", None)   # filters run before it is built
         if scroll is not None and obj is scroll.viewport() and event.type() == QEvent.Resize:
-            self._fit_preview()
+            self._fit_preview(*(self._zoom_aim or ()))   # a scroll bar coming or going too
             return False
+        if scroll is not None and event.type() == QEvent.Wheel and \
+                obj in (scroll.viewport(), self.preview_image) and \
+                event.modifiers() & Qt.ControlModifier:
+            pos = event.position().toPoint()
+            if obj is self.preview_image:
+                pos = self.preview_image.mapTo(scroll.viewport(), pos)
+            self._zoom_preview(event.angleDelta().y(), pos)
+            return True
         if obj is getattr(self, "preview_image", None) and \
                 event.type() == QEvent.MouseButtonDblClick:
             item = self.result_table.currentItem()
@@ -959,8 +1083,9 @@ class IndexSearchWidget(QWidget):
     def _clear_preview(self, text: str = "Select a result to see where the keyword is "
                                          "on its page."):
         self._preview_hit, self._spots, self._spot_index = None, [], 0
-        self._preview_pixmap = None
-        self.preview_image.clear()
+        self._preview_pixmap, self._zoom_aim = None, None
+        self._sharpen_timer.stop()
+        self._fit_preview()
         self.lbl_preview.setStyleSheet(_CAPTION_PLAIN)
         self.lbl_preview.setText(text)
         self.btn_prev_spot.setEnabled(False)
@@ -1015,7 +1140,7 @@ class IndexSearchWidget(QWidget):
         if job is not None:
             QTimer.singleShot(0, lambda: self._queue_preview(job))
 
-    def _on_preview(self, seq: int, spots, index: int, image):
+    def _on_preview(self, seq: int, spots, index: int, image, scale: float):
         if seq != self._preview_seq:
             return                              # the selection has moved on
         if spots is None:
@@ -1025,8 +1150,19 @@ class IndexSearchWidget(QWidget):
             return
         self._spots, self._spot_index = spots, index
         data, w, h = image
-        self._preview_pixmap = QPixmap.fromImage(
-            QImage(data, w, h, 3 * w, QImage.Format_RGB888).copy())
+        pixmap = QPixmap.fromImage(QImage(data, w, h, 3 * w, QImage.Format_RGB888).copy())
+        if scale > 1 and self._preview_pixmap is not None:
+            # The same picture drawn finer for the zoom: same place, same size.
+            self._preview_scale = w / self._preview_base.width()
+            if self._preview_scale < scale * 0.97:      # the renderer's limit
+                self._scale_cap = self._preview_scale
+            self._preview_pixmap = pixmap
+            self._fit_preview()
+            return
+        self._preview_pixmap = pixmap
+        self._preview_base = pixmap.size()
+        self._preview_notches, self._zoom_aim = 0.0, None
+        self._preview_scale, self._scale_cap = 1.0, math.inf
         self._fit_preview()
         self.btn_prev_spot.setEnabled(len(spots) > 1)
         self.btn_next_spot.setEnabled(len(spots) > 1)
@@ -1052,15 +1188,73 @@ class IndexSearchWidget(QWidget):
                    "their position")
         return f"Page {spot.page}, not marked: {why}."
 
-    def _fit_preview(self):
-        """The picture at the panel's width, never enlarged."""
-        if self._preview_pixmap is None:
-            return
+    def _preview_shown(self) -> QSize:
+        """The size the picture is painted at: the panel's width, never
+        enlarged, times the zoom."""
+        base = self._preview_base
         room = self.preview_scroll.viewport().width() - 4
-        pixmap = self._preview_pixmap
-        if 0 < room < pixmap.width():
-            pixmap = pixmap.scaledToWidth(room, Qt.SmoothTransformation)
-        self.preview_image.setPixmap(pixmap)
+        fit = min(1.0, room / base.width()) if room > 0 else 1.0
+        zoom = _ZOOM_STEP ** self._preview_notches
+        return (base * (fit * zoom)).expandedTo(QSize(1, 1))
+
+    def _fit_preview(self, anchor=None, at=None):
+        """Lay the picture out at its zoom. With anchor, a point of the panel,
+        the place at of the picture (fractions across and down) is scrolled
+        under it."""
+        room = self.preview_scroll.viewport().size()
+        if self._preview_pixmap is None:
+            self.preview_image.set_picture(None, QSize(), room)
+            return
+        self.preview_image.set_picture(self._preview_pixmap, self._preview_shown(), room)
+        if anchor is not None:
+            r = self.preview_image.picture_rect()
+            self.preview_scroll.horizontalScrollBar().setValue(
+                round(r.x() + at[0] * r.width() - anchor.x()))
+            self.preview_scroll.verticalScrollBar().setValue(
+                round(r.y() + at[1] * r.height() - anchor.y()))
+
+    def _zoom_preview(self, delta: int, anchor):
+        """Ctrl+wheel: zoom about the mouse; draw finer once the wheel stops.
+
+        The place under the mouse is taken once and kept until the mouse moves
+        or the user scrolls. Taken afresh each notch, it drifts: a picture
+        shorter than the panel sits at its top and cannot be scrolled to hold
+        it, and a scroll bar appearing narrows the panel and clamps the scroll."""
+        if self._preview_pixmap is None or not delta:
+            return
+        lo, hi = _ZOOM_NOTCHES
+        notches = min(max(self._preview_notches + delta / 120, lo), hi)
+        if abs(notches) < 0.1:
+            notches = 0.0                       # back to the panel's width exactly
+        if notches == self._preview_notches:
+            return
+        if self._zoom_aim is not None and self._zoom_aim[0] == anchor:
+            at = self._zoom_aim[1]
+        else:
+            r = self.preview_image.picture_rect()
+            h = self.preview_scroll.horizontalScrollBar().value()
+            v = self.preview_scroll.verticalScrollBar().value()
+            at = ((anchor.x() + h - r.x()) / max(1, r.width()),
+                  (anchor.y() + v - r.y()) / max(1, r.height()))
+        self._preview_notches = notches
+        self._zoom_aim = (QPoint(anchor), at)
+        self._fit_preview(anchor, at)
+        self._sharpen_timer.start()
+
+    def _sharpen_preview(self):
+        """Draw the picture again finer when it is shown larger than its pixels:
+        a whole A1 sheet is first drawn 1600 px across, where a tag's letters
+        are a few pixels tall."""
+        if self._preview_pixmap is None or self._preview_hit is None or not self._spots:
+            return
+        want = self._preview_shown().width() / self._preview_base.width()
+        if want <= self._preview_scale * 1.1 or self._preview_scale >= self._scale_cap:
+            return
+        self._preview_seq += 1
+        self._queue_preview(_PreviewJob(self._preview_seq, self._preview_hit,
+                                        self._last_keyword, self._spots,
+                                        self._spot_index, self.btn_whole.isChecked(),
+                                        scale=math.ceil(want * 2) / 2))
 
 
 class IndexSearchWindow(QDialog):
