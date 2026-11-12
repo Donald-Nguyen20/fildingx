@@ -230,9 +230,43 @@ _patch_notebooklm_infographic()
 
 # ── Workers ──────────────────────────────────────────────────────
 
+# NotebookLM's pages now live on notebook.google.com: the old host answers them
+# with a 301 there (its API still answers in place), so a login may end on either.
+_NOTEBOOKLM_URL = "https://notebooklm.google.com/"
+_NOTEBOOKLM_HOSTS = ("notebook.google.com", "notebooklm.google.com")
+_GOOGLE_ACCOUNTS_URL = "https://accounts.google.com/"
+
+
+def _goto(page, url: str):
+    """page.goto that lets Google move the page on by script.
+
+    Google sends a page on from script -- to a verification such as a selfie
+    check, a consent screen, the account chooser -- and Playwright reports a
+    navigation cut short that way as an error ("is interrupted by another
+    navigation"), though the browser is only following the redirect. Wait for
+    wherever it went instead; the caller looks at page.url to see where that is.
+    """
+    from playwright.sync_api import Error as PlaywrightError
+    try:
+        page.goto(url, wait_until="load", timeout=60_000)
+    except PlaywrightError as e:
+        if "interrupted by another navigation" not in str(e) and "ERR_ABORTED" not in str(e):
+            raise
+        page.wait_for_load_state("load", timeout=60_000)
+
+
+def _on_notebooklm(url: str) -> bool:
+    from urllib.parse import urlsplit
+    return (urlsplit(url).hostname or "").lower() in _NOTEBOOKLM_HOSTS
+
+
 class LoginWorker(QThread):
     done  = Signal()
     error = Signal(str)
+    # Save Login was pressed but Google stopped on a page of its own (a
+    # sign-in step, a verification) instead of NotebookLM; carries its URL.
+    # The browser stays open and Save Login may be pressed again.
+    needs_action = Signal(str)
 
     def __init__(self):
         super().__init__()
@@ -263,14 +297,24 @@ class LoginWorker(QThread):
                     ignore_default_args=["--enable-automation"],
                 )
                 page = context.pages[0] if context.pages else context.new_page()
-                page.goto("https://notebooklm.google.com/")
+                _goto(page, _NOTEBOOKLM_URL)
 
-                # Chờ user bấm "Save Login"
-                self._event.wait()
+                while True:
+                    # Wait for Save Login. Waiting inside Playwright rather than
+                    # on the event alone keeps its events flowing, so closing
+                    # the browser ends the login here instead of leaving the
+                    # Login button disabled for good.
+                    while not self._event.is_set():
+                        page.wait_for_timeout(300)
+                    self._event.clear()
 
-                # Force .google.com cookies
-                page.goto("https://accounts.google.com/", wait_until="load")
-                page.goto("https://notebooklm.google.com/", wait_until="load")
+                    # Visit accounts.google.com so the cookies are .google.com
+                    # ones even where Google signed in on a regional domain.
+                    _goto(page, _GOOGLE_ACCOUNTS_URL)
+                    _goto(page, _NOTEBOOKLM_URL)
+                    if _on_notebooklm(page.url):
+                        break
+                    self.needs_action.emit(page.url)
 
                 context.storage_state(path=str(storage_path))
                 try:
@@ -281,13 +325,16 @@ class LoginWorker(QThread):
 
             self.done.emit()
         except Exception as e:
-            self.error.emit(str(e))
+            msg = str(e)
+            if "has been closed" in msg:
+                msg = "The browser window was closed before the login was saved.\nClick Switch Account to log in again."
+            self.error.emit(msg)
         finally:
             if sys.platform == "win32":
                 asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     def confirm(self):
-        """Gửi tín hiệu lưu cookies sau khi đăng nhập xong."""
+        """Save Login was pressed: save the cookies once Google is done."""
         self._event.set()
 
 
@@ -2946,6 +2993,7 @@ class NotebookLMWidget(QWidget):
         self._login_worker = LoginWorker()
         self._login_worker.done.connect(self._on_login_done)
         self._login_worker.error.connect(self._on_login_error)
+        self._login_worker.needs_action.connect(self._on_login_needs_action)
         self._workers.append(self._login_worker)
         self._login_worker.start()
         self.btn_save_login.setEnabled(True)
@@ -3016,9 +3064,27 @@ class NotebookLMWidget(QWidget):
         w.finished.connect(w.deleteLater)
         self._start_worker(w)
 
+    def _on_login_needs_action(self, url: str):
+        from urllib.parse import urlsplit
+        where = urlsplit(url)
+        self.btn_save_login.setEnabled(True)
+        self.lbl_status.setText("🟡 Finish Google's step in the browser, then Save Login")
+        self.lbl_status.setToolTip(url)
+        QMessageBox.information(
+            self, "NotebookLM Login",
+            "Google opened a page of its own instead of NotebookLM:\n\n"
+            f"{where.netloc}{where.path}\n\n"
+            "Finish what it asks in the browser window (signing in, or verifying "
+            "the account, for example with a selfie) until the NotebookLM home "
+            "page shows, then click Save Login again.\n\n"
+            "If that step cannot be done in this window, do it in your Google "
+            "account on another device, then click Save Login again. Closing "
+            "the browser cancels the login.")
+
     def _on_login_error(self, msg: str):
         self.lbl_status.setText("🔴 Login failed")
         self.btn_login.setEnabled(True)
+        self.btn_save_login.setEnabled(False)
         QMessageBox.critical(self, "Login Error", msg)
 
     # ── Notebooks ─────────────────────────────────────────────────

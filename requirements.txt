@@ -10,4 +10,4 @@ rapidfuzz
 pytesseract
 Pillow
 playwright
-notebooklm-py
+notebooklm-py>=0.8.6,<1.0

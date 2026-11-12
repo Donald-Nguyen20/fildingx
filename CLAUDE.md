@@ -15,6 +15,8 @@ python Finding9.py                    # run the app; no CLI arguments; Ctrl+C is
 
 `requirements.txt` does **not** list `claude_agent_sdk`, which `ui/claude_assistant/agent.py` imports. Install it separately if the Data Brain tab fails to load.
 
+`notebooklm-py` is pinned `>=0.8.6,<1.0`. NotebookLM moved to `notebook.google.com` in July 2026; older versions still fetch their tokens from the old host, lose the cookies on its redirect and fail with "CSRF token not found", which the NotebookLM tab shows as "Auth expired". 1.0 drops the `async with await NotebookLMClient.from_storage()` form the tab uses throughout.
+
 **Build (PyInstaller).** The complete, current onedir command lives in the docstring at the top of `Finding9.py` — copy it from there rather than reconstructing it. The three `.spec` files on disk are gitignored and drift, so they are not a reliable source. New modules under `ui/` or `core/` are picked up by Analysis automatically and need no spec change; new *data* files (JSON, the CLI helpers) do.
 
 PyInstaller 6 puts everything listed in `datas` under `_internal/`, but `paths.APP_DIR` is the folder holding the `.exe` — so a file the app opens through `APP_DIR` cannot be shipped through the spec at all. **`DATABRAIN.md` has to be copied beside the `.exe` by hand after the build**; the `--add-data` copy inside the bundle is only the fallback `_load_domain_md()` reaches for when the outer one is missing, so the notes stay editable without a rebuild. The two CLI helpers need no copying — see below. No dist built before this was carried any of them, which is why Data Brain's DB mode had never worked from a packaged build.
