@@ -1,15 +1,18 @@
 # build_nuitka.ps1 — Nuitka standalone build of fildingx (tương đương PyInstaller --onedir).
 #
 # Usage:
-#   .\build_nuitka.ps1                                # CPU build; asks for the release folder name
+#   build_nuitka.bat                                  # double-click: asks CPU or GPU, then the name
+#   .\build_nuitka.ps1                                # CPU build; asks for the release name first
 #   .\build_nuitka.ps1 -Gpu                           # GPU build (+2.4 GB nvidia cu12)
-#   .\build_nuitka.ps1 -ReleaseName "Finding9 9.6.2"  # name given up front, no prompt
+#   .\build_nuitka.ps1 -ReleaseName "Finding9.6.3"    # name given up front, no prompt
 #
-# The output is laid out like a PyInstaller onedir build (see "release folder" at the end):
-#   build_nuitka\<ReleaseName>\          (GPU: build_nuitka\gpu\<ReleaseName>\)
+# The release name names the folder and both exes, and the version number in it
+# (9.6.3) becomes their Windows file version. The output is laid out like a
+# PyInstaller onedir build (see "release folder" at the end):
+#   build_nuitka\Finding9.6.3\           (GPU: build_nuitka\gpu\Finding9.6.3\)
 #       ├─ _internal\            the whole dist: exe + DLLs + data
-#       │     └─ Finding9.6.2.exe
-#       └─ Finding9.6.2.exe      ~70 KB launcher that starts _internal\Finding9.6.2.exe
+#       │     └─ Finding9.6.3.exe
+#       └─ Finding9.6.3.exe      ~70 KB launcher that starts _internal\Finding9.6.3.exe
 # The build ships no config. Users copy their JSON files beside _internal (into
 # <ReleaseName>\), or the app creates them there on first use: that folder is
 # DATA_DIR (paths.py), so replacing _internal on an update keeps them.
@@ -42,10 +45,45 @@ $ErrorActionPreference = 'Stop'
 $outdir = if ($Gpu) { 'build_nuitka\gpu' } else { 'build_nuitka' }
 $dist   = "$outdir\Finding9.dist"
 
-# Single source for the version: the exe filename, the Windows product-version
-# resource, and the default release-folder name all derive from it.
-$ProductVersion = '9.6.2'
-$ExeName        = "Finding$ProductVersion.exe"      # Finding9.6.2.exe
+# The release name -- asked for, or -ReleaseName -- names the release folder
+# and both exes: build_nuitka\Finding9.6.3\Finding9.6.3.exe starts
+# _internal\Finding9.6.3.exe. The version number in it (9.6.3) becomes the
+# exes' Windows file and product version, so a new release needs no edit here,
+# only its name. Enter takes "Finding$DefaultVersion", and a name with no
+# version number in it gets $DefaultVersion as its version.
+$DefaultVersion = '9.6.2'
+
+# Settled before the build, which takes a long time, so nobody has to wait for
+# the end to answer, and a name Windows refuses is caught before the time is
+# spent. Asked again until it can be a file name.
+$default = "Finding$DefaultVersion"
+$ask = -not $ReleaseName
+while ($true) {
+    if ($ask) {
+        try { $ans = Read-Host "Release name, also the exe name (Enter = '$default')" } catch { $ans = '' }
+        $ReleaseName = if ($ans -and $ans.Trim()) { $ans } else { $default }
+    }
+    # ".exe" is added below; Windows drops trailing dots and spaces anyway.
+    $ReleaseName = ($ReleaseName.Trim() -replace '\.exe$', '').TrimEnd('.', ' ')
+    if ($ReleaseName -and $ReleaseName -notin '.', '..' -and
+        $ReleaseName.IndexOfAny([IO.Path]::GetInvalidFileNameChars()) -lt 0) { break }
+    Write-Host "'$ReleaseName' cannot be a file name: leave out \ / : * ? `" < > |"
+    if (-not $ask) { exit 1 }
+}
+$ExeName = "$ReleaseName.exe"
+# Windows keeps up to four numbers of at most 65535 in a version resource.
+$ProductVersion = $DefaultVersion
+if ($ReleaseName -match '\d+(\.\d+){1,3}') {
+    if ($Matches[0].Split('.') | Where-Object { $_.Length -gt 5 -or [int]$_ -gt 65535 }) {
+        Write-Host "Note: '$($Matches[0])' cannot be a Windows version number -- the exes get $DefaultVersion."
+    } else {
+        $ProductVersion = $Matches[0]
+    }
+}
+$release = Join-Path $outdir $ReleaseName
+if (Test-Path (Join-Path $release '_internal')) {
+    Write-Host "Note: $release exists -- its _internal\ and launcher will be replaced, the config beside them kept."
+}
 
 $nuitkaArgs = @(
   '--standalone'
@@ -154,7 +192,7 @@ $nuitkaArgs = @(
 
 $nuitkaArgs += 'Finding9.py'
 
-Write-Host "=== Nuitka build: variant=$(if ($Gpu) {'GPU'} else {'CPU'})  ->  $dist ==="
+Write-Host "=== Nuitka build: variant=$(if ($Gpu) {'GPU'} else {'CPU'})  ->  $release\$ExeName  (version $ProductVersion) ==="
 # Nuitka ghi tiến trình ra stderr; với ErrorActionPreference='Stop' (đầu file) +
 # stream bị capture/redirect, PowerShell 5.1 biến mỗi dòng stderr thành lỗi kết
 # thúc, build chết ngay khi Nuitka in dòng đầu. Tạm nới 'Continue' quanh lệnh
@@ -196,14 +234,6 @@ if ($rc -eq 0 -and (Test-Path "$dist\$ExeName")) {
     # the release folder sits beside _internal -- that is DATA_DIR (paths.py), so
     # replacing _internal on an update keeps the config. Rebuilding into the same
     # ReleaseName replaces _internal only; anything else in the folder is left alone.
-    if (-not $ReleaseName) {
-        $default = "Finding9 $ProductVersion"
-        try {
-            $ans = Read-Host "Release folder name (Enter = '$default')"
-            $ReleaseName = if ($ans) { $ans } else { $default }
-        } catch { $ReleaseName = $default }
-    }
-    $release = Join-Path $outdir $ReleaseName
     $content = Join-Path $release '_internal'
     New-Item -ItemType Directory -Force -Path $release | Out-Null   # keep config already here
     if (Test-Path $content) { Remove-Item -Recurse -Force $content }

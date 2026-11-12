@@ -43,8 +43,10 @@ pyinstaller --noconfirm --clean --onedir --windowed --name "Finding9.6.2" "Findi
   --add-data "DATABRAIN.md;." `
   --add-data "ui/dcs_logic/*.json;ui/dcs_logic"
 
+  # Nuitka: double-click build_nuitka.bat (asks CPU or GPU, then the name), or:
   # Nuitka, CPU -> build_nuitka\<release name>\   (asks for the name)
 .\build_nuitka.ps1
+.\build_nuitka.bat
 
 # Nuitka, GPU -> build_nuitka\gpu\<release name>\   (+~2.4 GB nvidia cu12)
 .\build_nuitka.ps1 -Gpu
@@ -52,6 +54,7 @@ pyinstaller --noconfirm --clean --onedir --windowed --name "Finding9.6.2" "Findi
 PyInstaller only: after the build, copy DATABRAIN.md beside the .exe as well:
 the --add-data copy above is only a fallback inside the bundle, and the one
 outside can be edited without rebuilding. A Nuitka build needs no copying:
+
 DATABRAIN.md ships inside _internal\, which is the folder holding its .exe.
 db_query.py and logic_query.py need no copying either -- the exe runs them
 itself through --db-query / --logic-query. Check any packaged build with
